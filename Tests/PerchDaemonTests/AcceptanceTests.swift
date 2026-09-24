@@ -1,4 +1,5 @@
 import Foundation
+import PerchAppCore
 import PerchClient
 import PerchCore
 import Testing
@@ -51,5 +52,37 @@ struct AcceptanceTests {
         _ = try stream.next(timeout: 1)
         // Includes launching the perch process; the M2 budget is 200 ms end to end.
         #expect(Date().timeIntervalSince(started) < 0.2)
+    }
+}
+
+/// M2 acceptance: `perch add` in a terminal → the notch's model has the item, ≤ 200 ms end to end
+/// (process launch + socket + daemon + push + main-thread apply). Rendering is measured in the real app
+/// by scripts/measure-latency.sh.
+@MainActor
+@Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
+struct NotchLatencyTests {
+    @Test func cliToNotchModelUnder200ms() async throws {
+        let d = try TestDaemon()
+        let model = QueueModel()
+        var appliedAt: [String: Date] = [:]
+        model.onApply = { update in
+            if case .event(let event) = update { appliedAt[event.item.id] = Date() }
+        }
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        while !model.online { try await Task.sleep(nanoseconds: 5_000_000) }
+
+        let cli = CLI(home: d.home)
+        var worst: TimeInterval = 0
+        for n in 1...5 {
+            let started = Date()
+            let id = try cli.run("add", "latency probe \(n)").stdout
+            while appliedAt[id] == nil && Date().timeIntervalSince(started) < 2 {
+                try await Task.sleep(nanoseconds: 1_000_000)
+            }
+            let applied = try #require(appliedAt[id])
+            worst = max(worst, applied.timeIntervalSince(started))
+        }
+        #expect(worst < 0.2, "worst CLI → notch model latency \(Int(worst * 1000)) ms")
     }
 }

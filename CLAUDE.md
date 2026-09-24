@@ -10,6 +10,7 @@ Perch（栖）：住在 MacBook 刘海里的 agent 等待队列，顺带是我�
 Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd（daemon）、PerchApp（刘海 App）
 Sources/PerchCore/       模型、wire protocol、路径、纯解析/渲染。所有客户端共享，不含任何 I/O
 Sources/PerchClient/     Unix socket 客户端（CLI 和刘海 App 共用）
+Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd
 Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像、launchd
 Sources/CSQLite/         系统 libsqlite3 的最小声明（见下方 SQLite 决定）
 Sources/perch/           CLI，唯一对外契约（ArgumentParser）
@@ -32,6 +33,7 @@ swift run perchd                 # 前台跑 daemon（PERCH_HOME=/tmp/x 可隔�
 swift run perchd install         # 装成 launchd agent（--dry-run 只打印 plist）；perchd uninstall 移除
 scripts/bundle-app.sh            # 打包刘海 App → .build/Perch.app（CONFIG=debug 出调试版）
 open .build/Perch.app
+scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI → 刘海延迟
 ```
 
 ## 不可动摇的架构决定

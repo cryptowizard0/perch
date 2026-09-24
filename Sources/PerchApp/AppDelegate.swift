@@ -27,7 +27,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.show()
         notchWindow = controller
         queue.onDue = { [notifier] item in notifier.due(item) }
+        if ProcessInfo.processInfo.environment["PERCH_LATENCY_LOG"] == "1" { logLatency() }
         queue.connect()
+    }
+
+    /// For scripts/measure-latency.sh: one stderr line per event once the UI has had its turn to update
+    /// (the next main-queue pass after the model changed, i.e. after SwiftUI's layout for that change).
+    private func logLatency() {
+        queue.onApply = { update in
+            guard case .event(let event) = update else { return }
+            DispatchQueue.main.async {
+                let ms = Int((Date().timeIntervalSince1970 * 1000).rounded())
+                FileHandle.standardError.write(Data("perch-latency \(event.item.id) \(ms)\n".utf8))
+            }
+        }
     }
 
     /// ⌥⇧Space unless overridden: `defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"`.

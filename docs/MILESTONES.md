@@ -1,6 +1,6 @@
 # 里程碑
 
-每一步都能独立验证再往下走；第 3 步完成时产品已经能日常使用。当前：**M2**。
+每一步都能独立验证再往下走；第 3 步完成时产品已经能日常使用。当前：**M3**。
 
 ## M1 — daemon + CLI + SQLite + watch（不带 UI）
 
@@ -24,7 +24,7 @@
 - [x] 点标题完成；⌥ 点推迟 30 分钟；notice 到 `expires_at` 自动消失，点一下转 task
 - [x] 全局快捷键弹快速录入（⌥⇧Space，Carbon `RegisterEventHotKey`，不需要辅助功能权限）
 - [x] `due_at` 到时：系统通知 + 刘海脉冲
-- [ ] 验收：CLI 调用到刘海更新 ≤ 200 ms
+- [x] 验收：CLI 调用到刘海更新 ≤ 200 ms（`scripts/measure-latency.sh`：release 版均值 11 ms、最差 14 ms）
 
 ## M3 — Claude Code 被动接入
 
