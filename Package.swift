@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "PerchClient", targets: ["PerchClient"]),
         .executable(name: "perch", targets: ["perch"]),
         .executable(name: "perchd", targets: ["perchd"]),
+        .executable(name: "PerchApp", targets: ["PerchApp"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
@@ -40,6 +41,8 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
+        // The notch app (AppKit + SwiftUI). Bundled into Perch.app by scripts/bundle-app.sh; no Xcode needed.
+        .executableTarget(name: "PerchApp", dependencies: ["PerchCore", "PerchClient"]),
         .testTarget(name: "PerchCoreTests", dependencies: ["PerchCore"]),
         .testTarget(name: "PerchDaemonTests", dependencies: ["PerchCore", "PerchClient", "PerchDaemon"]),
     ]

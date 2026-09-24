@@ -17,7 +17,7 @@
 
 ## M2 — 刘海 UI
 
-- [ ] `xcodegen generate` 后 `PerchApp` 可编译运行，无 Dock 图标
+- [x] `scripts/bundle-app.sh` 打出 `Perch.app`（SwiftPM，无需 Xcode），可运行，无 Dock 图标
 - [ ] NSPanel 贴在刘海位置；无刘海的 Mac 退化为顶部居中小胶囊
 - [ ] 收起态：数字、颜色点（灰 / 蓝 / 橙 / 红）、Live Activity（"2 agents · 4m"）
 - [ ] 展开态：固定排序 request → waiting → 逾期 → 今日 → 其余 open → notice；每行来源图标、标题、相对时间、跳转

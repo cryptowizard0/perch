@@ -20,7 +20,7 @@
 
 - **本机没有 Xcode，只有 Command Line Tools**（Swift 6.1.2，`Package.swift` 仍是 tools-version 5.9 / Swift 5 语言模式）。
   - 没有 XCTest → 测试全部用 **swift-testing**（`import Testing`、`@Test`、`#expect`）。
-  - `xcodebuild` 不可用 → `project.yml` + XcodeGen 这条路走不通（见 M2 第 1 步）。
+  - `xcodebuild` 不可用 → App 用 SwiftPM 编译、`scripts/bundle-app.sh` 组装 `.app`（M2.1 定）。
   - SwiftUI / AppKit 可用：已验证 CLT 能编译运行 `NSPanel` + `NSHostingView`，并读到刘海安全区高度 33pt。
   - `codesign` 可用（ad-hoc 签名 `codesign -s -`）。`actool`（Asset Catalog）不可用 → 图标用 png / icns。
 - `/usr/local/include/sqlite3.h` 是一个手动装的野头文件，会让 `import SQLite3` 编译失败。所以 daemon 用 `Sources/CSQLite` 自己声明 sqlite3 函数；新增函数就加到 `Sources/CSQLite/include/CSQLite.h`。**不要删那个系统文件，也不要改回 `import SQLite3`。**
@@ -72,7 +72,7 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 
 | # | 任务 | 状态 | 要点 |
 | --- | --- | --- | --- |
-| 2.1 | App 可编译运行、无 Dock 图标 | ⬜ | 见下方"构建路线"。完成后改 MILESTONES 这一条的措辞（原文写的是 xcodegen） |
+| 2.1 | App 可编译运行、无 Dock 图标 | ✅ | `scripts/bundle-app.sh` → `.build/Perch.app`；`lsappinfo` 显示 type="UIElement" |
 | 2.2 | NSPanel 贴刘海；无刘海退化为顶部居中胶囊 | ⬜ | `NSScreen.safeAreaInsets.top > 0` 判断有无刘海；`auxiliaryTopLeftArea/RightArea` 算刘海宽度；多屏、换屏要跟着走 |
 | 2.3 | 收起态：数字、颜色点、Live Activity | ⬜ | 颜色：灰=空 / 蓝=有待办 / 橙=有 request 或 waiting / 红=有逾期（优先级 红 > 橙 > 蓝 > 灰，待确认）。Live Activity 数据来源未定，先留空隐藏 |
 | 2.4 | 展开态列表（悬停展开） | ⬜ | 排序直接用 `queueOrdered`；每行：来源图标、标题、相对时间、跳转按钮 |
@@ -81,17 +81,15 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 | 2.7 | `due_at` 到时：系统通知 + 刘海脉冲 | ⬜ | App 侧按最近的 due_at 设计时器（daemon 目前不发到期事件）；`UNUserNotificationCenter` 需要 .app bundle，ad-hoc 签名下要实测能否弹通知 |
 | 2.8 | 验收：CLI 调用到刘海更新 ≤ 200 ms | ⬜ | 没有 Instruments：在 add 和 UI 刷新处打时间戳，或写一个 CLI → App 的计时脚本 |
 
-### 构建路线（2.1，待用户最终确认）
+### 构建路线（2.1，已定：SwiftPM）
 
-没有 Xcode，推荐 **SwiftPM + 打包脚本**，不走 XcodeGen：
+没有 Xcode，用户选定 **SwiftPM + 打包脚本**，不走 XcodeGen（`project.yml` 已删）：
 
 1. `Package.swift` 加可执行 target `PerchApp`（依赖 PerchCore、PerchClient），源码从 `PerchApp/` 移到 `Sources/PerchApp/`。
 2. 可测的状态逻辑（事件合并、颜色点计算、排序、计时）放一个库 target（如 `PerchAppCore`），UI 层尽量薄，逻辑用 swift-testing 测。
 3. `scripts/bundle-app.sh`：`swift build -c release --product PerchApp` → 组装 `Perch.app/Contents/{MacOS,Info.plist,Resources}`，`LSUIElement=true`，`codesign -s - --force`。
 4. 更新 CLAUDE.md 的仓库结构与常用命令、删掉或标注 `project.yml`（装了 Xcode 再恢复也行）。
 5. 窗口层可参考 NotchDo（MIT，保留版权头）；`CGSSpace.swift` 可单文件引用（MPL-2.0）。**不要复制 Boring Notch（GPL-3.0）。**
-
-如果用户决定装 Xcode，就保留 XcodeGen 路线，第 3、4 步不做。
 
 ### App 连接 daemon 的做法
 
@@ -112,7 +110,7 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 
 | 问题 | 影响 | 状态 |
 | --- | --- | --- |
-| 装不装 Xcode（决定 M2 构建路线） | M2.1 | 推荐 SwiftPM 路线，等用户确认 |
+| 装不装 Xcode（决定 M2 构建路线） | M2.1 | ✅ 已定：不装，SwiftPM + `scripts/bundle-app.sh` |
 | Live Activity（"2 agents · 4m"）的数据从哪来：数据模型里没有"会话"。可选：SessionStart 时 `add --kind notice --key session-<id>` 加 meta 标记，Stop 时关闭；或新增 kind / 表 | M2.3、M3 | 未定；M2 先把 UI 做好、数据为空时隐藏 |
 | `update` / snooze op 的形状 | M2.5 | 见上方建议 |
 | 全局快捷键默认值（快速录入；⌥⇧A / ⌥⇧D / ⌥⇧O） | M2.6、M4 | 未定（CLAUDE.md 也列了） |

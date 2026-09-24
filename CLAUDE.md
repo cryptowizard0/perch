@@ -7,7 +7,7 @@ Perch（栖）：住在 MacBook 刘海里的 agent 等待队列，顺带是我�
 ## 仓库结构
 
 ```
-Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd（daemon）
+Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd（daemon）、PerchApp（刘海 App）
 Sources/PerchCore/       模型、wire protocol、路径、纯解析/渲染。所有客户端共享，不含任何 I/O
 Sources/PerchClient/     Unix socket 客户端（CLI 和刘海 App 共用）
 Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像、launchd
@@ -15,8 +15,9 @@ Sources/CSQLite/         系统 libsqlite3 的最小声明（见下方 SQLite �
 Sources/perch/           CLI，唯一对外契约（ArgumentParser）
 Sources/perchd/          daemon 可执行文件入口，只做组装
 Tests/PerchCoreTests/    swift-testing（`import Testing`；只装 Command Line Tools 也能跑，XCTest 需要完整 Xcode）
-PerchApp/                刘海 App（SwiftUI），工程由 XcodeGen 从 project.yml 生成
-project.yml              XcodeGen spec；Perch.xcodeproj 是生成物，已 gitignore
+Sources/PerchApp/        刘海 App（AppKit + SwiftUI），SwiftPM 可执行 target，不需要 Xcode
+packaging/Info.plist     Perch.app 的 Info.plist（LSUIElement，无 Dock 图标）
+scripts/bundle-app.sh    编译 PerchApp 并组装、ad-hoc 签名成 .build/Perch.app
 docs/                    PRD、里程碑、给其他 agent 用的 SKILL 片段
 hooks/                   （M3 起）Claude Code / Codex 的 hook 适配脚本
 ```
@@ -29,8 +30,8 @@ swift test                       # 单元测试，每次提交前必须通过
 swift run perch --help
 swift run perchd                 # 前台跑 daemon（PERCH_HOME=/tmp/x 可隔离数据）
 swift run perchd install         # 装成 launchd agent（--dry-run 只打印 plist）；perchd uninstall 移除
-xcodegen generate                # 生成 Perch.xcodeproj（brew install xcodegen）
-xcodebuild -project Perch.xcodeproj -scheme PerchApp -configuration Debug build
+scripts/bundle-app.sh            # 打包刘海 App → .build/Perch.app（CONFIG=debug 出调试版）
+open .build/Perch.app
 ```
 
 ## 不可动摇的架构决定
