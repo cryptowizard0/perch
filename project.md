@@ -75,7 +75,7 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 | 2.1 | App 可编译运行、无 Dock 图标 | ✅ | `scripts/bundle-app.sh` → `.build/Perch.app`；`lsappinfo` 显示 type="UIElement" |
 | 2.2 | NSPanel 贴刘海；无刘海退化为顶部居中胶囊 | ✅ | `NSScreen.safeAreaInsets.top > 0` 判断有无刘海；`auxiliaryTopLeftArea/RightArea` 算刘海宽度；多屏、换屏要跟着走 |
 | 2.3 | 收起态：数字、颜色点、Live Activity | ✅ | 颜色：灰=空 / 蓝=有待办 / 橙=有 request 或 waiting / 红=有逾期，优先级 红 > 橙 > 蓝 > 灰（已定）。数字 = task + request + waiting，不含 notice。Live Activity 的 UI 和格式化已做，数据来源 M3 定，目前恒为空、隐藏 |
-| 2.4 | 展开态列表（悬停展开） | ⬜ | 排序直接用 `queueOrdered`；每行：来源图标、标题、相对时间、跳转按钮 |
+| 2.4 | 展开态列表（悬停展开） | ✅ | 排序直接用 `queueOrdered`；每行：来源图标、标题、相对时间、跳转按钮 |
 | 2.5 | 点标题完成；⌥ 点推迟 30 分钟；notice 点一下转 task | ⬜ | **需要新 op**，见"M2 需要的协议扩展" |
 | 2.6 | 全局快捷键弹快速录入 | ⬜ | 用 Carbon `RegisterEventHotKey`（不需要辅助功能权限）；解析用 `QuickEntry.parse`；默认键位未定 |
 | 2.7 | `due_at` 到时：系统通知 + 刘海脉冲 | ⬜ | App 侧按最近的 due_at 设计时器（daemon 目前不发到期事件）；`UNUserNotificationCenter` 需要 .app bundle，ad-hoc 签名下要实测能否弹通知 |

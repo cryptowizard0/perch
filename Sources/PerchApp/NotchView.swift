@@ -10,8 +10,13 @@ struct NotchView: View {
         ZStack(alignment: .top) {
             NotchShape(hasNotch: notch.geometry?.hasNotch ?? true, expanded: notch.expanded)
                 .fill(Color.black)
-            CollapsedBar(queue: queue, notchWidth: notch.geometry?.notch?.width ?? 0)
-                .frame(height: notch.geometry?.bandHeight ?? NotchGeometry.capsuleHeight)
+            VStack(spacing: 0) {
+                CollapsedBar(queue: queue, notchWidth: notch.geometry?.notch?.width ?? 0)
+                    .frame(height: notch.geometry?.bandHeight ?? NotchGeometry.capsuleHeight)
+                if notch.expanded {
+                    ExpandedList(queue: queue)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

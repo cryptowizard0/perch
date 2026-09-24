@@ -1,0 +1,102 @@
+import AppKit
+import PerchAppCore
+import PerchCore
+import SwiftUI
+
+/// The queue, in the fixed order: request → waiting → overdue → today → other open → notice.
+struct ExpandedList: View {
+    @ObservedObject var queue: QueueModel
+
+    static let rowHeight: CGFloat = 34
+    static let messageHeight: CGFloat = 44
+
+    var body: some View {
+        let items = queue.ordered
+        Group {
+            if !queue.online {
+                message("perchd is not running — start it with `perchd` or `perchd install`")
+            } else if items.isEmpty {
+                message("Nothing waiting.")
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        ForEach(items) { item in
+                            ItemRow(item: item, now: queue.now)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private func message(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundStyle(.white.opacity(0.55))
+            .frame(maxWidth: .infinity, minHeight: Self.messageHeight)
+    }
+}
+
+struct ItemRow: View {
+    var item: Item
+    var now: Date
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: RowFormat.symbol(source: item.source))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(accent)
+                .frame(width: 16)
+                .help(item.source)
+            Text(item.title)
+                .font(.system(size: 13, weight: item.kind == .notice ? .regular : .medium))
+                .foregroundStyle(.white.opacity(item.kind == .notice ? 0.6 : 0.95))
+                // Requests always show their full text: never approve something you cannot read.
+                .lineLimit(item.kind == .request ? nil : 1)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: item.kind == .request)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help(item.title)
+            Text(RowFormat.time(item, now: now))
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundStyle(timeColor)
+                .fixedSize()
+            JumpButton(link: item.link)
+        }
+        .padding(.vertical, 9)
+        .frame(minHeight: ExpandedList.rowHeight)
+    }
+
+    private var isOverdue: Bool { item.isActionable && (item.dueAt.map { $0 <= now } ?? false) }
+
+    private var accent: Color {
+        if item.kind == .request || item.status == .waiting { return Signal.waiting.color }
+        if isOverdue { return Signal.overdue.color }
+        return .white.opacity(0.6)
+    }
+
+    private var timeColor: Color {
+        isOverdue ? Signal.overdue.color : .white.opacity(0.45)
+    }
+}
+
+/// Opens the item's link (URL or path). Terminal session references get a jump target in M3.
+struct JumpButton: View {
+    var link: String?
+
+    var body: some View {
+        if let url = RowFormat.linkURL(link) {
+            Button { NSWorkspace.shared.open(url) } label: {
+                Image(systemName: "arrow.up.forward.square").font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white.opacity(0.7))
+            .help(link ?? "")
+        } else {
+            Color.clear.frame(width: 12, height: 1)
+        }
+    }
+}

@@ -7,7 +7,27 @@ import SwiftUI
 @MainActor
 final class NotchModel: ObservableObject {
     @Published var geometry: NotchGeometry?
-    @Published var expanded = false
+    @Published private(set) var expanded = false
+    private var pendingHover: DispatchWorkItem?
+    /// Dev aid: `PERCH_PIN_EXPANDED=1` keeps the notch open (screenshots, layout work without a mouse).
+    private let pinned = ProcessInfo.processInfo.environment["PERCH_PIN_EXPANDED"] == "1"
+
+    init() {
+        expanded = pinned
+    }
+
+    /// Hover expands after a beat (so brushing past on the way to the menu bar does nothing)
+    /// and collapses a little later (so a wobble at the edge does not flicker).
+    func hover(_ inside: Bool) {
+        guard !pinned else { return }
+        pendingHover?.cancel()
+        guard inside != expanded else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.expanded = inside }
+        }
+        pendingHover = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + (inside ? 0.12 : 0.3), execute: work)
+    }
 }
 
 /// Owns the panel: keeps it on the right screen and sized for the current state.
@@ -21,24 +41,26 @@ final class NotchWindowController {
 
     static let collapsedWing: CGFloat = 40
     static let liveActivityWing: CGFloat = 120
-    static let expandedSize = CGSize(width: 440, height: 320)
+    static let expandedWidth: CGFloat = 460
 
     init(notch: NotchModel, queue: QueueModel) {
         self.notch = notch
         self.queue = queue
-        let host = NSHostingView(rootView: NotchView(notch: notch, queue: queue))
+        let host = NotchHostingView(rootView: NotchView(notch: notch, queue: queue))
         host.sizingOptions = []
+        host.onHover = { [weak notch] inside in notch?.hover(inside) }
         panel.contentView = host
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.layout() }
         })
+        // Resize when the state flips, when the Live Activity appears / goes, and when rows come and go
+        // while expanded.
         notch.$expanded.removeDuplicates().dropFirst().sink { [weak self] _ in
             DispatchQueue.main.async { self?.layout() }
         }.store(in: &cancellables)
-        // The left wing grows to fit the Live Activity text.
-        queue.$liveActivity.map { $0 != nil }.removeDuplicates().dropFirst().sink { [weak self] _ in
+        queue.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.layout() }
         }.store(in: &cancellables)
     }
@@ -54,10 +76,50 @@ final class NotchWindowController {
         let geometry = NotchGeometry(screen: screen)
         if notch.geometry != geometry { notch.geometry = geometry }
         let frame = notch.expanded
-            ? geometry.expandedFrame(size: Self.expandedSize)
+            ? geometry.expandedFrame(size: CGSize(width: Self.expandedWidth, height: expandedHeight(band: geometry.bandHeight)))
             : geometry.collapsedFrame(leftWing: queue.liveActivity == nil ? Self.collapsedWing : Self.liveActivityWing,
                                       rightWing: Self.collapsedWing)
-        panel.setFrame(frame, display: true)
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
         if !panel.isVisible { panel.orderFrontRegardless() }
+    }
+
+    /// Band + rows (a request shows its full text, so it may take several lines) + padding, capped;
+    /// the list scrolls beyond that.
+    private func expandedHeight(band: CGFloat) -> CGFloat {
+        let items = queue.ordered
+        guard queue.online, !items.isEmpty else { return band + ExpandedList.messageHeight + 16 }
+        let rows = items.reduce(CGFloat(0)) { total, item in
+            let lines = item.kind == .request ? CGFloat(min(8, item.title.count / 52 + 1)) : 1
+            return total + ExpandedList.rowHeight + (lines - 1) * 16
+        }
+        return band + min(rows, 420) + 16
+    }
+}
+
+/// Hosting view that reports hover even though the panel is never key, and takes the first click
+/// (otherwise the first click on a non-key window only focuses it).
+final class NotchHostingView<Content: View>: NSHostingView<Content> {
+    var onHover: ((Bool) -> Void)?
+    private var tracking: NSTrackingArea?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        onHover?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHover?(false)
     }
 }
