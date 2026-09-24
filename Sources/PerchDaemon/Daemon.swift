@@ -56,6 +56,10 @@ public final class Daemon {
         queue.sync { _ = subscribers.removeValue(forKey: id) }
     }
 
+    var subscriberCount: Int {
+        queue.sync { subscribers.count }
+    }
+
     private func publish(_ events: [Event]) {
         for event in events {
             let message = Response(ok: true, event: event)
