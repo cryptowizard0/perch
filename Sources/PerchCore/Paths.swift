@@ -9,13 +9,18 @@ public enum PerchPaths {
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".perch", isDirectory: true)
     }
     /// Unix socket the CLI and the notch app talk to.
-    public static var socket: URL { home.appendingPathComponent("perchd.sock") }
+    public static var socket: URL { socket(in: home) }
     /// SQLite store. Only perchd opens it.
-    public static var database: URL { home.appendingPathComponent("perch.sqlite") }
+    public static var database: URL { database(in: home) }
     /// Read-only markdown mirror rendered by perchd. Agents may `cat` it; never edit it.
-    public static var mirror: URL { home.appendingPathComponent("todo.md") }
+    public static var mirror: URL { mirror(in: home) }
     /// Append-only inbox. Any `- [ ] …` line dropped here is ingested and cleared by perchd.
-    public static var inbox: URL { home.appendingPathComponent("inbox.md") }
+    public static var inbox: URL { inbox(in: home) }
     /// Localhost HTTP port for clients that cannot reach the socket (e.g. Hermes in Docker).
     public static let defaultHTTPPort = 7331
+
+    public static func socket(in home: URL) -> URL { home.appendingPathComponent("perchd.sock") }
+    public static func database(in home: URL) -> URL { home.appendingPathComponent("perch.sqlite") }
+    public static func mirror(in home: URL) -> URL { home.appendingPathComponent("todo.md") }
+    public static func inbox(in home: URL) -> URL { home.appendingPathComponent("inbox.md") }
 }

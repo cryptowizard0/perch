@@ -8,9 +8,12 @@ Perch（栖）：住在 MacBook 刘海里的 agent 等待队列，顺带是我�
 
 ```
 Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd（daemon）
-Sources/PerchCore/       模型、wire protocol、路径。三个客户端共享，不含任何 I/O
+Sources/PerchCore/       模型、wire protocol、路径、纯解析/渲染。所有客户端共享，不含任何 I/O
+Sources/PerchClient/     Unix socket 客户端（CLI 和刘海 App 共用）
+Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像、launchd
+Sources/CSQLite/         系统 libsqlite3 的最小声明（见下方 SQLite 决定）
 Sources/perch/           CLI，唯一对外契约（ArgumentParser）
-Sources/perchd/          daemon：SQLite、Unix socket、localhost HTTP、事件推送、文件镜像
+Sources/perchd/          daemon 可执行文件入口，只做组装
 Tests/PerchCoreTests/    swift-testing（`import Testing`；只装 Command Line Tools 也能跑，XCTest 需要完整 Xcode）
 PerchApp/                刘海 App（SwiftUI），工程由 XcodeGen 从 project.yml 生成
 project.yml              XcodeGen spec；Perch.xcodeproj 是生成物，已 gitignore
@@ -76,7 +79,8 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 - `swift build` 和 `swift test` 必须通过再提交。新增行为先写测试。
 - 一个里程碑拆成小步提交，Conventional Commits（`feat(daemon): …`、`feat(cli): …`、`feat(app): …`、`feat(hooks): …`）。
 - 刘海窗口层可以借 NotchDo（MIT，https://notchdo.app/ ）的实现，保留版权头。`luifon/notch-widget` 的 `CGSSpace.swift` 是 MPL-2.0，可单文件引用并保留头。**不要复制 Boring Notch 的代码**（GPL-3.0，会把整个项目锁成 GPL）。
-- 不要引入重依赖。允许：swift-argument-parser；SQLite 用 GRDB 或直接 sqlite3，M1 时二选一并写进本文件。
+- 不要引入重依赖。允许：swift-argument-parser。
+- **SQLite：直接用系统 libsqlite3，不用 GRDB**（M1 定）。只有一张表，包装层（`Sources/PerchDaemon/SQLite.swift`）不到 100 行，零依赖。不 `import SQLite3`，而是走 `CSQLite` target 自己声明用到的函数：机器上 `/usr/local/include/sqlite3.h` 这类野生头文件会和 SDK 的 SQLite3 模块冲突导致编译失败。要用新的 sqlite3 函数就往 `Sources/CSQLite/include/CSQLite.h` 里加声明。日期列存 ISO-8601 UTC 文本，`meta` / `options` 存 JSON 文本，schema 版本用 `PRAGMA user_version`。
 - App 不沙盒、不上 App Store（Unix socket、launchd、写 hook 配置都需要）。签名和公证到产品化再说。
 - 错误信息要能让 agent 看懂：CLI 失败时 stderr 一行人类可读，`--json` 时 stdout 输出 `{"ok":false,"error":"…"}`，exit code 非 0。
 
