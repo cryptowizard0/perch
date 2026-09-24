@@ -17,12 +17,17 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var pulse = 0
     /// Running agent sessions. No data source until M3, so always nil for now.
     @Published public private(set) var liveActivity: LiveActivity?
+    /// The last failed action, shown briefly in the expanded notch.
+    @Published public private(set) var flash: String?
 
     /// Called after every applied update; used to measure CLI → notch latency.
     public var onApply: ((QueueConnection.Update) -> Void)?
 
     private var connection: QueueConnection?
+    private var client = PerchClient()
     private var ticker: Timer?
+    private var flashTimer: Timer?
+    private let actions = DispatchQueue(label: "dev.perch.app.actions")
 
     public init() {}
 
@@ -30,6 +35,7 @@ public final class QueueModel: ObservableObject {
     public var summary: Summary { state.summary(now: now) }
 
     public func connect(client: PerchClient = PerchClient()) {
+        self.client = client
         let connection = QueueConnection(client: client) { [weak self] update in
             MainActor.assumeIsolated { self?.handle(update) }
         }
@@ -59,6 +65,37 @@ public final class QueueModel: ObservableObject {
         now = Date()
         scheduleTick()
         onApply?(update)
+    }
+
+    /// Clicking a row's title (see `Click`). The result comes back as an event like any other change;
+    /// only failures are reported here.
+    public func click(_ item: Item, option: Bool) {
+        guard let request = Click.on(item, option: option).request(for: item) else { return }
+        send(request)
+    }
+
+    /// Sends one request off the main thread; failures go to `flash`.
+    public func send(_ request: Request) {
+        let client = self.client
+        actions.async { [weak self] in
+            let failure: String?
+            do {
+                let response = try client.send(request)
+                failure = response.ok ? nil : response.error ?? "perchd returned an error"
+            } catch {
+                failure = String(describing: error)
+            }
+            guard let failure else { return }
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.show(failure) } }
+        }
+    }
+
+    private func show(_ message: String) {
+        flash = message
+        flashTimer?.invalidate()
+        flashTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.flash = nil }
+        }
     }
 
     /// For the view layer to request a pulse (e.g. a reminder fired).

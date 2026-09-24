@@ -21,10 +21,18 @@ struct ExpandedList: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
                         ForEach(items) { item in
-                            ItemRow(item: item, now: queue.now)
+                            ItemRow(item: item, now: queue.now) { option in queue.click(item, option: option) }
                         }
                     }
                 }
+            }
+            if let flash = queue.flash {
+                Text(flash)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Signal.overdue.color)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
             }
         }
         .padding(.horizontal, 12)
@@ -42,6 +50,9 @@ struct ExpandedList: View {
 struct ItemRow: View {
     var item: Item
     var now: Date
+    /// Title clicked; the argument says whether ⌥ was held.
+    var onClick: (Bool) -> Void
+    @State private var hovering = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -50,15 +61,8 @@ struct ItemRow: View {
                 .foregroundStyle(accent)
                 .frame(width: 16)
                 .help(item.source)
-            Text(item.title)
-                .font(.system(size: 13, weight: item.kind == .notice ? .regular : .medium))
-                .foregroundStyle(.white.opacity(item.kind == .notice ? 0.6 : 0.95))
-                // Requests always show their full text: never approve something you cannot read.
-                .lineLimit(item.kind == .request ? nil : 1)
-                .truncationMode(.tail)
-                .fixedSize(horizontal: false, vertical: item.kind == .request)
+            title
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .help(item.title)
             Text(RowFormat.time(item, now: now))
                 .font(.system(size: 11))
                 .monospacedDigit()
@@ -68,6 +72,26 @@ struct ItemRow: View {
         }
         .padding(.vertical, 9)
         .frame(minHeight: ExpandedList.rowHeight)
+    }
+
+    @ViewBuilder private var title: some View {
+        let text = Text(item.title)
+            .font(.system(size: 13, weight: item.kind == .notice ? .regular : .medium))
+            .foregroundStyle(.white.opacity(item.kind == .notice ? 0.6 : 0.95))
+            // Requests always show their full text: never approve something you cannot read.
+            .lineLimit(item.kind == .request ? nil : 1)
+            .truncationMode(.tail)
+            .fixedSize(horizontal: false, vertical: item.kind == .request)
+        if Click.on(item, option: false) == .none {
+            text.help(item.title)
+        } else {
+            Button { onClick(NSEvent.modifierFlags.contains(.option)) } label: {
+                text.strikethrough(hovering && item.kind == .task, color: .white.opacity(0.5))
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering = $0 }
+            .help(item.kind == .notice ? "Click to keep as a task" : "Click: done · ⌥-click: snooze 30 min")
+        }
     }
 
     private var isOverdue: Bool { item.isActionable && (item.dueAt.map { $0 <= now } ?? false) }

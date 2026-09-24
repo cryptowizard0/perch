@@ -26,7 +26,7 @@ public enum ClientError: Error, CustomStringConvertible {
 }
 
 /// Talks newline-delimited JSON to perchd over the Unix socket.
-public struct PerchClient {
+public struct PerchClient: Sendable {
     public var socketPath: String
 
     public init(socketPath: String = PerchPaths.socket.path) {
