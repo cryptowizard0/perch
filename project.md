@@ -3,15 +3,15 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-09-24 · M1 完成，下一步 M2
+最后更新：2026-09-24 · M2 完成（有几项交互待人工确认，见"M2 人工验收"），下一步 M3
 
 ## 总览
 
 | # | 里程碑 | 状态 | 说明 |
 | --- | --- | --- | --- |
 | M1 | daemon + CLI + SQLite + watch | ✅ 完成 | 10 项全勾，73 个测试通过 |
-| M2 | 刘海 UI | ⏭ 下一步 | 见下方"M2 开发计划" |
-| M3 | Claude Code 被动接入（Notification / Stop / SessionStart） | ⬜ 未开始 | 依赖 M2 的 Live Activity 数据来源（见未决问题） |
+| M2 | 刘海 UI | ✅ 完成 | 8 项全勾，122 个测试通过；CLI → 刘海 均值 11 ms。悬停 / 点击 / 快捷键 / 通知横幅需人工确认 |
+| M3 | Claude Code 被动接入（Notification / Stop / SessionStart） | ⏭ 下一步 | 先定 Live Activity 数据来源和 `link` 跳终端机制（见未决问题） |
 | M4 | PermissionRequest + 白名单 | ⬜ 未开始 | CLI 侧 `--wait` 已就绪 |
 | M5 | Codex 复用同一套 hook 脚本 | ⬜ 未开始 | |
 | M6 | Hermes HTTP 接入 | ⬜ 未开始 | HTTP `POST /rpc` 已就绪，只剩容器内实测 |
@@ -21,7 +21,10 @@
 - **本机没有 Xcode，只有 Command Line Tools**（Swift 6.1.2，`Package.swift` 仍是 tools-version 5.9 / Swift 5 语言模式）。
   - 没有 XCTest → 测试全部用 **swift-testing**（`import Testing`、`@Test`、`#expect`）。
   - `xcodebuild` 不可用 → App 用 SwiftPM 编译、`scripts/bundle-app.sh` 组装 `.app`（M2.1 定）。
-  - SwiftUI / AppKit 可用：已验证 CLT 能编译运行 `NSPanel` + `NSHostingView`，并读到刘海安全区高度 33pt。
+  - SwiftUI / AppKit 可用：已验证 CLT 能编译运行 `NSPanel` + `NSHostingView`，并读到刘海安全区高度 33pt。Observation / Testing 宏插件也在。
+  - `screencapture -x` 可用（有屏幕录制权限）：改 UI 后截图 + `sips -c` 裁剪看效果。**不能合成鼠标 / 键盘事件**（`CGPreflightPostEventAccess` 为 false，System Events 无辅助功能权限）→ 悬停、点击、快捷键只能靠人工或 `PERCH_PIN_EXPANDED=1` 截图。
+  - 看窗口位置不需要权限：`CGWindowListCopyWindowInfo` 过滤 owner "Perch"。
+- git 提交用 1Password SSH 签名；1Password 锁着时报 "failed to fill whole buffer"，让用户解锁后重试（不要自己关签名）。
   - `codesign` 可用（ad-hoc 签名 `codesign -s -`）。`actool`（Asset Catalog）不可用 → 图标用 png / icns。
 - `/usr/local/include/sqlite3.h` 是一个手动装的野头文件，会让 `import SQLite3` 编译失败。所以 daemon 用 `Sources/CSQLite` 自己声明 sqlite3 函数；新增函数就加到 `Sources/CSQLite/include/CSQLite.h`。**不要删那个系统文件，也不要改回 `import SQLite3`。**
 - GitHub 走 ssh 偶尔失败（ssh-agent 签名问题）；依赖已在 `.build` 缓存。不要随意加新依赖。
@@ -32,10 +35,13 @@
 swift build && swift test                     # 每次提交前必须通过
 PERCH_HOME=/tmp/perch-dev swift run perchd    # 隔离数据跑 daemon，不碰 ~/.perch
 PERCH_HOME=/tmp/perch-dev swift run perch ls
+scripts/bundle-app.sh && open .build/Perch.app  # 刘海 App（CONFIG=debug 出调试版）
+PERCH_HOME=/tmp/perch-dev PERCH_PIN_EXPANDED=1 .build/Perch.app/Contents/MacOS/Perch   # 隔离数据 + 常开展开态，方便截图
+scripts/measure-latency.sh                     # CLI → 刘海延迟
 swift run perchd install --dry-run            # 看 launchd plist；install / uninstall 真装真卸
 ```
 
-## 当前代码地图（M1 结束时）
+## 当前代码地图（M2 结束时）
 
 ```
 Sources/PerchCore/     纯逻辑，无 I/O，App 可直接复用：
@@ -47,11 +53,22 @@ Sources/PerchCore/     纯逻辑，无 I/O，App 可直接复用：
 Sources/PerchClient/   PerchClient.send / watch() → EventStream；BufferedSocket（阻塞式 socket + 读缓冲）
 Sources/PerchDaemon/   Daemon（串行队列 + 订阅者 + 过期计时器 + 镜像 + inbox 监听）、Service（各 op）、Store（sqlite）、
                        Server / HTTPConnection（Unix socket + 127.0.0.1 HTTP）、Files（MirrorWriter / InboxWatcher）、LaunchAgent
-Sources/perch/         CLI：add / ls / get / done / respond / rm / watch / hooks（hooks 是 M3 占位）
+Sources/perch/         CLI：add / ls / get / done / update / respond / rm / watch / hooks（hooks 是 M3 占位）
 Sources/perchd/        入口：run（默认）/ install / uninstall
-PerchApp/PerchApp.swift  仍是 M0 占位（MenuBarExtra），M2 替换
+Sources/PerchAppCore/  刘海 App 的可测逻辑（无 AppKit）：
+  NotchGeometry          刘海矩形、收起 / 展开 frame、无刘海胶囊
+  QueueState             快照 + 事件合并、Summary（数字）、Signal（颜色，红 > 橙 > 蓝 > 灰）、是否脉冲
+  QueueConnection        后台线程：watch → list → 事件；离线退避重连 0.5→5 s
+  QueueModel             @MainActor ObservableObject：状态、分钟 / 到期 tick、click / quickAdd、flash、onDue / onApply
+  Click / RowFormat      点击 → 请求映射；行内时间文本、来源图标、link → URL
+  DueReminders / HotKey / LiveActivity / RelativeTime
+Sources/PerchApp/      AppKit + SwiftUI 壳：NotchPanel / NotchWindowController（悬停、布局、换屏）、NotchView / ExpandedList、
+                       QuickEntry（面板）、GlobalHotKey（Carbon）、Notifier（UNUserNotification）、AppDelegate
+packaging/Info.plist · scripts/bundle-app.sh · scripts/measure-latency.sh
 Tests/PerchCoreTests/    纯逻辑
-Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 跑真实 perch 二进制（CLITests / AcceptanceTests）
+Tests/PerchAppCoreTests/ App 纯逻辑
+Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 跑真实 perch 二进制（CLITests / AcceptanceTests）；
+                         App 连接和 QueueModel 也在这里测（AppConnectionTests / AppModelTests / NotchLatencyTests）
 ```
 
 ## 已定下的契约（M2+ 依赖，改之前先想清楚）
@@ -66,20 +83,18 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 - HTTP 拒绝带 `Origin` 头、非 `application/json`、Host 不在白名单（127.0.0.1 / localhost / [::1] / host.docker.internal）的请求。
 - 文件：`todo.md` 只读（0444），内容变了才重写；`inbox.md` 启动时创建，只吸收 `- [ ]` / `* [ ]` 行，其余内容保留。
 
-## M2 开发计划（刘海 UI）
-
-按 `docs/MILESTONES.md` 的 M2 清单逐项做，每项一个 commit，做完勾框并更新本文进度表。
+## M2 进度（刘海 UI，已完成）
 
 | # | 任务 | 状态 | 要点 |
 | --- | --- | --- | --- |
 | 2.1 | App 可编译运行、无 Dock 图标 | ✅ | `scripts/bundle-app.sh` → `.build/Perch.app`；`lsappinfo` 显示 type="UIElement" |
 | 2.2 | NSPanel 贴刘海；无刘海退化为顶部居中胶囊 | ✅ | `NSScreen.safeAreaInsets.top > 0` 判断有无刘海；`auxiliaryTopLeftArea/RightArea` 算刘海宽度；多屏、换屏要跟着走 |
 | 2.3 | 收起态：数字、颜色点、Live Activity | ✅ | 颜色：灰=空 / 蓝=有待办 / 橙=有 request 或 waiting / 红=有逾期，优先级 红 > 橙 > 蓝 > 灰（已定）。数字 = task + request + waiting，不含 notice。Live Activity 的 UI 和格式化已做，数据来源 M3 定，目前恒为空、隐藏 |
-| 2.4 | 展开态列表（悬停展开） | ✅ | 排序直接用 `queueOrdered`；每行：来源图标、标题、相对时间、跳转按钮 |
+| 2.4 | 展开态列表（悬停展开） | ✅ | 排序直接用 `queueOrdered`；每行：来源图标、标题、相对时间、跳转按钮。悬停 120 ms 展开、离开 300 ms 收起；request 标题完整显示不截断 |
 | 2.5 | 点标题完成；⌥ 点推迟 30 分钟；notice 点一下转 task | ✅ | 用新 `update` op。request 的标题点了没反应（M4 用 Allow / Deny / 终端按钮），避免误点关掉请求 |
 | 2.6 | 全局快捷键弹快速录入 | ✅ | ⌥⇧Space（已定），`defaults write dev.perch.app QuickEntryHotKey …` 可改；非激活但可成为 key 的 NSPanel，不抢前台 App 焦点；右键刘海也能打开 |
 | 2.7 | `due_at` 到时：系统通知 + 刘海脉冲 | ✅ | App 侧按最近的 due_at 设计时器（daemon 不发到期事件）；同一 (id, due) 只提醒一次，App 启动前就逾期的不提醒，推迟后换了 due 会再提醒。ad-hoc 签名的 .app 能弹出系统授权框；`swift run` 裸二进制没有 bundle，只脉冲不发通知 |
-| 2.8 | 验收：CLI 调用到刘海更新 ≤ 200 ms | ⬜ | 没有 Instruments：在 add 和 UI 刷新处打时间戳，或写一个 CLI → App 的计时脚本 |
+| 2.8 | 验收：CLI 调用到刘海更新 ≤ 200 ms | ✅ | `NotchLatencyTests`（到 QueueModel）+ `scripts/measure-latency.sh`（真 App，含 UI 布局那一轮）：release 均值 11 ms、最差 14 ms |
 
 ### 构建路线（2.1，已定：SwiftPM）
 
@@ -91,12 +106,24 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 4. 更新 CLAUDE.md 的仓库结构与常用命令、删掉或标注 `project.yml`（装了 Xcode 再恢复也行）。
 5. 窗口层可参考 NotchDo（MIT，保留版权头）；`CGSSpace.swift` 可单文件引用（MPL-2.0）。**不要复制 Boring Notch（GPL-3.0）。**
 
-### App 连接 daemon 的做法
+### App 连接 daemon 的做法（已按此实现：`QueueConnection` / `QueueModel`）
 
-- 启动时 `PerchClient().watch()`，拿到确认后再 `send(list)` 拿快照；之后只按事件增量更新（`added` / `updated` 替换或插入，`removed` 删除），再重新 `queueOrdered`。
-- `EventStream.next()` 是阻塞调用，放后台线程，结果切回主线程更新 `@Observable` / `ObservableObject`。
-- perchd 没启动或重启：`next()` 返回 nil / 抛错 → 显示离线状态，退避重连（例如 0.5s → 5s），重连后重新拿快照。
-- 队列顺序依赖"现在"（逾期、今日），需要一个分钟级计时器重排；这个计时器只负责重排，不能用来代替事件推送。
+- 先 `watch()`，拿到确认后再 `list` 拿快照；之后只按事件增量更新（`added` / `updated` 替换或插入，closed / `removed` 删除），显示时 `queueOrdered`。
+- `EventStream.next()` 阻塞，跑在专用线程；结果切回主线程更新 `QueueModel`（ObservableObject）。停止用 `EventStream.interrupt()`（socket shutdown）唤醒阻塞的读。
+- perchd 没启动或重启 → 离线图标，退避重连 0.5 s → 5 s，重连后重新拿快照。
+- "现在"在分钟边界和下一个 due 时刻各 tick 一次，只负责重排 / 变红 / 到期提醒，不代替事件推送。
+
+### M2 人工验收（我没法合成鼠标键盘事件，这几项需要人手点一遍）
+
+```
+swift build && scripts/bundle-app.sh && open .build/Perch.app     # perchd 要在跑（perchd install 或前台 perchd）
+```
+- [ ] 鼠标移到刘海：约 0.1 s 展开；移开约 0.3 s 收起；贴着菜单栏划过不误触
+- [ ] 点任务标题 → 完成消失；⌥ 点 → 右侧时间变 "in 30m"；点 notice → 变成白色 task 且不再自动消失；点 request 标题无反应
+- [ ] ⌥⇧Space 弹出快速录入，输入"回复 X 的邮件 +1m"回车；不抢当前 App 焦点；Esc / 点别处关闭
+- [ ] 首次启动允许通知；1 分钟后弹系统通知、刘海脉冲、点变红
+- [ ] 右键刘海：New Task… / Quit Perch
+- [ ] 接外接显示器 / 合盖：刘海或胶囊跟着换位置
 
 ### M2 协议扩展：`update`（已实现）
 
@@ -123,6 +150,10 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 - 从 `.build/` 执行 `perchd install` 会打印提醒：执行 `swift package clean` 后 agent 就会失效。日常使用要先把二进制复制到固定位置再装。
 - 测试用的 Unix socket 放在 `/tmp/perch-test-*`：socket 路径上限 103 字节，`/var/folders/...` 太长。
 - CLITests 通过 `--test-bundle-path` 找 `perch` 二进制（swift-testing 跑在 `swiftpm-testing-helper` 里，`Bundle.main` 不可用）。
+- Perch.app 还不会开机自启（perchd 有 launchd，App 没有）；也没有图标（`actool` 不可用，要做就放 .icns 到 `packaging/`）。
+- 展开态高度是估算的（request 按 52 字 / 行算），很长的 request 靠列表滚动兜底。
+- `link` 只能打开 URL 和绝对 / `~` 路径；tmux 等终端会话引用没有跳转按钮，等 M3 定机制。
+- 点击 / 快捷键的 UI 路径没有自动化测试（只测了 `Click` 映射和 `QueueModel`），改交互要人工回归上面的清单。
 
 ## 工作约定（来自用户和 CLAUDE.md）
 
@@ -131,6 +162,20 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 - 做完一项：勾 `docs/MILESTONES.md` 对应的框，并更新本文进度表；未决问题定下来后同步更新 CLAUDE.md 的"未决问题"。
 - 范围守卫：dispatch、stop / cancel、reply、MCP、双向同步、音乐 / HUD 等一律不做（见 CLAUDE.md）。
 - 不主动 push；远端操作先问用户。
+
+## M2 提交记录
+
+```
+366b75e test: M2 acceptance — CLI to notch ≤ 200 ms
+22106c3 feat(app): due_at reminders — system notification and a notch pulse
+4e11d1e feat(app): ⌥⇧Space opens quick entry
+d0a85e6 feat(app): click to complete, ⌥-click to snooze 30 min, click a notice to keep it
+d8c26ec feat(app): expanded notch lists the queue on hover
+a1b6d86 feat(app): collapsed notch shows count, colour dot and Live Activity
+e608798 feat(app): notch panel over the notch, capsule on screens without one
+c06ddf4 feat(daemon): update op and `perch update` for snooze and notice → task
+eaa40b2 feat(app): build the notch app with SwiftPM and bundle it as Perch.app
+```
 
 ## M1 提交记录
 
