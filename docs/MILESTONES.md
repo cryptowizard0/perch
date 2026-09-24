@@ -1,6 +1,6 @@
 # 里程碑
 
-每一步都能独立验证再往下走；第 3 步完成时产品已经能日常使用。当前：**M1**。
+每一步都能独立验证再往下走；第 3 步完成时产品已经能日常使用。当前：**M2**。
 
 ## M1 — daemon + CLI + SQLite + watch（不带 UI）
 
@@ -13,7 +13,7 @@
 - [x] request 的 `--wait`：阻塞到 `response` 写入或 `expires_at` 到期
 - [x] `~/.perch/todo.md` 只读镜像随每次变更重渲染；`~/.perch/inbox.md` 的 `- [ ] …` 行被吸收并清空
 - [x] launchd plist 生成与安装（`perchd install` 或类似）
-- [ ] 验收：两个终端互相 `add` 和 `watch`，事件延迟肉眼无感；重复 `--key` 不产生重复项；`swift test` 通过
+- [x] 验收：两个终端互相 `add` 和 `watch`，事件延迟肉眼无感；重复 `--key` 不产生重复项；`swift test` 通过
 
 ## M2 — 刘海 UI
 

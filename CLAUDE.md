@@ -27,7 +27,8 @@ hooks/                   （M3 起）Claude Code / Codex 的 hook 适配脚本
 swift build                      # 编译 CLI + daemon + 库
 swift test                       # 单元测试，每次提交前必须通过
 swift run perch --help
-swift run perchd
+swift run perchd                 # 前台跑 daemon（PERCH_HOME=/tmp/x 可隔离数据）
+swift run perchd install         # 装成 launchd agent（--dry-run 只打印 plist）；perchd uninstall 移除
 xcodegen generate                # 生成 Perch.xcodeproj（brew install xcodegen）
 xcodebuild -project Perch.xcodeproj -scheme PerchApp -configuration Debug build
 ```
@@ -58,6 +59,8 @@ xcodebuild -project Perch.xcodeproj -scheme PerchApp -configuration Debug build
 | `Notification`（matcher `permission_prompt` / `idle_prompt` / `agent_needs_input`） | `perch add --status waiting --key <session_id>` | 否 |
 | `Stop` | resolve 同 key 的 waiting，发一条 notice（含 `last_assistant_message` 摘要） | 否 |
 | `PermissionRequest` | `perch add --kind request --wait`，拿到 allow/deny 后按各家格式打印 JSON | 是 |
+
+`perch add --kind request --wait` 的约定：有人回应 → stdout 打印回应值、exit 0；过期（`--expires`）/ 被 done / 被 rm → exit 3、不打印回应。适配器只在 exit 0 时返回决定，其余一律不返回，让终端原生提示接管。
 
 返回格式：Claude Code 是 `{"decision":"allow"|"deny","decisionReason":"…"}`（注意：不是 PreToolUse 的 `permissionDecision`，且 exit code 2 在 PermissionRequest 不生效）；Codex 是 decision 对象里的 `"behavior":"allow"|"deny"`。
 配置文件：Claude Code `~/.claude/settings.json`；Codex `~/.codex/hooks.json`（首次运行需在终端确认信任）。
