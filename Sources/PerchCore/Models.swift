@@ -80,6 +80,27 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         case updatedAt = "updated_at"
     }
 
+    /// Lenient: only `title` is required, so HTTP clients can send `{"title":"…"}`.
+    /// Missing fields get the same defaults as `init`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let now = Date()
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? Item.newID()
+        title = try c.decode(String.self, forKey: .title)
+        kind = try c.decodeIfPresent(ItemKind.self, forKey: .kind) ?? .task
+        status = try c.decodeIfPresent(ItemStatus.self, forKey: .status) ?? .open
+        source = try c.decodeIfPresent(String.self, forKey: .source) ?? "human"
+        dueAt = try c.decodeIfPresent(Date.self, forKey: .dueAt)
+        link = try c.decodeIfPresent(String.self, forKey: .link)
+        meta = try c.decodeIfPresent([String: String].self, forKey: .meta)
+        key = try c.decodeIfPresent(String.self, forKey: .key)
+        options = try c.decodeIfPresent([String].self, forKey: .options)
+        response = try c.decodeIfPresent(String.self, forKey: .response)
+        expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? now
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+    }
+
     /// Short, typeable ids like `t7k2`: 4 chars from an alphabet without look-alikes.
     public static func newID() -> String {
         let alphabet = Array("abcdefghjkmnpqrstuvwxyz23456789")
@@ -92,6 +113,42 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         case .open, .waiting: return kind != .notice
         case .done, .dismissed: return false
         }
+    }
+}
+
+extension Item {
+    /// Position in the queue; lower comes first. The notch and `perch ls` share this order:
+    /// request → waiting → overdue → due today → other open → notice → done → dismissed.
+    public func queueRank(now: Date, calendar: Calendar = .current) -> Int {
+        switch status {
+        case .done: return 6
+        case .dismissed: return 7
+        case .open, .waiting: break
+        }
+        if kind == .request { return 0 }
+        if kind == .notice { return 5 }
+        if status == .waiting { return 1 }
+        if let due = dueAt {
+            if due < now { return 2 }
+            if calendar.isDate(due, inSameDayAs: now) { return 3 }
+        }
+        return 4
+    }
+}
+
+extension Array where Element == Item {
+    /// Sorted by `queueRank`; within a rank by due date, then oldest first. Closed items: most recently updated first.
+    public func queueOrdered(now: Date = Date(), calendar: Calendar = .current) -> [Item] {
+        map { ($0, $0.queueRank(now: now, calendar: calendar)) }
+            .sorted { a, b in
+                if a.1 != b.1 { return a.1 < b.1 }
+                if a.1 >= 6 { return a.0.updatedAt > b.0.updatedAt }
+                let da = a.0.dueAt ?? .distantFuture, db = b.0.dueAt ?? .distantFuture
+                if da != db { return da < db }
+                if a.0.createdAt != b.0.createdAt { return a.0.createdAt < b.0.createdAt }
+                return a.0.id < b.0.id
+            }
+            .map(\.0)
     }
 }
 

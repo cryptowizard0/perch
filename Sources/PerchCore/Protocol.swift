@@ -4,7 +4,16 @@ import Foundation
 ///
 /// Transport: newline-delimited JSON over the Unix socket; the same JSON bodies over
 /// `POST http://127.0.0.1:<port>/rpc`. One `Request` per line, one `Response` per line;
-/// `op: "watch"` keeps the connection open and streams a `Response` with `event` set.
+/// `op: "watch"` keeps the connection open: first `{"ok":true}`, then one `Response` with `event` set per change.
+///
+/// Ops and their fields:
+/// - `ping` → `version`
+/// - `add` + `item` → `item`. perchd assigns `id`, `created_at`, `updated_at`; with `item.key` set, an existing
+///   item with that key is updated instead (see `Service`). Only `title` is required in the JSON.
+/// - `list` + optional `filter` → `items`, in queue order (see `Item.queueOrder`)
+/// - `get` / `done` / `remove` + `id` → `item` (`remove` returns the deleted item)
+/// - `respond` + `id` + `value` → `item`; the request is closed with `status: done`
+/// - `watch` → stream of events
 public struct Request: Codable, Sendable {
     public enum Op: String, Codable, Sendable {
         case ping, add, list, get, done, respond, remove, watch
@@ -23,14 +32,17 @@ public struct Request: Codable, Sendable {
         self.filter = filter
     }
 
+    /// For `list`. Without `status`, only active items (open, waiting) are returned unless `all` is true.
     public struct Filter: Codable, Sendable, Equatable {
         public var status: ItemStatus?
         public var source: String?
         public var kind: ItemKind?
-        public init(status: ItemStatus? = nil, source: String? = nil, kind: ItemKind? = nil) {
+        public var all: Bool?
+        public init(status: ItemStatus? = nil, source: String? = nil, kind: ItemKind? = nil, all: Bool? = nil) {
             self.status = status
             self.source = source
             self.kind = kind
+            self.all = all
         }
     }
 }

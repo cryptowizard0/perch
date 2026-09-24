@@ -15,10 +15,121 @@ public final class Store {
         try migrate()
     }
 
+    static let columns = "id, title, kind, status, source, due_at, link, meta, key, options, response, expires_at, created_at, updated_at"
+
+    public func insert(_ item: Item) throws {
+        try db.run("INSERT INTO items (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(item))
+    }
+
+    /// Overwrites every column of the row with `item.id`.
+    public func update(_ item: Item) throws {
+        var args = Array(values(item).dropFirst())
+        args.append(.text(item.id))
+        try db.run("""
+        UPDATE items SET title = ?, kind = ?, status = ?, source = ?, due_at = ?, link = ?, meta = ?, key = ?,
+            options = ?, response = ?, expires_at = ?, created_at = ?, updated_at = ?
+        WHERE id = ?
+        """, args)
+    }
+
+    @discardableResult
+    public func delete(id: String) throws -> Bool {
+        try db.run("DELETE FROM items WHERE id = ?", [.text(id)])
+        return db.changes > 0
+    }
+
+    public func get(id: String) throws -> Item? {
+        try select("WHERE id = ?", [.text(id)]).first
+    }
+
+    public func find(key: String) throws -> Item? {
+        try select("WHERE key = ?", [.text(key)]).first
+    }
+
+    /// Without a status filter only active items (open, waiting) are returned, unless `filter.all`.
+    public func list(_ filter: Request.Filter?) throws -> [Item] {
+        var clauses: [String] = []
+        var args: [SQLValue] = []
+        if let status = filter?.status {
+            clauses.append("status = ?")
+            args.append(.text(status.rawValue))
+        } else if filter?.all != true {
+            clauses.append("status IN ('open', 'waiting')")
+        }
+        if let source = filter?.source {
+            clauses.append("source = ?")
+            args.append(.text(source))
+        }
+        if let kind = filter?.kind {
+            clauses.append("kind = ?")
+            args.append(.text(kind.rawValue))
+        }
+        let whereSQL = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
+        return try select(whereSQL, args)
+    }
+
+    public func transaction<T>(_ body: () throws -> T) throws -> T {
+        try db.transaction(body)
+    }
+
     public func count() throws -> Int {
         var n = 0
         try db.run("SELECT COUNT(*) FROM items") { n = $0.int(0) }
         return n
+    }
+
+    private func select(_ tail: String, _ args: [SQLValue]) throws -> [Item] {
+        var items: [Item] = []
+        try db.run("SELECT \(Self.columns) FROM items \(tail) ORDER BY created_at, id", args) { row in
+            items.append(try Self.item(from: row))
+        }
+        return items
+    }
+
+    private func values(_ item: Item) -> [SQLValue] {
+        [
+            .text(item.id), .text(item.title), .text(item.kind.rawValue), .text(item.status.rawValue), .text(item.source),
+            SQLValue(item.dueAt.map(Self.formatDate)), SQLValue(item.link), SQLValue(item.meta.flatMap(Self.json)),
+            SQLValue(item.key), SQLValue(item.options.flatMap(Self.json)), SQLValue(item.response),
+            SQLValue(item.expiresAt.map(Self.formatDate)),
+            .text(Self.formatDate(item.createdAt)), .text(Self.formatDate(item.updatedAt)),
+        ]
+    }
+
+    private static func item(from row: SQLiteDatabase.Row) throws -> Item {
+        func required(_ column: Int32) throws -> String {
+            guard let text = row.text(column) else { throw SQLiteError(description: "NULL in required column \(column)") }
+            return text
+        }
+        func date(_ column: Int32) throws -> Date? {
+            guard let text = row.text(column) else { return nil }
+            guard let date = dateFormatter.date(from: text) else { throw SQLiteError(description: "bad date '\(text)'") }
+            return date
+        }
+        guard let kind = ItemKind(rawValue: try required(2)), let status = ItemStatus(rawValue: try required(3)) else {
+            throw SQLiteError(description: "bad kind/status in row \(row.text(0) ?? "?")")
+        }
+        return Item(
+            id: try required(0), title: try required(1), kind: kind, status: status, source: try required(4),
+            dueAt: try date(5), link: row.text(6),
+            meta: row.text(7).flatMap { try? JSONDecoder().decode([String: String].self, from: Data($0.utf8)) },
+            key: row.text(8),
+            options: row.text(9).flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) },
+            response: row.text(10), expiresAt: try date(11),
+            createdAt: try date(12)!, updatedAt: try date(13)!
+        )
+    }
+
+    private static let dateFormatter = ISO8601DateFormatter()
+
+    static func formatDate(_ date: Date) -> String {
+        dateFormatter.string(from: date)
+    }
+
+    private static func json<T: Encodable>(_ value: T) -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) }
     }
 
     private func migrate() throws {

@@ -5,7 +5,7 @@
 ## M1 — daemon + CLI + SQLite + watch（不带 UI）
 
 - [x] `perchd` 启动：建 `~/.perch/`，打开 SQLite（建表 `items`），监听 Unix socket 和 `127.0.0.1:7331`
-- [ ] 实现 `Request.Op` 全部操作：ping / add / list / get / done / respond / remove / watch
+- [x] 实现 `Request.Op` 全部操作：ping / add / list / get / done / respond / remove / watch
 - [ ] `add --key` 幂等：同 key 再 add 更新原项，不新建
 - [ ] `watch` 客户端收到 `item.added` / `item.updated` / `item.removed` 事件
 - [ ] `perch` CLI 全部子命令连上 daemon，`--json` 输出；daemon 未启动时给出清晰错误
