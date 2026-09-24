@@ -26,17 +26,33 @@ public final class Daemon {
     let service: Service
     private var subscribers: [UUID: (Response) -> Void] = [:]
     private var expiryTimer: DispatchSourceTimer?
+    private let mirror: MirrorWriter
+    private var inbox: InboxWatcher?
 
     public init(config: DaemonConfig, now: @escaping () -> Date = Date.init) throws {
         self.config = config
         try FileManager.default.createDirectory(at: config.home, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         service = Service(store: try Store(path: config.databasePath), now: now)
-        queue.sync { afterChange([]) }
+        mirror = MirrorWriter(path: config.mirrorPath)
+        if !FileManager.default.fileExists(atPath: config.inboxPath) {
+            FileManager.default.createFile(atPath: config.inboxPath, contents: nil)
+        }
+        queue.sync {
+            mirror.write(activeItems())
+            afterChange(ingestInbox())
+            let watcher = InboxWatcher(path: config.inboxPath, queue: queue) { [weak self] in
+                guard let self else { return }
+                self.afterChange(self.ingestInbox())
+            }
+            watcher.start()
+            inbox = watcher
+        }
     }
 
     deinit {
         expiryTimer?.cancel()
+        inbox?.stop()
     }
 
     public func perform(_ request: Request) -> Response {
@@ -66,10 +82,39 @@ public final class Daemon {
         queue.sync { subscribers.count }
     }
 
-    /// Runs on `queue` after every request (and at startup): broadcast, then re-arm the expiry timer.
+    /// Runs on `queue` after every request (and at startup): broadcast, re-render todo.md,
+    /// re-arm the expiry timer.
     private func afterChange(_ events: [Event]) {
         publish(events)
+        if !events.isEmpty { mirror.write(activeItems()) }
         scheduleExpiry()
+    }
+
+    private func activeItems() -> [Item] {
+        (try? service.store.list(nil)) ?? []
+    }
+
+    /// Absorbs `- [ ] …` lines from inbox.md as tasks and rewrites the file without them.
+    /// The file is re-read right before rewriting; if it changed meanwhile, start over, so a line
+    /// appended during ingestion is never lost.
+    private func ingestInbox() -> [Event] {
+        let url = URL(fileURLWithPath: config.inboxPath)
+        for _ in 0..<5 {
+            guard let before = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+            let parsed = Inbox.parse(before)
+            guard !parsed.entries.isEmpty else { return [] }
+            guard (try? String(contentsOf: url, encoding: .utf8)) == before,
+                  let handle = try? FileHandle(forWritingTo: url) else { continue }
+            // Rewrite in place (same inode) so editors and watchers keep the file.
+            try? handle.truncate(atOffset: 0)
+            try? handle.write(contentsOf: Data(parsed.remainder.utf8))
+            try? handle.close()
+            return parsed.entries.flatMap { entry -> [Event] in
+                let (title, due) = QuickEntry.parse(entry, now: service.now())
+                return service.handle(Request(op: .add, item: Item(title: title, source: "human", dueAt: due))).1
+            }
+        }
+        return []
     }
 
     /// One timer for the earliest `expires_at`; it sweeps, broadcasts and re-arms itself.
