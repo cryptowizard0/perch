@@ -8,7 +8,7 @@
 - [x] 实现 `Request.Op` 全部操作：ping / add / list / get / done / respond / remove / watch
 - [x] `add --key` 幂等：同 key 再 add 更新原项，不新建
 - [x] `watch` 客户端收到 `item.added` / `item.updated` / `item.removed` 事件
-- [ ] `perch` CLI 全部子命令连上 daemon，`--json` 输出；daemon 未启动时给出清晰错误
+- [x] `perch` CLI 全部子命令连上 daemon，`--json` 输出；daemon 未启动时给出清晰错误
 - [ ] `--due` 支持 `@15:00` 和 `+30m` 两种语法
 - [ ] request 的 `--wait`：阻塞到 `response` 写入或 `expires_at` 到期
 - [ ] `~/.perch/todo.md` 只读镜像随每次变更重渲染；`~/.perch/inbox.md` 的 `- [ ] …` 行被吸收并清空

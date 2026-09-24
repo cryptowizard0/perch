@@ -72,7 +72,7 @@ public enum PerchJSON {
     public static var encoder: JSONEncoder {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
-        e.outputFormatting = [.sortedKeys]
+        e.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return e
     }
     public static var decoder: JSONDecoder {
