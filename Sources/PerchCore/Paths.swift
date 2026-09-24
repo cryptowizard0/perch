@@ -16,6 +16,8 @@ public enum PerchPaths {
     public static var mirror: URL { mirror(in: home) }
     /// Append-only inbox. Any `- [ ] …` line dropped here is ingested and cleared by perchd.
     public static var inbox: URL { inbox(in: home) }
+    /// Where `perch hook` records failures (hooks must not print).
+    public static var hookLog: URL { home.appendingPathComponent("hook.log") }
     /// Localhost HTTP port for clients that cannot reach the socket (e.g. Hermes in Docker).
     public static let defaultHTTPPort = 7331
 

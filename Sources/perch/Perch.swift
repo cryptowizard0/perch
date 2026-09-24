@@ -13,7 +13,7 @@ struct Perch: ParsableCommand {
         commandName: "perch",
         abstract: "Where your agents wait. A notch-resident queue for AI agents.",
         version: PerchVersion.string,
-        subcommands: [Add.self, Ls.self, Get.self, Done.self, Update.self, Respond.self, Rm.self, Watch.self, SessionCommand.self, Hooks.self]
+        subcommands: [Add.self, Ls.self, Get.self, Done.self, Update.self, Respond.self, Rm.self, Watch.self, SessionCommand.self, Hook.self, Hooks.self]
     )
 
     /// Like ParsableCommand.main(), but failures honour `--json` (including argument errors).

@@ -59,6 +59,13 @@ import Testing
         #expect(r.handle(Request(op: .sessions)).0.sessions?.map(\.id) == ["s2"])
     }
 
+    @Test func sameSecondStartAfterEndWins() {
+        let r = registry(now: t0.addingTimeInterval(10))
+        start(r, "s1", at: t0)
+        end(r, "s1", at: t0.addingTimeInterval(5))
+        #expect(start(r, "s1", at: t0.addingTimeInterval(5)).1.map(\.type) == [.started])
+    }
+
     @Test func endingAnUnknownSessionIsFine() {
         let (response, events) = end(registry(now: t0), "nope", at: t0)
         #expect(response.ok)

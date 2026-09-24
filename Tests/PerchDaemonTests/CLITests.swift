@@ -40,20 +40,25 @@ struct CLI {
         try run(args)
     }
 
-    func run(_ args: [String]) throws -> Result {
-        try start(args)()
+    func run(_ args: [String], stdin: String? = nil, env: [String: String] = [:]) throws -> Result {
+        try start(args, stdin: stdin, env: env)()
     }
 
     /// Starts `perch` in the background; call the returned closure to wait for it.
-    func start(_ args: [String]) throws -> () throws -> Result {
+    func start(_ args: [String], stdin: String? = nil, env: [String: String] = [:]) throws -> () throws -> Result {
         let process = Process()
         process.executableURL = Self.binary!
         process.arguments = args
         process.environment = ProcessInfo.processInfo.environment.merging(["PERCH_HOME": home.path]) { $1 }
+            .merging(env) { $1 }
         let out = Pipe(), err = Pipe()
         process.standardOutput = out
         process.standardError = err
+        let input = Pipe()
+        process.standardInput = input
         try process.run()
+        if let stdin { input.fileHandleForWriting.write(Data(stdin.utf8)) }
+        try? input.fileHandleForWriting.close()
         return {
             let stdout = out.fileHandleForReading.readDataToEndOfFile()
             let stderr = err.fileHandleForReading.readDataToEndOfFile()
