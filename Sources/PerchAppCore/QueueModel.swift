@@ -22,6 +22,9 @@ public final class QueueModel: ObservableObject {
 
     /// Called after every applied update; used to measure CLI → notch latency.
     public var onApply: ((QueueConnection.Update) -> Void)?
+    /// Called when an item's due time arrives (the notch pulses too). The app posts a system notification.
+    public var onDue: ((Item) -> Void)?
+    private var reminders = DueReminders()
 
     private var connection: QueueConnection?
     private var client = PerchClient()
@@ -62,9 +65,17 @@ public final class QueueModel: ObservableObject {
             online = false
             offlineReason = reason
         }
-        now = Date()
-        scheduleTick()
+        refresh()
         onApply?(update)
+    }
+
+    /// Advances `now`, fires due reminders, re-arms the tick.
+    private func refresh() {
+        now = Date()
+        let due = reminders.take(from: state.items.values, now: now)
+        if !due.isEmpty { pulse += 1 }
+        for item in due { onDue?(item) }
+        scheduleTick()
     }
 
     /// Clicking a row's title (see `Click`). The result comes back as an event like any other change;
@@ -120,10 +131,7 @@ public final class QueueModel: ObservableObject {
         var fire = Date(timeIntervalSinceReferenceDate: nextMinute)
         if let due = state.nextDue(after: current), due < fire { fire = due }
         let timer = Timer(fire: fire.addingTimeInterval(0.05), interval: 0, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.now = Date()
-                self?.scheduleTick()
-            }
+            MainActor.assumeIsolated { self?.refresh() }
         }
         RunLoop.main.add(timer, forMode: .common)
         ticker = timer

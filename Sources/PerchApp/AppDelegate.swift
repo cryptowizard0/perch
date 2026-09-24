@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notchWindow: NotchWindowController?
     private var quickEntry: QuickEntryController?
     private var quickEntryHotKey: GlobalHotKey?
+    private let notifier = Notifier()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let quickEntry = QuickEntryController(queue: queue)
@@ -25,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ))
         controller.show()
         notchWindow = controller
+        queue.onDue = { [notifier] item in notifier.due(item) }
         queue.connect()
     }
 

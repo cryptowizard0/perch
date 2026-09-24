@@ -197,7 +197,7 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 
 | 键 | 作用 |
 | --- | --- |
-| 全局快捷键（待定） | 弹出快速录入，只支持 `@15:00` 和 `+30m` 两种时间语法 |
+| ⌥⇧Space（可改） | 弹出快速录入，只支持 `@15:00` 和 `+30m` 两种时间语法 |
 | ⌥⇧A / ⌥⇧D | 批准 / 拒绝队首的 request，手不离键盘 |
 | ⌥⇧O | 跳到队首项的 link |
 

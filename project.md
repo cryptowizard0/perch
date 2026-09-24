@@ -78,7 +78,7 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 | 2.4 | 展开态列表（悬停展开） | ✅ | 排序直接用 `queueOrdered`；每行：来源图标、标题、相对时间、跳转按钮 |
 | 2.5 | 点标题完成；⌥ 点推迟 30 分钟；notice 点一下转 task | ✅ | 用新 `update` op。request 的标题点了没反应（M4 用 Allow / Deny / 终端按钮），避免误点关掉请求 |
 | 2.6 | 全局快捷键弹快速录入 | ✅ | ⌥⇧Space（已定），`defaults write dev.perch.app QuickEntryHotKey …` 可改；非激活但可成为 key 的 NSPanel，不抢前台 App 焦点；右键刘海也能打开 |
-| 2.7 | `due_at` 到时：系统通知 + 刘海脉冲 | ⬜ | App 侧按最近的 due_at 设计时器（daemon 目前不发到期事件）；`UNUserNotificationCenter` 需要 .app bundle，ad-hoc 签名下要实测能否弹通知 |
+| 2.7 | `due_at` 到时：系统通知 + 刘海脉冲 | ✅ | App 侧按最近的 due_at 设计时器（daemon 不发到期事件）；同一 (id, due) 只提醒一次，App 启动前就逾期的不提醒，推迟后换了 due 会再提醒。ad-hoc 签名的 .app 能弹出系统授权框；`swift run` 裸二进制没有 bundle，只脉冲不发通知 |
 | 2.8 | 验收：CLI 调用到刘海更新 ≤ 200 ms | ⬜ | 没有 Instruments：在 add 和 UI 刷新处打时间戳，或写一个 CLI → App 的计时脚本 |
 
 ### 构建路线（2.1，已定：SwiftPM）

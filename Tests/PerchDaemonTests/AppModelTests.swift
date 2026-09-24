@@ -81,3 +81,25 @@ extension AppModelTests {
         #expect(Calendar.current.component(.hour, from: try #require(item.dueAt)) == 15)
     }
 }
+
+extension AppModelTests {
+    @Test func dueTimeFiresReminderAndPulse() async throws {
+        let d = try TestDaemon()
+        let model = QueueModel()
+        var reminded: [String] = []
+        model.onDue = { reminded.append($0.title) }
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        try await until { model.online }
+        let pulses = model.pulse
+        // perchd stores whole seconds; +1.5 s lands 1–2 s from now.
+        _ = try d.client.send(Request(op: .add, item: Item(title: "stand up", dueAt: Date().addingTimeInterval(1.5))))
+        try await until { model.state.items.count == 1 }
+        #expect(reminded.isEmpty)
+        #expect(model.summary.signal == .todo)
+        try await until(timeout: 4) { !reminded.isEmpty }
+        #expect(reminded == ["stand up"])
+        #expect(model.pulse == pulses + 1)
+        #expect(model.summary.signal == .overdue)
+    }
+}

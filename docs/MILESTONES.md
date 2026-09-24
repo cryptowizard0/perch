@@ -23,7 +23,7 @@
 - [x] 展开态：固定排序 request → waiting → 逾期 → 今日 → 其余 open → notice；每行来源图标、标题、相对时间、跳转
 - [x] 点标题完成；⌥ 点推迟 30 分钟；notice 到 `expires_at` 自动消失，点一下转 task
 - [x] 全局快捷键弹快速录入（⌥⇧Space，Carbon `RegisterEventHotKey`，不需要辅助功能权限）
-- [ ] `due_at` 到时：系统通知 + 刘海脉冲
+- [x] `due_at` 到时：系统通知 + 刘海脉冲
 - [ ] 验收：CLI 调用到刘海更新 ≤ 200 ms
 
 ## M3 — Claude Code 被动接入
