@@ -64,11 +64,30 @@ public final class Service {
         } else {
             item.options = nil
         }
-        item.id = try freshID()
-        item.createdAt = t
+        return try store.transaction {
+            if let key = item.key, let existing = try store.find(key: key) {
+                return try upsert(existing, with: item, at: t)
+            }
+            item.id = try freshID()
+            item.createdAt = t
+            item.updatedAt = t
+            try store.insert(item)
+            return (Response(ok: true, item: item), [Event(type: .added, item: item, at: t)])
+        }
+    }
+
+    /// `add` with a key that already exists: the old item takes every field of the new one but keeps its
+    /// `id` and `created_at`. Re-adding reopens a closed item (the same agent session is waiting again) and
+    /// clears a previous `response` (it is a new question). An identical re-add changes nothing and emits nothing.
+    private func upsert(_ existing: Item, with incoming: Item, at t: Date) throws -> (Response, [Event]) {
+        var item = incoming
+        item.id = existing.id
+        item.createdAt = existing.createdAt
+        item.updatedAt = existing.updatedAt
+        guard item != existing else { return (Response(ok: true, item: existing), []) }
         item.updatedAt = t
-        try store.insert(item)
-        return (Response(ok: true, item: item), [Event(type: .added, item: item, at: t)])
+        try store.update(item)
+        return (Response(ok: true, item: item), [Event(type: .updated, item: item, at: t)])
     }
 
     private func done(_ id: String?) throws -> (Response, [Event]) {
