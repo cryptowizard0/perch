@@ -20,7 +20,8 @@ Sources/PerchApp/        刘海 App（AppKit + SwiftUI），SwiftPM 可执行 ta
 packaging/Info.plist     Perch.app 的 Info.plist（LSUIElement，无 Dock 图标）
 scripts/bundle-app.sh    编译 PerchApp 并组装、ad-hoc 签名成 .build/Perch.app
 docs/                    PRD、里程碑、给其他 agent 用的 SKILL 片段
-hooks/                   （M3 起）Claude Code / Codex 的 hook 适配脚本
+Sources/perch/Hook*.swift  hook 适配器就是 CLI 子命令：`perch hook <agent>`（读 stdin）、`perch hooks install|uninstall`
+scripts/install.sh       日常安装：perch / perchd → ~/.local/bin，Perch.app → ~/Applications，launchd，hooks
 ```
 
 ## 常用命令
@@ -54,14 +55,18 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 
 ## Hook 适配（M3 / M4 / M5）
 
-两家的 hook 事件名、stdin JSON 结构和 600 秒默认超时一致，共用一套脚本，只在返回格式处分支。
+两家的 hook 事件名、stdin JSON 结构和 600 秒默认超时一致，共用一个适配器：`perch hook <agent>`（Swift，不写 shell 脚本；映射逻辑在 `PerchCore/Hooks.swift` 的 `HookAdapter`），只在返回格式处分支。
+不阻塞的 hook 一律 `"async": true`；适配器**不往 stdout 打任何东西**（SessionStart / UserPromptSubmit 的 stdout 会进模型上下文）、永远 exit 0，失败写 `~/.perch/hook.log`。
 
 | 事件 | 适配器行为 | 阻塞 agent |
 | --- | --- | --- |
-| `SessionStart` / `Stop` | 维护 Live Activity：哪些 agent 在跑、跑了多久 | 否 |
-| `Notification`（matcher `permission_prompt` / `idle_prompt` / `agent_needs_input`） | `perch add --status waiting --key <session_id>` | 否 |
-| `Stop` | resolve 同 key 的 waiting，发一条 notice（含 `last_assistant_message` 摘要） | 否 |
-| `PermissionRequest` | `perch add --kind request --wait`，拿到 allow/deny 后按各家格式打印 JSON | 是 |
+| `UserPromptSubmit` | session_start（Live Activity 按"轮"计时）；resolve 本会话的 waiting 和上一条完成 notice；Ghostty 下记下当前聚焦的 terminal id | 否 |
+| `Notification`（matcher `permission_prompt` / `elicitation_dialog` / `agent_needs_input`；**不接 `idle_prompt`**） | add waiting，key `<agent>:<session_id>` | 否 |
+| `Stop` | session_end；`done --key` resolve waiting；发 notice（`last_assistant_message` 首行摘要，key `<agent>:<session_id>:done`，10 分钟后消失） | 否 |
+| `StopFailure` / `SessionEnd` | session_end；resolve waiting | 否 |
+| `PermissionRequest`（M4） | `perch add --kind request --wait`，拿到 allow/deny 后按各家格式打印 JSON | 是 |
+
+session（Live Activity）只在 perchd 内存里，不进 SQLite：`perch session start|end|ls`，事件 `session.started|ended`。
 
 `perch add --kind request --wait` 的约定：有人回应 → stdout 打印回应值、exit 0；过期（`--expires`）/ 被 done / 被 rm → exit 3、不打印回应。适配器只在 exit 0 时返回决定，其余一律不返回，让终端原生提示接管。
 
@@ -92,7 +97,7 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 
 ## 未决问题（定了就更新这里）
 
-- `link` 跳回终端的机制：取决于日常用的终端（Zed 内置终端、Warp、tmux、iTerm 的 URL scheme 各不相同）。M3 前定。
+- ~~`link` 跳回终端的机制~~ 已定（M3）：`perch-terminal://<app>?id=&cwd=&bundle=`。Ghostty（≥ 1.3，AppleScript）在 UserPromptSubmit 时记下聚焦的 terminal id，跳转时 `focus` 那个 terminal，找不到按目录找，再不行激活 App；其他终端只激活 App（按 `__CFBundleIdentifier`）。
 - ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。
 - hook 等刘海的超时取 15 还是 30 秒，用一周后定。
 - 开源许可证。

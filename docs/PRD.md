@@ -141,8 +141,8 @@ flowchart LR
 
 | 事件 | 触发时机 | 适配器做什么 | 是否阻塞 agent |
 | --- | --- | --- | --- |
-| `SessionStart` / `Stop` | 会话开始、一轮结束 | 维护 Live Activity：哪些 agent 在跑、跑了多久 | 否 |
-| `Notification`（matcher: `permission_prompt`、`idle_prompt`、`agent_needs_input`） | agent 需要人 | `perch add --status waiting --key <session_id>`，刘海变橙 | 否 |
+| `UserPromptSubmit` / `Stop` | 一轮开始、一轮结束 | 维护 Live Activity：哪些 agent 在跑、这一轮跑了多久（M3 定：按轮计时，不按会话） | 否 |
+| `Notification`（matcher: `permission_prompt`、`elicitation_dialog`、`agent_needs_input`；M3 定：不接 `idle_prompt`，否则每轮结束都变橙） | agent 需要人 | `perch add --status waiting --key <session_id>`，刘海变橙 | 否 |
 | `Stop` | 一轮结束 | resolve 同一 key 的 waiting，发一条 notice（带 `last_assistant_message` 摘要） | 否 |
 | `PermissionRequest` | 权限提示弹出前 | `perch add --kind request --wait`，阻塞等刘海响应；拿到 allow/deny 后按各家格式打印 JSON 退出 | 是 |
 
@@ -230,7 +230,7 @@ Swift 全栈，一种语言：SwiftUI 做刘海 UI，daemon 和 CLI 用 Swift Ar
 
 ## 未决问题与产品化余地
 
-- [ ] `link` 跳回终端的机制：取决于日常跑三个 agent 用的终端（Zed 内置终端、Warp、tmux、iTerm 的 URL scheme 和 session 引用方式各不相同）。不影响前两步，第 3 步前定。
+- [x] `link` 跳回终端的机制：日常用 Ghostty。Ghostty ≥ 1.3 可 AppleScript：提交 prompt 时记下聚焦的 terminal id，跳转时 focus 它；其他终端只激活 App。
 - [x] 产品名 Perch（栖），CLI `perch`：agent 停在刘海上等你。
 - [x] 全局快捷键默认值：快速录入 ⌥⇧Space。
 - [ ] hook 等刘海的超时具体取 15 还是 30 秒，用一周后再定。

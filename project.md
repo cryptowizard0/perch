@@ -3,15 +3,15 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-09-24 · M2 完成（有几项交互待人工确认，见"M2 人工验收"），下一步 M3
+最后更新：2026-09-24 · M3 代码完成，等真实 Claude Code 会话验收（见"M3 进度"），之后 M4
 
 ## 总览
 
 | # | 里程碑 | 状态 | 说明 |
 | --- | --- | --- | --- |
 | M1 | daemon + CLI + SQLite + watch | ✅ 完成 | 10 项全勾，73 个测试通过 |
-| M2 | 刘海 UI | ✅ 完成 | 8 项全勾，122 个测试通过；CLI → 刘海 均值 11 ms。悬停 / 点击 / 快捷键 / 通知横幅需人工确认 |
-| M3 | Claude Code 被动接入（Notification / Stop / SessionStart） | ⏭ 下一步 | 先定 Live Activity 数据来源和 `link` 跳终端机制（见未决问题） |
+| M2 | 刘海 UI | ✅ 完成 | 8 项全勾；CLI → 刘海 均值 11 ms。悬停、点击用户已确认 |
+| M3 | Claude Code 被动接入（UserPromptSubmit / Notification / Stop） | 🔶 代码完成 | 152 个测试通过；剩真实会话验收（装 hooks → Ghostty 里跑一次） |
 | M4 | PermissionRequest + 白名单 | ⬜ 未开始 | CLI 侧 `--wait` 已就绪 |
 | M5 | Codex 复用同一套 hook 脚本 | ⬜ 未开始 | |
 | M6 | Hermes HTTP 接入 | ⬜ 未开始 | HTTP `POST /rpc` 已就绪，只剩容器内实测 |
@@ -50,10 +50,15 @@ Sources/PerchCore/     纯逻辑，无 I/O，App 可直接复用：
   DueParser.swift        @15:00 / +30m / +1h30m / ISO-8601
   Markdown.swift         MirrorRenderer（todo.md）、Inbox（inbox.md 解析）、QuickEntry（"标题 @15:00" → 标题 + due）
   Paths.swift            ~/.perch（PERCH_HOME 可覆盖）
+  Sessions.swift         Session / SessionEvent（Live Activity，不入库）
+  Hooks.swift            HookInput / HookAdapter（hook 事件 → 请求，纯函数）
+  TerminalLink.swift     perch-terminal://<app>?id=&cwd=&bundle=
 Sources/PerchClient/   PerchClient.send / watch() → EventStream；BufferedSocket（阻塞式 socket + 读缓冲）
-Sources/PerchDaemon/   Daemon（串行队列 + 订阅者 + 过期计时器 + 镜像 + inbox 监听）、Service（各 op）、Store（sqlite）、
+Sources/PerchDaemon/   Daemon（串行队列 + 订阅者 + 过期计时器 + 镜像 + inbox 监听）、Service（各 op）、Store（sqlite）、SessionRegistry、
                        Server / HTTPConnection（Unix socket + 127.0.0.1 HTTP）、Files（MirrorWriter / InboxWatcher）、LaunchAgent
-Sources/perch/         CLI：add / ls / get / done / update / respond / rm / watch / hooks（hooks 是 M3 占位）
+Sources/perch/         CLI：add / ls / get / done / update / respond / rm / watch / session / hook / hooks
+  Hook.swift             `perch hook <agent>`：stdin → HookAdapter → perchd；Ghostty 探测；HookLog
+  HooksInstall.swift     `perch hooks install|uninstall claude-code`（ClaudeSettings：合并 / 移除 settings.json）
 Sources/perchd/        入口：run（默认）/ install / uninstall
 Sources/PerchAppCore/  刘海 App 的可测逻辑（无 AppKit）：
   NotchGeometry          刘海矩形、收起 / 展开 frame、无刘海胶囊
@@ -61,10 +66,11 @@ Sources/PerchAppCore/  刘海 App 的可测逻辑（无 AppKit）：
   QueueConnection        后台线程：watch → list → 事件；离线退避重连 0.5→5 s
   QueueModel             @MainActor ObservableObject：状态、分钟 / 到期 tick、click / quickAdd、flash、onDue / onApply
   Click / RowFormat      点击 → 请求映射；行内时间文本、来源图标、link → URL
+  Jump                   JumpTarget（终端 / URL）、GhosttyScript（focus 的 AppleScript）
   DueReminders / HotKey / LiveActivity / RelativeTime
 Sources/PerchApp/      AppKit + SwiftUI 壳：NotchPanel / NotchWindowController（悬停、布局、换屏）、NotchView / ExpandedList、
-                       QuickEntry（面板）、GlobalHotKey（Carbon）、Notifier（UNUserNotification）、AppDelegate
-packaging/Info.plist · scripts/bundle-app.sh · scripts/measure-latency.sh
+                       QuickEntry（面板）、GlobalHotKey（Carbon）、Notifier（UNUserNotification）、Jumper（跳终端）、AppDelegate
+packaging/Info.plist · scripts/bundle-app.sh · scripts/measure-latency.sh · scripts/install.sh
 Tests/PerchCoreTests/    纯逻辑
 Tests/PerchAppCoreTests/ App 纯逻辑
 Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 跑真实 perch 二进制（CLITests / AcceptanceTests）；
@@ -114,17 +120,43 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 - perchd 没启动或重启 → 离线图标，退避重连 0.5 s → 5 s，重连后重新拿快照。
 - "现在"在分钟边界和下一个 due 时刻各 tick 一次，只负责重排 / 变红 / 到期提醒，不代替事件推送。
 
-### M2 人工验收（我没法合成鼠标键盘事件，这几项需要人手点一遍）
+### M2 人工验收（我没法合成鼠标键盘事件，这几项需要人手点一遍；悬停、点击已由用户确认）
 
 ```
 swift build && scripts/bundle-app.sh && open .build/Perch.app     # perchd 要在跑（perchd install 或前台 perchd）
 ```
-- [ ] 鼠标移到刘海：约 0.1 s 展开；移开约 0.3 s 收起；贴着菜单栏划过不误触
-- [ ] 点任务标题 → 完成消失；⌥ 点 → 右侧时间变 "in 30m"；点 notice → 变成白色 task 且不再自动消失；点 request 标题无反应
+- [x] 鼠标移到刘海：约 0.1 s 展开；移开约 0.3 s 收起；贴着菜单栏划过不误触
+- [x] 点任务标题 → 完成消失；⌥ 点 → 右侧时间变 "in 30m"；点 notice → 变成白色 task 且不再自动消失；点 request 标题无反应
 - [ ] ⌥⇧Space 弹出快速录入，输入"回复 X 的邮件 +1m"回车；不抢当前 App 焦点；Esc / 点别处关闭
 - [ ] 首次启动允许通知；1 分钟后弹系统通知、刘海脉冲、点变红
 - [ ] 右键刘海：New Task… / Quit Perch
 - [ ] 接外接显示器 / 合盖：刘海或胶囊跟着换位置
+
+## M3 进度（Claude Code 被动接入）
+
+用户定的：Live Activity = 内存 session、按轮计时（UserPromptSubmit → Stop）；终端 = Ghostty；不接 `idle_prompt`。
+
+| # | 任务 | 状态 | 要点 |
+| --- | --- | --- | --- |
+| 3.1 | session（Live Activity 数据） | ✅ | `session_start/session_end/sessions` op、`perch session start|end|ls`、`session.*` 事件；只在内存；乱序消息按时间戳丢弃（平局算 start 新）；3 小时没结束自动清 |
+| 3.2 | `perch done --key` | ✅ | hook 只知道 key 不知道 id |
+| 3.3 | `perch hook claude-code` | ✅ | 映射见 CLAUDE.md "Hook 适配"；不打 stdout、exit 0、错误写 `~/.perch/hook.log` |
+| 3.4 | `perch hooks install/uninstall claude-code` | ✅ | 合并写 settings.json，备份 `.perch-backup`，只删自己的；对真实 settings 的 dry-run 只多出 5 条 Perch hook |
+| 3.5 | App：Live Activity + 跳回 Ghostty | ✅ | `perch-terminal://ghostty?id=&cwd=&bundle=`；osascript focus；失败退化为激活 App |
+| 3.6 | 验收：真实会话 | ⬜ | `scripts/install.sh` 装好后在 Ghostty 里跑 claude（见下） |
+
+### M3 验收步骤
+
+```
+scripts/install.sh          # perch/perchd → ~/.local/bin，Perch.app → ~/Applications，launchd，hooks
+```
+然后在 Ghostty 里开 `claude`：
+- [ ] 发一条 prompt → 刘海左侧出现 "1 agent · <1m"
+- [ ] 让它跑一个需要权限的命令 → 刘海变橙，列表里 "项目名 · Claude needs your permission…"
+- [ ] 在终端里批准 → 跑完后橙色消失，出现灰色 notice（最后一句话摘要），10 分钟后自动消失；Live Activity 消失
+- [ ] 点那条的终端按钮 → 回到那个 Ghostty tab（第一次会弹"Perch 想控制 Ghostty"，允许）
+- [ ] `~/.perch/hook.log` 没有异常
+- 待确认的风险：hook 里的 osascript 问 Ghostty 聚焦的 terminal，可能弹"Ghostty 想控制 Ghostty"之类的授权；被拒时退化为按目录找 tab。
 
 ### M2 协议扩展：`update`（已实现）
 
@@ -137,10 +169,10 @@ swift build && scripts/bundle-app.sh && open .build/Perch.app     # perchd 要�
 | 问题 | 影响 | 状态 |
 | --- | --- | --- |
 | 装不装 Xcode（决定 M2 构建路线） | M2.1 | ✅ 已定：不装，SwiftPM + `scripts/bundle-app.sh` |
-| Live Activity（"2 agents · 4m"）的数据从哪来：数据模型里没有"会话"。可选：SessionStart 时 `add --kind notice --key session-<id>` 加 meta 标记，Stop 时关闭；或新增 kind / 表 | M2.3、M3 | 未定；M2 先把 UI 做好、数据为空时隐藏 |
+| Live Activity（"2 agents · 4m"）的数据从哪来 | M2.3、M3 | ✅ 内存 session，按轮计时（UserPromptSubmit → Stop / StopFailure / SessionEnd） |
 | `update` / snooze op 的形状 | M2.5 | ✅ 已定：通用 `update` op + `perch update`（见上方） |
 | 全局快捷键默认值（快速录入；⌥⇧A / ⌥⇧D / ⌥⇧O） | M2.6、M4 | ✅ 快速录入 ⌥⇧Space；其余沿用 PRD，M4 实现 |
-| `link` 跳回终端的机制（Zed / Warp / tmux / iTerm） | M2.4 跳转按钮、M3 | M3 前定；M2 先用 `NSWorkspace.open` 处理 URL 和文件路径 |
+| `link` 跳回终端的机制（Zed / Warp / tmux / iTerm） | M2.4 跳转按钮、M3 | ✅ Ghostty AppleScript focus terminal id；其他终端激活 App |
 | hook 等刘海的超时取 15 秒还是 30 秒 | M4 | 用一周后定 |
 | 开源许可证 | 分发 | 未定 |
 
@@ -154,6 +186,8 @@ swift build && scripts/bundle-app.sh && open .build/Perch.app     # perchd 要�
 - Perch.app 还不会开机自启（perchd 有 launchd，App 没有）；也没有图标（`actool` 不可用，要做就放 .icns 到 `packaging/`）。
 - 展开态高度是估算的（request 按 52 字 / 行算），很长的 request 靠列表滚动兜底。
 - `link` 只能打开 URL 和绝对 / `~` 路径；tmux 等终端会话引用没有跳转按钮，等 M3 定机制。
+- Esc 打断一轮时 Claude Code 不发 Stop：Live Activity 会一直挂着，直到下一条 prompt 的 Stop、SessionEnd 或 3 小时超时。
+- 非 Ghostty 终端只能激活 App，定位不到 tab。Perch.app 还没有注册 `perch-terminal://` URL scheme（todo.md 里的这类链接点不开）。
 - 点击 / 快捷键的 UI 路径没有自动化测试（只测了 `Click` 映射和 `QueueModel`），改交互要人工回归上面的清单。
 
 ## 工作约定（来自用户和 CLAUDE.md）

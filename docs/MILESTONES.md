@@ -28,8 +28,8 @@
 
 ## M3 — Claude Code 被动接入
 
-- [ ] `hooks/` 下的适配脚本：`SessionStart` / `Stop` 维护 Live Activity；`Notification` 生成 waiting；`Stop` resolve 并发 notice
-- [ ] `perch hooks install claude-code` 写 `~/.claude/settings.json`，`uninstall` 干净移除
+- [x] hook 适配器 `perch hook claude-code`（Swift 子命令，不用 shell 脚本）：`UserPromptSubmit` / `Stop` 维护 Live Activity（按轮计时）；`Notification` 生成 waiting；`Stop` resolve 并发 notice
+- [x] `perch hooks install claude-code` 写 `~/.claude/settings.json`，`uninstall` 干净移除
 - [ ] 验收：跑一个需要权限的任务，刘海变橙；跑完后 notice 出现并自动消失
 
 ## M4 — PermissionRequest + 白名单
