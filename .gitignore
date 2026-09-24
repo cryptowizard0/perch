@@ -1,0 +1,21 @@
+# SwiftPM
+.build/
+.swiftpm/
+
+# XcodeGen output (regenerate with `xcodegen generate`)
+Perch.xcodeproj/
+*.xcworkspace/
+PerchApp/Info.plist
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.dSYM
+*.xccheckout
+*.moved-aside
+
+# macOS
+.DS_Store
+
+# Local state
+.perch/

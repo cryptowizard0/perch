@@ -1,0 +1,38 @@
+# XcodeGen spec for the notch app. The CLI and daemon are plain SwiftPM (Package.swift).
+#   brew install xcodegen && xcodegen generate && open Perch.xcodeproj
+# Perch.xcodeproj is generated and git-ignored; edit this file, not the project.
+name: Perch
+options:
+  bundleIdPrefix: dev.perch
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+packages:
+  PerchCore:
+    path: .
+targets:
+  PerchApp:
+    type: application
+    platform: macOS
+    sources:
+      - PerchApp
+    dependencies:
+      - package: PerchCore
+        product: PerchCore
+    info:
+      path: PerchApp/Info.plist
+      properties:
+        CFBundleName: Perch
+        CFBundleDisplayName: Perch
+        LSUIElement: true            # no Dock icon; lives in the notch / menu bar
+        NSHumanReadableCopyright: ""
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.perch.app
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+        # Not sandboxed on purpose: Unix socket + launchd + hook install need it. Not App Store.
+        ENABLE_APP_SANDBOX: NO
