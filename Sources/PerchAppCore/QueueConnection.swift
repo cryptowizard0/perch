@@ -7,8 +7,9 @@ import PerchCore
 /// every reconnect starts with a fresh snapshot. Never polls while connected.
 public final class QueueConnection: @unchecked Sendable {
     public enum Update: Sendable {
-        case snapshot([Item])
+        case snapshot([Item], [Session])
         case event(Event)
+        case session(SessionEvent)
         case offline(String)
     }
 
@@ -62,11 +63,15 @@ public final class QueueConnection: @unchecked Sendable {
                     return true
                 }) else { return }
                 // Subscribed first, so nothing that happens after the snapshot can be missed.
-                let snapshot = try client.send(Request(op: .list)).items ?? []
-                send(.snapshot(snapshot))
+                let items = try client.send(Request(op: .list)).items ?? []
+                let sessions = try client.send(Request(op: .sessions)).sessions ?? []
+                send(.snapshot(items, sessions))
                 delay = Self.backoff.lowerBound
-                while let event = try stream.next() {
-                    send(.event(event))
+                while let push = try stream.nextPush() {
+                    switch push {
+                    case .item(let event): send(.event(event))
+                    case .session(let event): send(.session(event))
+                    }
                 }
                 if !isStopped { send(.offline("perchd stopped")) }
             } catch {

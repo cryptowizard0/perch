@@ -34,7 +34,7 @@ public enum RowFormat {
         guard let link = link?.trimmingCharacters(in: .whitespaces), !link.isEmpty else { return nil }
         if link.hasPrefix("/") { return URL(fileURLWithPath: link) }
         if link.hasPrefix("~/") { return URL(fileURLWithPath: NSString(string: link).expandingTildeInPath) }
-        guard link.contains("://"), let url = URL(string: link), url.scheme != nil else { return nil }
+        guard link.contains("://"), let url = URL(string: link), let scheme = url.scheme, scheme != TerminalLink.scheme else { return nil }
         return url
     }
 

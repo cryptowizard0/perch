@@ -103,3 +103,25 @@ extension AppModelTests {
         #expect(model.summary.signal == .overdue)
     }
 }
+
+extension AppModelTests {
+    @Test func liveActivityFollowsSessions() async throws {
+        let d = try TestDaemon()
+        _ = try d.client.send(Request(op: .sessionStart, session: Session(id: "a", source: "claude-code", title: "perch",
+                                                                          startedAt: Date().addingTimeInterval(-245))))
+        let model = QueueModel()
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        try await until { model.online }
+        #expect(model.liveActivity?.text(now: Date()) == "1 agent · 4m")
+
+        _ = try d.client.send(Request(op: .sessionStart, session: Session(id: "b", source: "codex", title: "x")))
+        try await until { model.sessions.count == 2 }
+        #expect(model.liveActivity?.text(now: Date()) == "2 agents · 4m")
+
+        _ = try d.client.send(Request(op: .sessionEnd, id: "a"))
+        _ = try d.client.send(Request(op: .sessionEnd, id: "b"))
+        try await until { model.sessions.isEmpty }
+        #expect(model.liveActivity == nil)
+    }
+}

@@ -43,7 +43,7 @@ import Testing
         defer { connection.stop() }
 
         let first = recorder.wait { !$0.isEmpty }
-        guard case .snapshot(let items) = first.first else { Issue.record("expected a snapshot, got \(first)"); return }
+        guard case .snapshot(let items, _) = first.first else { Issue.record("expected a snapshot, got \(first)"); return }
         #expect(items.map(\.title) == ["already there"])
 
         _ = try d.client.send(Request(op: .add, item: Item(title: "pushed")))
@@ -65,7 +65,7 @@ import Testing
         let d = try TestDaemon(home: home)
         _ = try d.client.send(Request(op: .add, item: Item(title: "after start")))
         let updates = recorder.wait { $0.contains { if case .snapshot = $0 { return true } else { return false } } }
-        let snapshot = updates.compactMap { if case .snapshot(let items) = $0 { return items } else { return nil } }.first
+        let snapshot = updates.compactMap { if case .snapshot(let items, _) = $0 { return items } else { return nil } }.first
         #expect(snapshot?.map(\.title) == ["after start"])
     }
 

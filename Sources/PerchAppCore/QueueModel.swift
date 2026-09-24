@@ -15,8 +15,8 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var now = Date()
     /// Bumped whenever the notch should pulse once.
     @Published public private(set) var pulse = 0
-    /// Running agent sessions. No data source until M3, so always nil for now.
-    @Published public private(set) var liveActivity: LiveActivity?
+    /// Agent turns in progress, by session id (Live Activity).
+    @Published public private(set) var sessions: [String: Session] = [:]
     /// The last failed action, shown briefly in the expanded notch.
     @Published public private(set) var flash: String?
 
@@ -35,6 +35,10 @@ public final class QueueModel: ObservableObject {
     public init() {}
 
     public var ordered: [Item] { state.ordered(now: now) }
+    /// nil when no agent is running.
+    public var liveActivity: LiveActivity? {
+        sessions.isEmpty ? nil : LiveActivity(sessionStarts: sessions.values.map(\.startedAt))
+    }
     public var summary: Summary { state.summary(now: now) }
 
     public func connect(client: PerchClient = PerchClient()) {
@@ -55,15 +59,19 @@ public final class QueueModel: ObservableObject {
 
     public func handle(_ update: QueueConnection.Update) {
         switch update {
-        case .snapshot(let items):
+        case .snapshot(let items, let running):
             state.replace(with: items)
+            sessions = Dictionary(running.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
             online = true
             offlineReason = nil
         case .event(let event):
             if state.apply(event) { pulse += 1 }
+        case .session(let event):
+            sessions[event.session.id] = event.type == .started ? event.session : nil
         case .offline(let reason):
             online = false
             offlineReason = reason
+            sessions = [:]
         }
         refresh()
         onApply?(update)

@@ -45,9 +45,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let link = response.notification.request.content.userInfo["link"] as? String
-        if let url = RowFormat.linkURL(link) {
-            DispatchQueue.main.async { NSWorkspace.shared.open(url) }
-        }
+        DispatchQueue.main.async { Jumper.jump(link) }
         completionHandler()
     }
 }

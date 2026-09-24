@@ -12,7 +12,7 @@ import Testing
     @Test func countAndLongestRunning() {
         let two = LiveActivity(sessionStarts: [now.addingTimeInterval(-60), now.addingTimeInterval(-245)])
         #expect(two.text(now: now) == "2 agents · 4m")
-        #expect(LiveActivity(sessionStarts: [now.addingTimeInterval(-30)]).text(now: now) == "1 agent · 30s")
+        #expect(LiveActivity(sessionStarts: [now.addingTimeInterval(-30)]).text(now: now) == "1 agent · <1m")
     }
 
     @Test func durations() {

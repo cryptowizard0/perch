@@ -107,20 +107,34 @@ struct ItemRow: View {
     }
 }
 
-/// Opens the item's link (URL or path). Terminal session references get a jump target in M3.
+/// Jumps to the item's link: the agent's terminal (Ghostty: the exact tab), a URL or a path.
 struct JumpButton: View {
     var link: String?
 
     var body: some View {
-        if let url = RowFormat.linkURL(link) {
-            Button { NSWorkspace.shared.open(url) } label: {
-                Image(systemName: "arrow.up.forward.square").font(.system(size: 12))
+        if let target = JumpTarget(link: link) {
+            Button { Jumper.jump(link) } label: {
+                Image(systemName: target.isTerminal ? "terminal" : "arrow.up.forward.square").font(.system(size: 12))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white.opacity(0.7))
-            .help(link ?? "")
+            .help(target.help)
         } else {
             Color.clear.frame(width: 12, height: 1)
+        }
+    }
+}
+
+extension JumpTarget {
+    var isTerminal: Bool {
+        if case .terminal = self { return true }
+        return false
+    }
+
+    var help: String {
+        switch self {
+        case .terminal(let t): return "Back to \(t.app == "ghostty" ? "Ghostty" : t.app)" + (t.cwd.map { " · \($0)" } ?? "")
+        case .open(let url): return url.isFileURL ? url.path : url.absoluteString
         }
     }
 }
