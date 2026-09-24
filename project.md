@@ -57,7 +57,7 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 ## 已定下的契约（M2+ 依赖，改之前先想清楚）
 
 - Wire：Unix socket 上一行一个 JSON；HTTP `POST /rpc` 同一套 JSON。`watch` 先回 `{"ok":true}` 确认，再逐行推 `{"ok":true,"event":{…}}`。**确认之后发生的变化保证能收到**，所以客户端正确做法是：先 `watch()`，再 `list` 拿快照。
-- op：`ping / add / list / get / done / respond / remove / watch`。`list` 默认只返回 open + waiting，已按队列顺序排好。
+- op：`ping / add / list / get / done / respond / remove / update / watch`。`list` 默认只返回 open + waiting，已按队列顺序排好。
 - `add --key`：同 key 更新原项（保留 id 和 created_at），会重新打开已关闭项并清空旧 response；内容完全相同的重复 add 不发事件。
 - request：默认 status waiting、options `allow,deny`；`respond` 校验选项，回应后 status 变 done。
 - `expires_at`：到点 daemon 把 open / waiting 项置为 dismissed 并推 `item.updated`（notice 自动消失、request 超时都靠它）。
@@ -98,13 +98,11 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 - perchd 没启动或重启：`next()` 返回 nil / 抛错 → 显示离线状态，退避重连（例如 0.5s → 5s），重连后重新拿快照。
 - 队列顺序依赖"现在"（逾期、今日），需要一个分钟级计时器重排；这个计时器只负责重排，不能用来代替事件推送。
 
-### M2 需要的协议扩展（开工前先定）
+### M2 协议扩展：`update`（已实现）
 
-现有 op 无法满足 2.5：
-- ⌥ 点推迟 30 分钟 → 要改 `due_at`；
-- notice 点一下转 task → 要改 `kind`（很可能还要清掉 `expires_at`）。
-
-建议新增一个 `update` op（`id` + 要改的字段），并配一个 CLI 子命令（例如 `perch snooze <id> +30m`，或者更通用的 `perch update <id> --due … --kind …`）。CLI 是唯一契约：**只能新增，不改已有参数**。先写测试（ServiceTests / CLITests），再实现。
+- op `update` + `id` + `patch`（`title` / `kind` / `due_at` / `clear_due`，JSON snake_case），只改给了的字段；内容不变不发事件。
+- `kind` 只能在 task ↔ notice 之间切；notice 转 task 时清掉 `expires_at`（否则会按 notice 的时间被 dismiss）；request 的 kind 不能改，也不能改成 request。
+- CLI：`perch update <id> [--title …] [--kind task|notice] [--due …] [--no-due] [--json]`。推迟 30 分钟 = `--due +30m`（从现在起算，不是从原 due 起算）。
 
 ## 未决问题
 
@@ -112,7 +110,7 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 | --- | --- | --- |
 | 装不装 Xcode（决定 M2 构建路线） | M2.1 | ✅ 已定：不装，SwiftPM + `scripts/bundle-app.sh` |
 | Live Activity（"2 agents · 4m"）的数据从哪来：数据模型里没有"会话"。可选：SessionStart 时 `add --kind notice --key session-<id>` 加 meta 标记，Stop 时关闭；或新增 kind / 表 | M2.3、M3 | 未定；M2 先把 UI 做好、数据为空时隐藏 |
-| `update` / snooze op 的形状 | M2.5 | 见上方建议 |
+| `update` / snooze op 的形状 | M2.5 | ✅ 已定：通用 `update` op + `perch update`（见上方） |
 | 全局快捷键默认值（快速录入；⌥⇧A / ⌥⇧D / ⌥⇧O） | M2.6、M4 | 未定（CLAUDE.md 也列了） |
 | `link` 跳回终端的机制（Zed / Warp / tmux / iTerm） | M2.4 跳转按钮、M3 | M3 前定；M2 先用 `NSWorkspace.open` 处理 URL 和文件路径 |
 | hook 等刘海的超时取 15 秒还是 30 秒 | M4 | 用一周后定 |

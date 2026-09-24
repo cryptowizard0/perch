@@ -208,3 +208,36 @@ struct CLIError: Error, CustomStringConvertible {
     let description: String
     init(_ description: String) { self.description = description }
 }
+
+@Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
+struct UpdateCLITests {
+    @Test func snoozeRetitleAndPromote() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let id = try cli.run("add", "codex finished", "--kind", "notice", "--expires", "300").stdout
+        let before = Date()
+        let snoozed = try cli.run("update", id, "--due", "+30m", "--kind", "task", "--title", "follow up", "--json").json.item
+        #expect(snoozed?.kind == .task)
+        #expect(snoozed?.title == "follow up")
+        #expect(snoozed?.expiresAt == nil)
+        #expect(abs((snoozed?.dueAt ?? .distantPast).timeIntervalSince(before) - 1800) < 5)
+
+        let plain = try cli.run("update", id, "--no-due")
+        #expect(plain.status == 0)
+        #expect(plain.stdout == "updated \(id)  follow up")
+        #expect(try cli.run("get", id, "--json").json.item?.dueAt == nil)
+    }
+
+    @Test func errors() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let id = try cli.run("add", "t").stdout
+        let nothing = try cli.run("update", id)
+        #expect(nothing.status == 64)
+        #expect(nothing.stderr == "perch: give at least one of --title, --kind, --due, --no-due")
+        #expect(try cli.run("update", id, "--due", "+1h", "--no-due", "--json").json.error
+                == "--due and --no-due cannot be combined")
+        #expect(try cli.run("update", id, "--kind", "bogus").stderr == "perch: --kind must be task or notice")
+        #expect(try cli.run("update", "zzzz", "--title", "x", "--json").json.error == "no item with id 'zzzz'")
+    }
+}

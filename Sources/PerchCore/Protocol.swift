@@ -13,23 +13,27 @@ import Foundation
 /// - `list` + optional `filter` → `items`, in queue order (see `Item.queueOrder`)
 /// - `get` / `done` / `remove` + `id` → `item` (`remove` returns the deleted item)
 /// - `respond` + `id` + `value` → `item`; the request is closed with `status: done`
+/// - `update` + `id` + `patch` → `item`. Only the fields set in `patch` change; see `Request.Patch`
 /// - `watch` → stream of events
 public struct Request: Codable, Sendable {
     public enum Op: String, Codable, Sendable {
-        case ping, add, list, get, done, respond, remove, watch
+        case ping, add, list, get, done, respond, remove, update, watch
     }
     public var op: Op
     public var item: Item?
     public var id: String?
     public var value: String?
     public var filter: Filter?
+    public var patch: Patch?
 
-    public init(op: Op, item: Item? = nil, id: String? = nil, value: String? = nil, filter: Filter? = nil) {
+    public init(op: Op, item: Item? = nil, id: String? = nil, value: String? = nil, filter: Filter? = nil,
+                patch: Patch? = nil) {
         self.op = op
         self.item = item
         self.id = id
         self.value = value
         self.filter = filter
+        self.patch = patch
     }
 
     /// For `list`. Without `status`, only active items (open, waiting) are returned unless `all` is true.
@@ -43,6 +47,33 @@ public struct Request: Codable, Sendable {
             self.source = source
             self.kind = kind
             self.all = all
+        }
+    }
+
+    /// For `update`. Unset fields stay as they are. `kind` switches between task and notice only
+    /// (a notice that becomes a task stops expiring); requests keep their kind.
+    public struct Patch: Codable, Sendable, Equatable {
+        public var title: String?
+        public var kind: ItemKind?
+        public var dueAt: Date?
+        /// Removes `due_at`. Cannot be combined with `due_at`.
+        public var clearDue: Bool?
+
+        public init(title: String? = nil, kind: ItemKind? = nil, dueAt: Date? = nil, clearDue: Bool? = nil) {
+            self.title = title
+            self.kind = kind
+            self.dueAt = dueAt
+            self.clearDue = clearDue
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case title, kind
+            case dueAt = "due_at"
+            case clearDue = "clear_due"
+        }
+
+        public var isEmpty: Bool {
+            title == nil && kind == nil && dueAt == nil && clearDue != true
         }
     }
 }

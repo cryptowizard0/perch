@@ -7,6 +7,6 @@
 - 需要人做决定或提供东西时：`perch add "<一句话说清要什么>" --source <你的名字> --status waiting --key <session_id> --link <当前目录或 PR 链接>`
 - 做完一件值得告知的事：`perch add "<结果>" --kind notice --source <你的名字>`
 - 查看人给你留的任务：`perch ls --source human --json`
-- 完成一项：`perch done <id>`
+- 完成一项：`perch done <id>`；改标题 / 推迟：`perch update <id> --title … --due +30m`
 - 同一件事不要重复 add，用同一个 `--key`。
 ```

@@ -13,7 +13,7 @@ struct Perch: ParsableCommand {
         commandName: "perch",
         abstract: "Where your agents wait. A notch-resident queue for AI agents.",
         version: PerchVersion.string,
-        subcommands: [Add.self, Ls.self, Get.self, Done.self, Respond.self, Rm.self, Watch.self, Hooks.self]
+        subcommands: [Add.self, Ls.self, Get.self, Done.self, Update.self, Respond.self, Rm.self, Watch.self, Hooks.self]
     )
 
     /// Like ParsableCommand.main(), but failures honour `--json` (including argument errors).
@@ -209,6 +209,44 @@ struct Done: ParsableCommand {
         let response = try call(Request(op: .done, id: id))
         if json { return printJSON(response) }
         if let item = response.item { print("done \(item.id)  \(item.title)") }
+    }
+}
+
+struct Update: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Change an item's title, kind or due time.",
+        discussion: """
+        Snooze: perch update <id> --due +30m. Keep a notice as a task: perch update <id> --kind task
+        (it stops expiring). Requests keep their kind.
+        """
+    )
+    @Argument var id: String
+    @Option(help: "New title.") var title: String?
+    @Option(help: "task | notice") var kind: String?
+    @Option(help: "Due time: @15:00, +30m / +2h / +1d, or ISO-8601.") var due: String?
+    @Flag(help: "Remove the due time.") var noDue = false
+    @Flag(help: "Print JSON.") var json = false
+
+    func run() throws {
+        if title == nil && kind == nil && due == nil && !noDue {
+            throw CLIError("give at least one of --title, --kind, --due, --no-due", code: 64)
+        }
+        if due != nil && noDue { throw CLIError("--due and --no-due cannot be combined", code: 64) }
+        let newKind = try kind.map { raw -> ItemKind in
+            guard let k = ItemKind(rawValue: raw), k != .request else { throw CLIError("--kind must be task or notice") }
+            return k
+        }
+        let patch = Request.Patch(
+            title: title,
+            kind: newKind,
+            dueAt: try due.map { raw in
+                do { return try DueParser.parse(raw, now: Date()) } catch { throw CLIError(String(describing: error)) }
+            },
+            clearDue: noDue ? true : nil
+        )
+        let response = try call(Request(op: .update, id: id, patch: patch))
+        if json { return printJSON(response) }
+        if let item = response.item { print("updated \(item.id)  \(item.title)") }
     }
 }
 

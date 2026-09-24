@@ -36,6 +36,8 @@ public final class Service {
                 return try respond(request.id, request.value)
             case .remove:
                 return try remove(request.id)
+            case .update:
+                return try update(request.id, request.patch)
             case .watch:
                 return (.failure("watch streams events; it is handled by the connection, not as a single call"), [])
             }
@@ -124,6 +126,35 @@ public final class Service {
         let item = try existing(id)
         try store.delete(id: item.id)
         return (Response(ok: true, item: item), [Event(type: .removed, item: item, at: timestamp())])
+    }
+
+    private func update(_ id: String?, _ patch: Request.Patch?) throws -> (Response, [Event]) {
+        guard let patch, !patch.isEmpty else {
+            throw ServiceError("update needs at least one of: title, kind, due_at, clear_due")
+        }
+        if patch.dueAt != nil && patch.clearDue == true {
+            throw ServiceError("update takes either due_at or clear_due, not both")
+        }
+        var item = try existing(id)
+        let original = item
+        if let title = patch.title?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            guard !title.isEmpty else { throw ServiceError("title must not be empty") }
+            item.title = title
+        }
+        if let kind = patch.kind, kind != item.kind {
+            // A request carries options, a response and a blocked --wait caller; it cannot turn into something else.
+            if item.kind == .request { throw ServiceError("\(item.id) is a request; its kind cannot change") }
+            if kind == .request {
+                throw ServiceError("\(item.id) cannot become a request; add a new one with --kind request")
+            }
+            // A notice promoted to a task is kept on purpose: it must not fade at the notice's expiry.
+            if kind == .task { item.expiresAt = nil }
+            item.kind = kind
+        }
+        if let due = patch.dueAt { item.dueAt = Self.wholeSeconds(due) }
+        if patch.clearDue == true { item.dueAt = nil }
+        guard item != original else { return (Response(ok: true, item: original), []) }
+        return try save(item)
     }
 
     /// Dismisses every active item past its `expires_at`: notices fade, unanswered requests close
