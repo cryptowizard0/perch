@@ -11,7 +11,7 @@ Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd�
 Sources/PerchCore/       模型、wire protocol、路径。三个客户端共享，不含任何 I/O
 Sources/perch/           CLI，唯一对外契约（ArgumentParser）
 Sources/perchd/          daemon：SQLite、Unix socket、localhost HTTP、事件推送、文件镜像
-Tests/PerchCoreTests/    XCTest
+Tests/PerchCoreTests/    swift-testing（`import Testing`；只装 Command Line Tools 也能跑，XCTest 需要完整 Xcode）
 PerchApp/                刘海 App（SwiftUI），工程由 XcodeGen 从 project.yml 生成
 project.yml              XcodeGen spec；Perch.xcodeproj 是生成物，已 gitignore
 docs/                    PRD、里程碑、给其他 agent 用的 SKILL 片段

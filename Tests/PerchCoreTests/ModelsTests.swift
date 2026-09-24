@@ -1,8 +1,9 @@
-import XCTest
+import Foundation
+import Testing
 @testable import PerchCore
 
-final class ModelsTests: XCTestCase {
-    func testItemRoundTripsThroughJSONWithSnakeCaseKeys() throws {
+@Suite struct ModelsTests {
+    @Test func itemRoundTripsThroughJSONWithSnakeCaseKeys() throws {
         let item = Item(
             id: "t7k2",
             title: "review PR #42",
@@ -19,36 +20,36 @@ final class ModelsTests: XCTestCase {
         )
         let data = try PerchJSON.encoder.encode(item)
         let json = String(decoding: data, as: UTF8.self)
-        XCTAssertTrue(json.contains("\"due_at\""))
-        XCTAssertTrue(json.contains("\"created_at\""))
-        XCTAssertFalse(json.contains("dueAt"))
+        #expect(json.contains("\"due_at\""))
+        #expect(json.contains("\"created_at\""))
+        #expect(!json.contains("dueAt"))
 
         let back = try PerchJSON.decoder.decode(Item.self, from: data)
-        XCTAssertEqual(back, item)
+        #expect(back == item)
     }
 
-    func testNewIDIsFourCharsFromSafeAlphabet() {
+    @Test func newIDIsFourCharsFromSafeAlphabet() {
         let alphabet = Set("abcdefghjkmnpqrstuvwxyz23456789")
         for _ in 0..<100 {
             let id = Item.newID()
-            XCTAssertEqual(id.count, 4)
-            XCTAssertTrue(id.allSatisfy { alphabet.contains($0) })
+            #expect(id.count == 4)
+            #expect(id.allSatisfy { alphabet.contains($0) })
         }
     }
 
-    func testActionable() {
-        XCTAssertTrue(Item(title: "a", kind: .task, status: .open).isActionable)
-        XCTAssertTrue(Item(title: "a", kind: .request, status: .waiting).isActionable)
-        XCTAssertFalse(Item(title: "a", kind: .notice, status: .open).isActionable)
-        XCTAssertFalse(Item(title: "a", kind: .task, status: .done).isActionable)
+    @Test func actionable() {
+        #expect(Item(title: "a", kind: .task, status: .open).isActionable)
+        #expect(Item(title: "a", kind: .request, status: .waiting).isActionable)
+        #expect(!Item(title: "a", kind: .notice, status: .open).isActionable)
+        #expect(!Item(title: "a", kind: .task, status: .done).isActionable)
     }
 
-    func testRequestAndResponseEncode() throws {
+    @Test func requestAndResponseEncode() throws {
         let req = Request(op: .add, item: Item(title: "x"))
         let data = try PerchJSON.encoder.encode(req)
-        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("\"op\":\"add\""))
+        #expect(String(decoding: data, as: UTF8.self).contains("\"op\":\"add\""))
         let res = Response.failure("nope")
-        XCTAssertFalse(res.ok)
-        XCTAssertEqual(res.error, "nope")
+        #expect(!res.ok)
+        #expect(res.error == "nope")
     }
 }
