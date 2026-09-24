@@ -74,6 +74,16 @@ public final class QueueModel: ObservableObject {
         send(request)
     }
 
+    /// Quick entry: "回复 X 的邮件 @15:00" becomes a task due at 15:00 (see `QuickEntry`).
+    /// Returns false, sending nothing, when the text is blank.
+    @discardableResult
+    public func quickAdd(_ text: String, now: Date = Date()) -> Bool {
+        let (title, due) = QuickEntry.parse(text, now: now)
+        guard !title.isEmpty else { return false }
+        send(Request(op: .add, item: Item(title: title, source: "human", dueAt: due)))
+        return true
+    }
+
     /// Sends one request off the main thread; failures go to `flash`.
     public func send(_ request: Request) {
         let client = self.client

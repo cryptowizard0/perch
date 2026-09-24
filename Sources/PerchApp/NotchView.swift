@@ -2,9 +2,17 @@ import PerchAppCore
 import PerchCore
 import SwiftUI
 
+/// Right-click menu on the notch.
+struct NotchMenu {
+    var quickEntryShortcut: String
+    var quickEntry: () -> Void
+    var quit: () -> Void
+}
+
 struct NotchView: View {
     @ObservedObject var notch: NotchModel
     @ObservedObject var queue: QueueModel
+    var menu: NotchMenu
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -19,6 +27,11 @@ struct NotchView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .contextMenu {
+            Button("New Task…  \(menu.quickEntryShortcut)", action: menu.quickEntry)
+            Divider()
+            Button("Quit Perch", action: menu.quit)
+        }
     }
 }
 

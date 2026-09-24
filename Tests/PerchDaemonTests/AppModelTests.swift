@@ -64,3 +64,20 @@ import Testing
         try await until(timeout: 4) { model.state.items.isEmpty }
     }
 }
+
+extension AppModelTests {
+    @Test func quickAddParsesTheDueTime() async throws {
+        let d = try TestDaemon()
+        let model = QueueModel()
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        try await until { model.online }
+        #expect(!model.quickAdd("   "))
+        #expect(model.quickAdd("回复 X 的邮件 @15:00"))
+        try await until { model.state.items.count == 1 }
+        let item = try #require(model.state.items.values.first)
+        #expect(item.title == "回复 X 的邮件")
+        #expect(item.source == "human")
+        #expect(Calendar.current.component(.hour, from: try #require(item.dueAt)) == 15)
+    }
+}

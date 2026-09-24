@@ -91,6 +91,6 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 ## 未决问题（定了就更新这里）
 
 - `link` 跳回终端的机制：取决于日常用的终端（Zed 内置终端、Warp、tmux、iTerm 的 URL scheme 各不相同）。M3 前定。
-- 全局快捷键默认值（快速录入；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求；⌥⇧O 跳转）。
+- ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。
 - hook 等刘海的超时取 15 还是 30 秒，用一周后定。
 - 开源许可证。

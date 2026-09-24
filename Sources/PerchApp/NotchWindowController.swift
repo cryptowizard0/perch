@@ -43,10 +43,10 @@ final class NotchWindowController {
     static let liveActivityWing: CGFloat = 120
     static let expandedWidth: CGFloat = 460
 
-    init(notch: NotchModel, queue: QueueModel) {
+    init(notch: NotchModel, queue: QueueModel, menu: NotchMenu) {
         self.notch = notch
         self.queue = queue
-        let host = NotchHostingView(rootView: NotchView(notch: notch, queue: queue))
+        let host = NotchHostingView(rootView: NotchView(notch: notch, queue: queue, menu: menu))
         host.sizingOptions = []
         host.onHover = { [weak notch] inside in notch?.hover(inside) }
         panel.contentView = host

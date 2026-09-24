@@ -16,6 +16,7 @@ final class NotchPanel: NSPanel {
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         animationBehavior = .none
+        appearance = NSAppearance(named: .darkAqua)  // always black, whatever the system theme
     }
 
     override var canBecomeKey: Bool { false }

@@ -232,7 +232,7 @@ Swift 全栈，一种语言：SwiftUI 做刘海 UI，daemon 和 CLI 用 Swift Ar
 
 - [ ] `link` 跳回终端的机制：取决于日常跑三个 agent 用的终端（Zed 内置终端、Warp、tmux、iTerm 的 URL scheme 和 session 引用方式各不相同）。不影响前两步，第 3 步前定。
 - [x] 产品名 Perch（栖），CLI `perch`：agent 停在刘海上等你。
-- [ ] 全局快捷键默认值。
+- [x] 全局快捷键默认值：快速录入 ⌥⇧Space。
 - [ ] hook 等刘海的超时具体取 15 还是 30 秒，用一周后再定。
 
 产品化余地：这个品类里 13 家全在做音乐控制，"agent 的灵动岛"的位置是空的。护城河不在 UI，在 hook 适配器目录和安全白名单——每多支持一个 agent 就是一个适配器，开源 CLI 加适配器目录天然是面向 Claude Code / Codex 用户的分发方式。自用跑通前不展开。
