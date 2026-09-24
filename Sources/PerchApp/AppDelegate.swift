@@ -1,8 +1,13 @@
 import AppKit
 import PerchCore
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var notchWindow: NotchWindowController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSLog("Perch \(PerchVersion.string) started")
+        let controller = NotchWindowController(notch: NotchModel())
+        controller.show()
+        notchWindow = controller
     }
 }

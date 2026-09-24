@@ -42,8 +42,11 @@ let package = Package(
             ]
         ),
         // The notch app (AppKit + SwiftUI). Bundled into Perch.app by scripts/bundle-app.sh; no Xcode needed.
-        .executableTarget(name: "PerchApp", dependencies: ["PerchCore", "PerchClient"]),
+        .executableTarget(name: "PerchApp", dependencies: ["PerchCore", "PerchClient", "PerchAppCore"]),
+        // The notch app's testable logic: geometry, queue state, reminders, the perchd connection. No AppKit.
+        .target(name: "PerchAppCore", dependencies: ["PerchCore", "PerchClient"]),
         .testTarget(name: "PerchCoreTests", dependencies: ["PerchCore"]),
-        .testTarget(name: "PerchDaemonTests", dependencies: ["PerchCore", "PerchClient", "PerchDaemon"]),
+        .testTarget(name: "PerchDaemonTests", dependencies: ["PerchCore", "PerchClient", "PerchDaemon", "PerchAppCore"]),
+        .testTarget(name: "PerchAppCoreTests", dependencies: ["PerchCore", "PerchAppCore"]),
     ]
 )
