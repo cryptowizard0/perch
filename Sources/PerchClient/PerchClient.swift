@@ -117,6 +117,11 @@ public final class EventStream {
         }
     }
 
+    /// Makes a `next()` blocked on another thread return nil. Unlike `close()`, safe to call concurrently.
+    public func interrupt() {
+        socket.shutdown()
+    }
+
     public func close() {
         guard !closed else { return }
         closed = true

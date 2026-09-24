@@ -107,6 +107,12 @@ public final class BufferedSocket {
         Darwin.close(fd)
     }
 
+    /// Wakes a thread blocked in `read` on this socket (it sees EOF). Safe to call from another thread;
+    /// the owner still calls `close()`.
+    public func shutdown() {
+        Darwin.shutdown(fd, SHUT_RDWR)
+    }
+
     public static func writeAll(_ fd: Int32, _ data: Data) throws {
         try data.withUnsafeBytes { raw in
             guard var p = raw.baseAddress else { return }

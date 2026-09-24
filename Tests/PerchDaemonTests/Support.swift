@@ -12,12 +12,16 @@ final class TestDaemon {
     var client: PerchClient { PerchClient(socketPath: daemon.config.socketPath) }
     var httpPort: UInt16 { server.httpPort! }
 
-    init(now: @escaping () -> Date = Date.init) throws {
-        home = URL(fileURLWithPath: "/tmp/perch-test-\(UUID().uuidString.prefix(8))", isDirectory: true)
+    init(home: URL = TestDaemon.freshHome(), now: @escaping () -> Date = Date.init) throws {
+        self.home = home
         daemon = try Daemon(config: DaemonConfig(home: home), now: now)
         server = Server(daemon: daemon)
         try server.listenUnix(path: daemon.config.socketPath)
         try server.listenHTTP(port: 0)
+    }
+
+    static func freshHome() -> URL {
+        URL(fileURLWithPath: "/tmp/perch-test-\(UUID().uuidString.prefix(8))", isDirectory: true)
     }
 
     deinit {
