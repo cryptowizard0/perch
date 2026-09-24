@@ -47,6 +47,7 @@ struct AcceptanceTests {
     @Test func cliToWatcherLatencyIsImperceptible() throws {
         let d = try TestDaemon()
         let stream = try d.client.watch()
+        try CLI.warmUp()
         let started = Date()
         try CLI(home: d.home).run("add", "latency probe")
         _ = try stream.next(timeout: 1)
@@ -73,6 +74,7 @@ struct NotchLatencyTests {
         while !model.online { try await Task.sleep(nanoseconds: 5_000_000) }
 
         let cli = CLI(home: d.home)
+        try CLI.warmUp()
         var worst: TimeInterval = 0
         for n in 1...5 {
             let started = Date()

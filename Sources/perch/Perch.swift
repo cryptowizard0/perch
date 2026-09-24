@@ -201,12 +201,16 @@ struct Get: ParsableCommand {
 }
 
 struct Done: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Mark an item done.")
-    @Argument var id: String
+    static let configuration = CommandConfiguration(abstract: "Mark an item done (by id, or by the --key it was added with).")
+    @Argument var id: String?
+    @Option(help: "The idempotency key the item was added with.") var key: String?
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
-        let response = try call(Request(op: .done, id: id))
+        guard (id == nil) != (key == nil) else {
+            throw CLIError(id == nil ? "give an id or --key" : "give an id or --key, not both", code: 64)
+        }
+        let response = try call(Request(op: .done, id: id, key: key))
         if json { return printJSON(response) }
         if let item = response.item { print("done \(item.id)  \(item.title)") }
     }

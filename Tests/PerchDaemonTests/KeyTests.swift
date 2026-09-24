@@ -67,3 +67,29 @@ import Testing
         #expect(try service.store.count() == 5)
     }
 }
+
+/// `done --key`: hook adapters know their session key, not the item id.
+@Suite struct DoneByKeyTests {
+    @Test func doneByKey() throws {
+        let service = Service(store: try Store(path: ":memory:"))
+        let item = try #require(service.handle(Request(op: .add, item: Item(title: "claude needs input", status: .waiting,
+                                                                              key: "claude-code:s1"))).0.item)
+        let (response, events) = service.handle(Request(op: .done, key: "claude-code:s1"))
+        #expect(response.item?.id == item.id && response.item?.status == .done)
+        #expect(events.map(\.type) == [.updated])
+        #expect(service.handle(Request(op: .done, key: "nope")).0.error == "no item with key 'nope'")
+        #expect(service.handle(Request(op: .done, id: item.id, key: "claude-code:s1")).0.error == "give either id or key, not both")
+    }
+
+    @Test func cli() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let id = try cli.run("add", "waiting", "--status", "waiting", "--key", "k1").stdout
+        let done = try cli.run("done", "--key", "k1", "--json").json.item
+        #expect(done?.id == id && done?.status == .done)
+        let neither = try cli.run("done")
+        #expect(neither.status == 64)
+        #expect(neither.stderr == "perch: give an id or --key")
+        #expect(try cli.run("done", "--key", "zzz").stderr == "perch: no item with key 'zzz'")
+    }
+}

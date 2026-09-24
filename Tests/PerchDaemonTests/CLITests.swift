@@ -23,6 +23,11 @@ struct CLI {
 
     let home: URL
 
+    /// macOS scans a freshly linked binary on its first launch (~1 s); run it once before timing anything.
+    static func warmUp() throws {
+        try CLI(home: URL(fileURLWithPath: "/tmp")).run("--version")
+    }
+
     struct Result {
         let status: Int32
         let stdout: String

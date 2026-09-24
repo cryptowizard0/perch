@@ -11,7 +11,7 @@ import Foundation
 /// - `add` + `item` → `item`. perchd assigns `id`, `created_at`, `updated_at`; with `item.key` set, an existing
 ///   item with that key is updated instead (see `Service`). Only `title` is required in the JSON.
 /// - `list` + optional `filter` → `items`, in queue order (see `Item.queueOrder`)
-/// - `get` / `done` / `remove` + `id` → `item` (`remove` returns the deleted item)
+/// - `get` / `done` / `remove` + `id` → `item` (`remove` returns the deleted item); `done` also takes `key` instead of `id`
 /// - `respond` + `id` + `value` → `item`; the request is closed with `status: done`
 /// - `update` + `id` + `patch` → `item`. Only the fields set in `patch` change; see `Request.Patch`
 /// - `session_start` + `session` → a running agent turn (Live Activity); again with the same id restarts the clock
@@ -33,11 +33,13 @@ public struct Request: Codable, Sendable {
     public var filter: Filter?
     public var patch: Patch?
     public var session: Session?
+    /// `done` by idempotency key instead of id (hook adapters know their key, not the id).
+    public var key: String?
     /// When the client observed what it reports (`session_end`); perchd uses its own clock if absent.
     public var at: Date?
 
     public init(op: Op, item: Item? = nil, id: String? = nil, value: String? = nil, filter: Filter? = nil,
-                patch: Patch? = nil, session: Session? = nil, at: Date? = nil) {
+                patch: Patch? = nil, session: Session? = nil, key: String? = nil, at: Date? = nil) {
         self.op = op
         self.item = item
         self.id = id
@@ -45,6 +47,7 @@ public struct Request: Codable, Sendable {
         self.filter = filter
         self.patch = patch
         self.session = session
+        self.key = key
         self.at = at
     }
 

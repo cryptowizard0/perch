@@ -31,7 +31,7 @@ public final class Service {
             case .get:
                 return (Response(ok: true, item: try existing(request.id)), [])
             case .done:
-                return try done(request.id)
+                return try done(request.id, key: request.key)
             case .respond:
                 return try respond(request.id, request.value)
             case .remove:
@@ -95,8 +95,15 @@ public final class Service {
         return (Response(ok: true, item: item), [Event(type: .updated, item: item, at: t)])
     }
 
-    private func done(_ id: String?) throws -> (Response, [Event]) {
-        var item = try existing(id)
+    private func done(_ id: String?, key: String?) throws -> (Response, [Event]) {
+        var item: Item
+        if let key = key?.trimmingCharacters(in: .whitespaces), !key.isEmpty {
+            guard id == nil else { throw ServiceError("give either id or key, not both") }
+            guard let found = try store.find(key: key) else { throw ServiceError("no item with key '\(key)'") }
+            item = found
+        } else {
+            item = try existing(id)
+        }
         guard item.status != .done else { return (Response(ok: true, item: item), []) }
         item.status = .done
         return try save(item)
