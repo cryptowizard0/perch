@@ -1,6 +1,6 @@
 # 里程碑
 
-每一步都能独立验证再往下走；第 3 步完成时产品已经能日常使用。当前：**M3**。
+每一步都能独立验证再往下走；第 3 步完成时产品已经能日常使用。当前：**M4**。
 
 ## M1 — daemon + CLI + SQLite + watch（不带 UI）
 
@@ -30,7 +30,7 @@
 
 - [x] hook 适配器 `perch hook claude-code`（Swift 子命令，不用 shell 脚本）：`UserPromptSubmit` / `Stop` 维护 Live Activity（按轮计时）；`Notification` 生成 waiting；`Stop` resolve 并发 notice
 - [x] `perch hooks install claude-code` 写 `~/.claude/settings.json`，`uninstall` 干净移除
-- [ ] 验收：跑一个需要权限的任务，刘海变橙；跑完后 notice 出现并自动消失
+- [x] 验收：跑一个需要权限的任务，刘海变橙；跑完后 notice 出现并自动消失（Ghostty 与 Claude 桌面 App 均已实测）
 
 ## M4 — PermissionRequest + 白名单
 

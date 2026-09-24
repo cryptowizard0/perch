@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-09-24 · M3 代码完成，等真实 Claude Code 会话验收（见"M3 进度"），之后 M4
+最后更新：2026-09-24 · M3 完成，下一步 M4
 
 ## 总览
 
@@ -11,7 +11,7 @@
 | --- | --- | --- | --- |
 | M1 | daemon + CLI + SQLite + watch | ✅ 完成 | 10 项全勾，73 个测试通过 |
 | M2 | 刘海 UI | ✅ 完成 | 8 项全勾；CLI → 刘海 均值 11 ms。悬停、点击用户已确认 |
-| M3 | Claude Code 被动接入（UserPromptSubmit / Notification / Stop） | 🔶 代码完成 | 152 个测试通过；剩真实会话验收（装 hooks → Ghostty 里跑一次） |
+| M3 | Claude Code 被动接入（UserPromptSubmit / Notification / Stop） | ✅ 完成 | 152 个测试；用户在 Ghostty 和 Claude 桌面 App 里实测：变橙、notice、跳回原 tab 都正常 |
 | M4 | PermissionRequest + 白名单 | ⬜ 未开始 | CLI 侧 `--wait` 已就绪 |
 | M5 | Codex 复用同一套 hook 脚本 | ⬜ 未开始 | |
 | M6 | Hermes HTTP 接入 | ⬜ 未开始 | HTTP `POST /rpc` 已就绪，只剩容器内实测 |
@@ -143,7 +143,7 @@ swift build && scripts/bundle-app.sh && open .build/Perch.app     # perchd 要�
 | 3.3 | `perch hook claude-code` | ✅ | 映射见 CLAUDE.md "Hook 适配"；不打 stdout、exit 0、错误写 `~/.perch/hook.log` |
 | 3.4 | `perch hooks install/uninstall claude-code` | ✅ | 合并写 settings.json，备份 `.perch-backup`，只删自己的；对真实 settings 的 dry-run 只多出 5 条 Perch hook |
 | 3.5 | App：Live Activity + 跳回 Ghostty | ✅ | `perch-terminal://ghostty?id=&cwd=&bundle=`；osascript focus；失败退化为激活 App |
-| 3.6 | 验收：真实会话 | ⬜ | `scripts/install.sh` 装好后在 Ghostty 里跑 claude（见下） |
+| 3.6 | 验收：真实会话 | ✅ | 已用 install.sh 装到本机；Ghostty 的 terminal id 探测没弹授权；桌面 App 会话也会计入 Live Activity（跳转只激活 App），用户认可 |
 
 ### M3 验收步骤
 
@@ -151,12 +151,12 @@ swift build && scripts/bundle-app.sh && open .build/Perch.app     # perchd 要�
 scripts/install.sh          # perch/perchd → ~/.local/bin，Perch.app → ~/Applications，launchd，hooks
 ```
 然后在 Ghostty 里开 `claude`：
-- [ ] 发一条 prompt → 刘海左侧出现 "1 agent · <1m"
-- [ ] 让它跑一个需要权限的命令 → 刘海变橙，列表里 "项目名 · Claude needs your permission…"
-- [ ] 在终端里批准 → 跑完后橙色消失，出现灰色 notice（最后一句话摘要），10 分钟后自动消失；Live Activity 消失
-- [ ] 点那条的终端按钮 → 回到那个 Ghostty tab（第一次会弹"Perch 想控制 Ghostty"，允许）
-- [ ] `~/.perch/hook.log` 没有异常
-- 待确认的风险：hook 里的 osascript 问 Ghostty 聚焦的 terminal，可能弹"Ghostty 想控制 Ghostty"之类的授权；被拒时退化为按目录找 tab。
+- [x] 发一条 prompt → 刘海左侧出现 "1 agent · <1m"
+- [x] 让它跑一个需要权限的命令 → 刘海变橙，列表里 "项目名 · Claude needs your permission…"
+- [x] 在终端里批准 → 跑完后橙色消失，出现灰色 notice（最后一句话摘要），10 分钟后自动消失；Live Activity 消失
+- [x] 点那条的终端按钮 → 回到那个 Ghostty tab（第一次会弹"Perch 想控制 Ghostty"，允许）
+- [x] `~/.perch/hook.log` 没有异常
+- hook 里的 osascript 问 Ghostty 聚焦的 terminal：实测不弹授权。
 
 ### M2 协议扩展：`update`（已实现）
 
