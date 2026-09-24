@@ -118,4 +118,18 @@ struct CLITests {
         #expect(first == second)
         #expect(try cli.run("ls", "--json").json.items?.map(\.title) == ["needs input"])
     }
+
+    @Test func dueSyntax() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let before = Date()
+        let relative = try #require(try cli.run("add", "in half an hour", "--due", "+30m", "--json").json.item?.dueAt)
+        #expect(abs(relative.timeIntervalSince(before) - 1800) < 5)
+        let clock = try #require(try cli.run("add", "at three", "--due", "@15:00", "--json").json.item?.dueAt)
+        #expect(Calendar.current.component(.hour, from: clock) == 15)
+        #expect(clock > before && clock.timeIntervalSince(before) <= 86_400)
+        let bad = try cli.run("add", "x", "--due", "soon")
+        #expect(bad.status == 1)
+        #expect(bad.stderr == "perch: invalid due 'soon': use @15:00, +30m or an ISO-8601 time")
+    }
 }

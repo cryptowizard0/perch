@@ -66,7 +66,7 @@ struct Add: ParsableCommand {
     @Option(help: "task | notice | request") var kind: String = "task"
     @Option(help: "open | waiting | done | dismissed (default: waiting for requests, open otherwise)") var status: String?
     @Option(help: "Who is adding: human, claude-code, codex, hermes, …") var source: String = "human"
-    @Option(help: "Due time: @15:00 or +30m") var due: String?
+    @Option(help: "Due time: @15:00 (next time the clock shows it), +30m / +2h / +1d, or ISO-8601.") var due: String?
     @Option(help: "URL, file path or terminal session ref to jump back to.") var link: String?
     @Option(help: "Idempotency key; re-adding the same key updates instead of duplicating.") var key: String?
     @Option(help: "Extra data as key=value; repeatable (e.g. --meta cwd=$PWD --meta tool=Bash).") var meta: [String] = []
@@ -109,7 +109,11 @@ struct Add: ParsableCommand {
     }
 
     func parseDue(_ text: String, now: Date) throws -> Date {
-        throw CLIError("--due is not implemented yet")
+        do {
+            return try DueParser.parse(text, now: now)
+        } catch {
+            throw CLIError(String(describing: error))
+        }
     }
 }
 
