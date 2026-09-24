@@ -15,7 +15,7 @@ struct PerchD: ParsableCommand {
         commandName: "perchd",
         abstract: "The Perch daemon: SQLite store, Unix socket, localhost HTTP, event push.",
         version: PerchVersion.string,
-        subcommands: [Run.self],
+        subcommands: [Run.self, Install.self, Uninstall.self],
         defaultSubcommand: Run.self
     )
 }
@@ -72,6 +72,64 @@ struct Run: ParsableCommand {
             throw Fatal("perchd is already running (\(path))")
         }
         unlink(path)
+    }
+}
+
+struct Install: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Install perchd as a launchd agent (starts at login, restarts on crash).",
+        discussion: "Writes ~/Library/LaunchAgents/\(LaunchAgent.label).plist pointing at this perchd binary and loads it."
+    )
+
+    @Option(help: "Localhost HTTP port for the agent.") var httpPort: UInt16 = UInt16(PerchPaths.defaultHTTPPort)
+    @Flag(help: "Do not listen on HTTP.") var noHTTP = false
+    @Flag(help: "Print the plist instead of installing it.") var dryRun = false
+
+    func run() throws {
+        guard let executable = Bundle.main.executableURL?.resolvingSymlinksInPath().path else {
+            throw Fatal("cannot tell where this perchd binary lives")
+        }
+        let home = PerchPaths.home
+        var arguments = ["run"]
+        arguments += noHTTP ? ["--no-http"] : ["--http-port", String(httpPort)]
+        let plist = try LaunchAgent.plist(executable: executable, arguments: arguments, home: home)
+        if dryRun {
+            FileHandle.standardOutput.write(plist)
+            return
+        }
+
+        let client = PerchClient(socketPath: PerchPaths.socket(in: home).path)
+        let loaded = FileManager.default.fileExists(atPath: LaunchAgent.plistURL.path)
+        if !loaded, (try? client.send(Request(op: .ping), timeout: 2))?.ok == true {
+            throw Fatal("a perchd is already running outside launchd; stop it first, then install")
+        }
+        if executable.contains("/.build/") {
+            log("note: installing \(executable) from a build directory; `swift package clean` will break the agent. "
+                + "Copy perchd somewhere stable (e.g. ~/.local/bin) and run install from there for daily use.")
+        }
+        try LaunchAgent.install(plist: plist, home: home)
+
+        for _ in 0..<30 {
+            if (try? client.send(Request(op: .ping), timeout: 1))?.ok == true {
+                print("installed \(LaunchAgent.plistURL.path)")
+                print("perchd is running; log: \(LaunchAgent.logURL(home: home).path)")
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        throw Fatal("installed \(LaunchAgent.plistURL.path), but perchd is not answering; see \(LaunchAgent.logURL(home: home).path)")
+    }
+}
+
+struct Uninstall: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "Stop the launchd agent and remove its plist.")
+
+    func run() throws {
+        if try LaunchAgent.uninstall() {
+            print("removed \(LaunchAgent.plistURL.path); perchd stopped")
+        } else {
+            print("perchd was not installed")
+        }
     }
 }
 
