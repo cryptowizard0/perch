@@ -68,6 +68,21 @@ public final class Store {
         return try select(whereSQL, args)
     }
 
+    /// Active items whose `expires_at` is at or before `date`.
+    public func expired(at date: Date) throws -> [Item] {
+        try select("WHERE status IN ('open', 'waiting') AND expires_at IS NOT NULL AND expires_at <= ?",
+                   [.text(Self.formatDate(date))])
+    }
+
+    /// The earliest `expires_at` among active items.
+    public func nextExpiry() throws -> Date? {
+        var next: String?
+        try db.run("SELECT MIN(expires_at) FROM items WHERE status IN ('open', 'waiting') AND expires_at IS NOT NULL") {
+            next = $0.text(0)
+        }
+        return next.flatMap { Self.dateFormatter.date(from: $0) }
+    }
+
     public func transaction<T>(_ body: () throws -> T) throws -> T {
         try db.transaction(body)
     }

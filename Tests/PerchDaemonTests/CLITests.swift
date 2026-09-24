@@ -36,6 +36,11 @@ struct CLI {
     }
 
     func run(_ args: [String]) throws -> Result {
+        try start(args)()
+    }
+
+    /// Starts `perch` in the background; call the returned closure to wait for it.
+    func start(_ args: [String]) throws -> () throws -> Result {
         let process = Process()
         process.executableURL = Self.binary!
         process.arguments = args
@@ -44,12 +49,14 @@ struct CLI {
         process.standardOutput = out
         process.standardError = err
         try process.run()
-        let stdout = out.fileHandleForReading.readDataToEndOfFile()
-        let stderr = err.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return Result(status: process.terminationStatus,
-                      stdout: String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .newlines),
-                      stderr: String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .newlines))
+        return {
+            let stdout = out.fileHandleForReading.readDataToEndOfFile()
+            let stderr = err.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return Result(status: process.terminationStatus,
+                          stdout: String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .newlines),
+                          stderr: String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .newlines))
+        }
     }
 }
 
@@ -132,4 +139,72 @@ struct CLITests {
         #expect(bad.status == 1)
         #expect(bad.stderr == "perch: invalid due 'soon': use @15:00, +30m or an ISO-8601 time")
     }
+
+    @Test func waitPrintsTheAnswer() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let finish = try cli.start(["add", "npm test", "--kind", "request", "--source", "claude-code", "--wait", "--expires", "20"])
+        let request = try waitForItem(d)
+        #expect(request.status == .waiting)
+        _ = try d.client.send(Request(op: .respond, id: request.id, value: "allow"))
+        let result = try finish()
+        #expect(result.status == 0)
+        #expect(result.stdout == "allow")
+    }
+
+    @Test func waitWithJSONPrintsTheAnsweredItem() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let finish = try cli.start(["add", "rm -rf build", "--kind", "request", "--wait", "--json"])
+        let request = try waitForItem(d)
+        _ = try d.client.send(Request(op: .respond, id: request.id, value: "deny"))
+        let result = try finish()
+        #expect(result.status == 0)
+        #expect(result.json.item?.response == "deny")
+    }
+
+    @Test func waitExitsThreeWhenTheRequestExpires() throws {
+        let d = try TestDaemon()
+        let started = Date()
+        let result = try CLI(home: d.home).run("add", "nobody home", "--kind", "request", "--wait", "--expires", "1")
+        #expect(result.status == 3)
+        #expect(result.stdout.isEmpty)
+        #expect(result.stderr.hasSuffix("expired without a response"))
+        #expect(Date().timeIntervalSince(started) < 4)
+    }
+
+    @Test func waitExitsThreeWhenClosedOrRemoved() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let closed = try cli.start(["add", "a", "--kind", "request", "--wait"])
+        _ = try d.client.send(Request(op: .done, id: try waitForItem(d).id))
+        #expect(try closed().status == 3)
+
+        let removed = try cli.start(["add", "b", "--kind", "request", "--wait", "--json"])
+        _ = try d.client.send(Request(op: .remove, id: try waitForItem(d).id))
+        let result = try removed()
+        #expect(result.status == 3)
+        #expect(result.json.error?.hasSuffix("was removed without a response") == true)
+    }
+
+    @Test func waitRequiresARequest() throws {
+        let d = try TestDaemon()
+        let result = try CLI(home: d.home).run("add", "x", "--wait")
+        #expect(result.status == 1)
+        #expect(result.stderr == "perch: --wait only works with --kind request")
+    }
+
+    /// Polls until exactly one active item exists (the one the background `perch` just added).
+    private func waitForItem(_ d: TestDaemon) throws -> Item {
+        for _ in 0..<200 {
+            if let item = try d.client.send(Request(op: .list)).items?.first { return item }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        throw CLIError("background perch never added its item")
+    }
+}
+
+struct CLIError: Error, CustomStringConvertible {
+    let description: String
+    init(_ description: String) { self.description = description }
 }

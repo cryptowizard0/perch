@@ -59,7 +59,12 @@ struct CLIError: Error {
 struct Add: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Add an item. Prints its id.",
-        discussion: "With --key, adding again updates the same item instead of creating a new one."
+        discussion: """
+        With --key, adding again updates the same item instead of creating a new one.
+
+        With --kind request --wait, blocks until someone responds and prints the answer (exit 0).
+        If the request expires (--expires), is closed or removed first, exits 3 with no answer.
+        """
     )
 
     @Argument(help: "Title.") var title: String
@@ -72,7 +77,7 @@ struct Add: ParsableCommand {
     @Option(help: "Extra data as key=value; repeatable (e.g. --meta cwd=$PWD --meta tool=Bash).") var meta: [String] = []
     @Option(help: "request only: comma-separated options (default: allow,deny).") var options: String?
     @Option(help: "Seconds until the item expires and is dismissed (notices, requests).") var expires: Int?
-    @Flag(help: "request only: block until responded or expired, then print the response.") var wait = false
+    @Flag(help: "request only: block until answered (prints it, exit 0) or expired / closed (exit 3).") var wait = false
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
@@ -103,9 +108,41 @@ struct Add: ParsableCommand {
             options: options.map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } },
             expiresAt: expires.map { now.addingTimeInterval(TimeInterval($0)) }
         )
-        if wait { throw CLIError("--wait is not implemented yet") }
+        if wait { return try addAndWait(item) }
         let response = try call(Request(op: .add, item: item))
         json ? printJSON(response) : print(response.item?.id ?? "")
+    }
+
+    /// Exit 0 and print the answer once someone responds; exit 3 if the request expires, is closed
+    /// without an answer, or is removed. A caller that gets no answer must fall back to asking in the
+    /// terminal — never treat "no answer" as permission.
+    func addAndWait(_ item: Item) throws {
+        let stream: EventStream
+        do { stream = try PerchClient().watch() } catch { throw CLIError(String(describing: error)) }
+        defer { stream.close() }
+        // Subscribed before adding, so the answer cannot arrive before we listen.
+        var current = try call(Request(op: .add, item: item)).item!
+        while current.response == nil && (current.status == .open || current.status == .waiting) {
+            // perchd dismisses the request at expires_at; the slack only guards against a wedged daemon.
+            let timeout = current.expiresAt.map { max($0.timeIntervalSinceNow, 0) + 5 }
+            let event: Event?
+            do {
+                event = try stream.next(timeout: timeout)
+            } catch ClientError.timeout {
+                throw CLIError("request \(current.id) expired without a response", code: 3)
+            } catch {
+                throw CLIError(String(describing: error))
+            }
+            guard let event else { throw CLIError("perchd stopped while waiting for \(current.id)") }
+            guard event.item.id == current.id else { continue }
+            if event.type == .removed { throw CLIError("request \(current.id) was removed without a response", code: 3) }
+            current = event.item
+        }
+        guard let answer = current.response else {
+            let why = current.status == .dismissed ? "expired" : "was closed"
+            throw CLIError("request \(current.id) \(why) without a response", code: 3)
+        }
+        json ? printJSON(Response(ok: true, item: current)) : print(answer)
     }
 
     func parseDue(_ text: String, now: Date) throws -> Date {

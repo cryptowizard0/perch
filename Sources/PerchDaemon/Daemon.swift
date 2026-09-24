@@ -25,18 +25,24 @@ public final class Daemon {
     let queue = DispatchQueue(label: "dev.perch.perchd.core")
     let service: Service
     private var subscribers: [UUID: (Response) -> Void] = [:]
+    private var expiryTimer: DispatchSourceTimer?
 
     public init(config: DaemonConfig, now: @escaping () -> Date = Date.init) throws {
         self.config = config
         try FileManager.default.createDirectory(at: config.home, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         service = Service(store: try Store(path: config.databasePath), now: now)
+        queue.sync { afterChange([]) }
+    }
+
+    deinit {
+        expiryTimer?.cancel()
     }
 
     public func perform(_ request: Request) -> Response {
         queue.sync {
             let (response, events) = service.handle(request)
-            publish(events)
+            afterChange(events)
             return response
         }
     }
@@ -58,6 +64,27 @@ public final class Daemon {
 
     var subscriberCount: Int {
         queue.sync { subscribers.count }
+    }
+
+    /// Runs on `queue` after every request (and at startup): broadcast, then re-arm the expiry timer.
+    private func afterChange(_ events: [Event]) {
+        publish(events)
+        scheduleExpiry()
+    }
+
+    /// One timer for the earliest `expires_at`; it sweeps, broadcasts and re-arms itself.
+    private func scheduleExpiry() {
+        expiryTimer?.cancel()
+        expiryTimer = nil
+        guard let next = service.nextExpiry() else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + max(0, next.timeIntervalSinceNow), leeway: .milliseconds(50))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.afterChange(self.service.sweepExpired())
+        }
+        timer.resume()
+        expiryTimer = timer
     }
 
     private func publish(_ events: [Event]) {

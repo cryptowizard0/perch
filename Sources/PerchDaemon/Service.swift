@@ -57,7 +57,8 @@ public final class Service {
         }
         let t = timestamp()
         item.dueAt = item.dueAt.map(Self.wholeSeconds)
-        item.expiresAt = item.expiresAt.map(Self.wholeSeconds)
+        // Round up so storing whole seconds never shortens the window an agent asked for.
+        item.expiresAt = item.expiresAt.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.up)) }
         item.response = nil
         if item.kind == .request {
             if (item.options ?? []).isEmpty { item.options = ["allow", "deny"] }
@@ -123,6 +124,26 @@ public final class Service {
         let item = try existing(id)
         try store.delete(id: item.id)
         return (Response(ok: true, item: item), [Event(type: .removed, item: item, at: timestamp())])
+    }
+
+    /// Dismisses every active item past its `expires_at`: notices fade, unanswered requests close
+    /// (their `--wait`ers exit without a decision and the terminal's own prompt takes over).
+    public func sweepExpired() -> [Event] {
+        do {
+            return try store.transaction {
+                try store.expired(at: now()).map { expired in
+                    var item = expired
+                    item.status = .dismissed
+                    return try save(item).1[0]
+                }
+            }
+        } catch {
+            return []
+        }
+    }
+
+    public func nextExpiry() -> Date? {
+        try? store.nextExpiry()
     }
 
     // MARK: - Helpers
