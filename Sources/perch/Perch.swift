@@ -345,27 +345,6 @@ struct SessionLs: ParsableCommand {
     }
 }
 
-struct Hooks: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        abstract: "Install or remove agent hook adapters.",
-        subcommands: [HooksInstall.self, HooksUninstall.self]
-    )
-}
-
-struct HooksInstall: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "install", abstract: "Install hooks for an agent.")
-    @Argument(help: "claude-code | codex") var agent: String
-    @Flag(help: "Print JSON.") var json = false
-    func run() throws { throw CLIError("perch hooks install is not implemented yet (milestone M3)") }
-}
-
-struct HooksUninstall: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "uninstall", abstract: "Remove hooks for an agent.")
-    @Argument(help: "claude-code | codex") var agent: String
-    @Flag(help: "Print JSON.") var json = false
-    func run() throws { throw CLIError("perch hooks uninstall is not implemented yet (milestone M3)") }
-}
-
 // MARK: - Helpers
 
 /// One round trip to perchd; `ok:false` becomes a CLIError carrying perchd's message.
