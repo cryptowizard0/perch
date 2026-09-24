@@ -2,7 +2,7 @@
 
 Perch（栖）：住在 MacBook 刘海里的 agent 等待队列，顺带是我的待办。
 核心闭环只有一个：**agent 在等你 → 刘海亮 → 你就地处理或跳回去。**
-产品需求见 `docs/PRD.md`，里程碑与验收标准见 `docs/MILESTONES.md`。先自用，但按可开源分发的形态设计。
+产品需求见 `docs/PRD.md`，里程碑与验收标准见 `docs/MILESTONES.md`，**当前进度、下一步计划和交接说明见 `project.md`（新 session 先读它）**。先自用，但按可开源分发的形态设计。
 
 ## 仓库结构
 
