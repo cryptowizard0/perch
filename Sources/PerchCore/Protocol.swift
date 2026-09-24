@@ -14,10 +14,17 @@ import Foundation
 /// - `get` / `done` / `remove` + `id` → `item` (`remove` returns the deleted item)
 /// - `respond` + `id` + `value` → `item`; the request is closed with `status: done`
 /// - `update` + `id` + `patch` → `item`. Only the fields set in `patch` change; see `Request.Patch`
-/// - `watch` → stream of events
+/// - `session_start` + `session` → a running agent turn (Live Activity); again with the same id restarts the clock
+/// - `session_end` + `id` (+ `at`) → the turn is over. Both ignore messages older than the last one for that id,
+///   because async hooks can arrive out of order
+/// - `sessions` → `sessions`, the running turns
+/// - `watch` → stream of events (item events in `event`, session events in `session_event`)
 public struct Request: Codable, Sendable {
     public enum Op: String, Codable, Sendable {
         case ping, add, list, get, done, respond, remove, update, watch
+        case sessionStart = "session_start"
+        case sessionEnd = "session_end"
+        case sessions
     }
     public var op: Op
     public var item: Item?
@@ -25,15 +32,20 @@ public struct Request: Codable, Sendable {
     public var value: String?
     public var filter: Filter?
     public var patch: Patch?
+    public var session: Session?
+    /// When the client observed what it reports (`session_end`); perchd uses its own clock if absent.
+    public var at: Date?
 
     public init(op: Op, item: Item? = nil, id: String? = nil, value: String? = nil, filter: Filter? = nil,
-                patch: Patch? = nil) {
+                patch: Patch? = nil, session: Session? = nil, at: Date? = nil) {
         self.op = op
         self.item = item
         self.id = id
         self.value = value
         self.filter = filter
         self.patch = patch
+        self.session = session
+        self.at = at
     }
 
     /// For `list`. Without `status`, only active items (open, waiting) are returned unless `all` is true.
@@ -85,14 +97,24 @@ public struct Response: Codable, Sendable {
     public var items: [Item]?
     public var event: Event?
     public var version: String?
+    public var sessions: [Session]?
+    public var sessionEvent: SessionEvent?
 
-    public init(ok: Bool, error: String? = nil, item: Item? = nil, items: [Item]? = nil, event: Event? = nil, version: String? = nil) {
+    public init(ok: Bool, error: String? = nil, item: Item? = nil, items: [Item]? = nil, event: Event? = nil, version: String? = nil,
+                sessions: [Session]? = nil, sessionEvent: SessionEvent? = nil) {
         self.ok = ok
         self.error = error
         self.item = item
         self.items = items
         self.event = event
         self.version = version
+        self.sessions = sessions
+        self.sessionEvent = sessionEvent
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ok, error, item, items, event, version, sessions
+        case sessionEvent = "session_event"
     }
 
     public static func failure(_ message: String) -> Response { Response(ok: false, error: message) }

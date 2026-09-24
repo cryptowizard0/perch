@@ -40,6 +40,8 @@ public final class Service {
                 return try update(request.id, request.patch)
             case .watch:
                 return (.failure("watch streams events; it is handled by the connection, not as a single call"), [])
+            case .sessionStart, .sessionEnd, .sessions:
+                return (.failure("session ops are handled by SessionRegistry"), [])
             }
         } catch let error as ServiceError {
             return (.failure(error.message), [])

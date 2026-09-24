@@ -74,7 +74,8 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 ## 已定下的契约（M2+ 依赖，改之前先想清楚）
 
 - Wire：Unix socket 上一行一个 JSON；HTTP `POST /rpc` 同一套 JSON。`watch` 先回 `{"ok":true}` 确认，再逐行推 `{"ok":true,"event":{…}}`。**确认之后发生的变化保证能收到**，所以客户端正确做法是：先 `watch()`，再 `list` 拿快照。
-- op：`ping / add / list / get / done / respond / remove / update / watch`。`list` 默认只返回 open + waiting，已按队列顺序排好。
+- op：`ping / add / list / get / done / respond / remove / update / watch / session_start / session_end / sessions`。
+- session（M3，Live Activity）：只在 perchd 内存里，不进 SQLite；`watch` 推 `{"ok":true,"session_event":{…}}`，`EventStream.next()` 只返回 item 事件（老客户端不受影响），`nextPush()` 两种都给。每条消息带观测时间，比该 id 最后一条旧的消息丢弃（async hook 会乱序）；超过 3 小时没结束的 turn 自动清掉。`list` 默认只返回 open + waiting，已按队列顺序排好。
 - `add --key`：同 key 更新原项（保留 id 和 created_at），会重新打开已关闭项并清空旧 response；内容完全相同的重复 add 不发事件。
 - request：默认 status waiting、options `allow,deny`；`respond` 校验选项，回应后 status 变 done。
 - `expires_at`：到点 daemon 把 open / waiting 项置为 dismissed 并推 `item.updated`（notice 自动消失、request 超时都靠它）。

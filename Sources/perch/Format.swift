@@ -32,6 +32,16 @@ enum Format {
         return "\(time.string(from: event.at))  \(pad(type, 7))  \(row(event.item, sourceWidth: 0))"
     }
 
+    static func session(_ session: Session, now: Date = Date()) -> String {
+        let minutes = Int(now.timeIntervalSince(session.startedAt) / 60)
+        return "\(session.id)  \(session.source)  \(session.title)  · \(minutes)m"
+    }
+
+    static func sessionEvent(_ event: SessionEvent) -> String {
+        let type = event.type.rawValue.replacingOccurrences(of: "session.", with: "session ")
+        return "\(time.string(from: event.at))  \(type)  \(session(event.session, now: event.at))"
+    }
+
     /// request / notice show their kind; tasks show their status.
     static func state(_ item: Item) -> String {
         switch (item.kind, item.status) {

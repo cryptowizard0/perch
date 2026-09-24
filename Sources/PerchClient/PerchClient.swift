@@ -86,7 +86,13 @@ extension PerchClient {
     }
 }
 
-/// Events pushed by perchd, one per `next()`.
+/// Something perchd pushed to a watcher.
+public enum Push: Sendable {
+    case item(Event)
+    case session(SessionEvent)
+}
+
+/// Events pushed by perchd, one per `next()` / `nextPush()`.
 public final class EventStream {
     private let socket: BufferedSocket
     private var closed = false
@@ -101,7 +107,17 @@ public final class EventStream {
 
     /// The next event, or `nil` when perchd hangs up. `timeout: nil` waits forever;
     /// otherwise throws `ClientError.timeout` when nothing arrives in time.
+    /// Item events only; session events are skipped.
     public func next(timeout: TimeInterval? = nil) throws -> Event? {
+        let deadline = timeout.map { Date().addingTimeInterval($0) }
+        while let push = try nextPush(timeout: deadline.map { max(0, $0.timeIntervalSinceNow) }) {
+            if case .item(let event) = push { return event }
+        }
+        return nil
+    }
+
+    /// The next item or session event, or `nil` when perchd hangs up.
+    public func nextPush(timeout: TimeInterval? = nil) throws -> Push? {
         socket.setReadTimeout(timeout)
         while true {
             let line: Data?
@@ -113,7 +129,8 @@ public final class EventStream {
             guard let line else { return nil }
             let response = try PerchClient.decodeResponse(line)
             guard response.ok else { throw ClientError.badResponse(response.error ?? "error on watch stream") }
-            if let event = response.event { return event }
+            if let event = response.event { return .item(event) }
+            if let event = response.sessionEvent { return .session(event) }
         }
     }
 

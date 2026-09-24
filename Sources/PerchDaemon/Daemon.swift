@@ -24,6 +24,7 @@ public final class Daemon {
     public let config: DaemonConfig
     let queue = DispatchQueue(label: "dev.perch.perchd.core")
     let service: Service
+    let sessions: SessionRegistry
     private var subscribers: [UUID: (Response) -> Void] = [:]
     private var expiryTimer: DispatchSourceTimer?
     private let mirror: MirrorWriter
@@ -34,6 +35,7 @@ public final class Daemon {
         try FileManager.default.createDirectory(at: config.home, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         service = Service(store: try Store(path: config.databasePath), now: now)
+        sessions = SessionRegistry(now: now)
         mirror = MirrorWriter(path: config.mirrorPath)
         if !FileManager.default.fileExists(atPath: config.inboxPath) {
             FileManager.default.createFile(atPath: config.inboxPath, contents: nil)
@@ -57,6 +59,12 @@ public final class Daemon {
 
     public func perform(_ request: Request) -> Response {
         queue.sync {
+            if request.op.isSession {
+                let (response, events) = sessions.handle(request)
+                publish(sessionEvents: events)
+                scheduleExpiry()
+                return response
+            }
             let (response, events) = service.handle(request)
             afterChange(events)
             return response
@@ -117,19 +125,27 @@ public final class Daemon {
         return []
     }
 
-    /// One timer for the earliest `expires_at`; it sweeps, broadcasts and re-arms itself.
+    /// One timer for the earliest `expires_at` or stale session; it sweeps, broadcasts and re-arms itself.
     private func scheduleExpiry() {
         expiryTimer?.cancel()
         expiryTimer = nil
-        guard let next = service.nextExpiry() else { return }
+        guard let next = [service.nextExpiry(), sessions.nextExpiry()].compactMap({ $0 }).min() else { return }
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + max(0, next.timeIntervalSinceNow), leeway: .milliseconds(50))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            self.publish(sessionEvents: self.sessions.sweep())
             self.afterChange(self.service.sweepExpired())
         }
         timer.resume()
         expiryTimer = timer
+    }
+
+    private func publish(sessionEvents events: [SessionEvent]) {
+        for event in events {
+            let message = Response(ok: true, sessionEvent: event)
+            for sink in subscribers.values { sink(message) }
+        }
     }
 
     private func publish(_ events: [Event]) {

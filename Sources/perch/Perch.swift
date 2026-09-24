@@ -13,7 +13,7 @@ struct Perch: ParsableCommand {
         commandName: "perch",
         abstract: "Where your agents wait. A notch-resident queue for AI agents.",
         version: PerchVersion.string,
-        subcommands: [Add.self, Ls.self, Get.self, Done.self, Update.self, Respond.self, Rm.self, Watch.self, Hooks.self]
+        subcommands: [Add.self, Ls.self, Get.self, Done.self, Update.self, Respond.self, Rm.self, Watch.self, SessionCommand.self, Hooks.self]
     )
 
     /// Like ParsableCommand.main(), but failures honour `--json` (including argument errors).
@@ -285,15 +285,59 @@ struct Watch: ParsableCommand {
         let stream: EventStream
         do { stream = try PerchClient().watch() } catch { throw CLIError(String(describing: error)) }
         while true {
-            let event: Event?
-            do { event = try stream.next() } catch { throw CLIError(String(describing: error)) }
-            guard let event else { throw CLIError("perchd stopped") }
-            if json {
-                printJSON(event)
-            } else {
-                print(Format.event(event))
+            let push: Push?
+            do { push = try stream.nextPush() } catch { throw CLIError(String(describing: error)) }
+            switch push {
+            case nil: throw CLIError("perchd stopped")
+            case .item(let event): json ? printJSON(event) : print(Format.event(event))
+            case .session(let event): json ? printJSON(event) : print(Format.sessionEvent(event))
             }
         }
+    }
+}
+
+struct SessionCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "session",
+        abstract: "Report running agent turns (the notch's Live Activity). Hook adapters call this.",
+        subcommands: [SessionStart.self, SessionEnd.self, SessionLs.self]
+    )
+}
+
+struct SessionStart: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "start", abstract: "A turn started (again: restarts the clock).")
+    @Argument(help: "The agent's session id.") var id: String
+    @Option(help: "claude-code, codex, …") var source: String = "unknown"
+    @Option(help: "Short label, e.g. the project name.") var title: String?
+    @Option(help: "Where to jump back to.") var link: String?
+    @Flag(help: "Print JSON.") var json = false
+
+    func run() throws {
+        let session = Session(id: id, source: source, title: title, link: link)
+        let response = try call(Request(op: .sessionStart, session: session))
+        if json { printJSON(response) }
+    }
+}
+
+struct SessionEnd: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "end", abstract: "The turn is over.")
+    @Argument(help: "The agent's session id.") var id: String
+    @Flag(help: "Print JSON.") var json = false
+
+    func run() throws {
+        let response = try call(Request(op: .sessionEnd, id: id, at: Date()))
+        if json { printJSON(response) }
+    }
+}
+
+struct SessionLs: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "ls", abstract: "List running turns.")
+    @Flag(help: "Print JSON.") var json = false
+
+    func run() throws {
+        let response = try call(Request(op: .sessions))
+        if json { return printJSON(response) }
+        for session in response.sessions ?? [] { print(Format.session(session)) }
     }
 }
 
