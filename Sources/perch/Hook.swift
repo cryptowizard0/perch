@@ -5,7 +5,9 @@ import PerchCore
 
 /// `perch hook <agent>` — the hook adapter. Claude Code runs it with the hook JSON on stdin (see HookAdapter).
 /// Contract with the agent: print nothing (SessionStart / UserPromptSubmit stdout would be added to the
-/// model's context), always exit 0, never block for long. Failures go to ~/.perch/hook.log.
+/// model's context) except a PermissionRequest decision, always exit 0, never block for long (PermissionRequest:
+/// at most `--wait`). No answer is never permission: then nothing is printed and the terminal asks as usual.
+/// Failures go to ~/.perch/hook.log.
 struct Hook: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Hook adapter: reads an agent's hook JSON on stdin and reports to perchd. Prints nothing, exits 0.",
@@ -14,6 +16,8 @@ struct Hook: ParsableCommand {
     static let agents = ["claude-code", "codex"]
 
     @Argument(help: "claude-code | codex") var agent: String
+    @Option(help: "PermissionRequest: seconds to wait for Allow / Deny in the notch before the terminal asks.")
+    var wait: Double = HookAdapter.permissionWait
 
     func run() {
         let now = Date()
@@ -27,7 +31,14 @@ struct Hook: ParsableCommand {
         }
         let client = PerchClient()
         let link = terminalLink(for: input, client: client)
-        for request in HookAdapter.requests(for: input, agent: agent, link: link, now: now) {
+        if input.event == "PermissionRequest" { return permission(input, link: link, client: client, now: now) }
+        var alreadyWaiting = false
+        if input.event == "Notification" {
+            let key = HookAdapter.waitingKey(agent: agent, session: input.sessionID)
+            let active = (try? client.send(Request(op: .list), timeout: 2))?.items ?? []
+            alreadyWaiting = active.contains { $0.key == key && $0.status == .waiting }
+        }
+        for request in HookAdapter.requests(for: input, agent: agent, link: link, now: now, alreadyWaiting: alreadyWaiting) {
             do {
                 let response = try client.send(request, timeout: 2)
                 // Resolving a waiting item that is not there is the normal case.
@@ -38,6 +49,40 @@ struct Hook: ParsableCommand {
                 HookLog.write("\(input.event): \(error)")
                 if case ClientError.daemonNotRunning = error { return }
             }
+        }
+    }
+
+    /// Allowlisted: a request in the notch, wait up to `wait` s, print the decision if answered. Otherwise, or on
+    /// timeout: a waiting "go to terminal" item and no output, so the terminal's own prompt appears.
+    func permission(_ input: HookInput, link: String?, client: PerchClient, now: Date) {
+        let (allowlist, problem) = Allowlist.load(from: PerchPaths.allowlist)
+        if let problem { HookLog.write(problem) }
+        let fallback: Item
+        switch HookAdapter.permission(for: input, agent: agent, link: link, allowlist: allowlist, wait: wait, now: now) {
+        case .terminal(let item):
+            fallback = item
+        case .ask(let request):
+            do {
+                switch try RequestWaiter.addAndWait(request, client: client) {
+                case .answered(let item):
+                    if let answer = item.response, let decision = HookAdapter.decision(agent: agent, answer: answer) {
+                        print(decision)
+                        return
+                    }
+                    fallback = HookAdapter.goToTerminal(after: request, agent: agent, session: input.sessionID)
+                case .unanswered:
+                    fallback = HookAdapter.goToTerminal(after: request, agent: agent, session: input.sessionID)
+                }
+            } catch {
+                HookLog.write("PermissionRequest: \(error)")
+                return
+            }
+        }
+        do {
+            let response = try client.send(Request(op: .add, item: fallback), timeout: 2)
+            if !response.ok { HookLog.write("PermissionRequest add: \(response.error ?? "failed")") }
+        } catch {
+            HookLog.write("PermissionRequest: \(error)")
         }
     }
 

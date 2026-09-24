@@ -68,3 +68,91 @@ struct HookCLITests {
         #expect(log.contains("unreadable claude-code hook input"))
     }
 }
+
+/// PermissionRequest through `perch hook claude-code`: the notch answers, or the terminal asks.
+@Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
+struct PermissionHookTests {
+    let env = ["TERM_PROGRAM": "Apple_Terminal", "__CFBundleIdentifier": "com.apple.Terminal"]
+
+    func permission(_ command: String) -> String {
+        #"{"session_id":"s1","cwd":"/w/perch","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"\#(command)","description":"Run it"}}"#
+    }
+
+    /// Starts the hook in the background and returns once its request is in the notch.
+    func ask(_ d: TestDaemon, _ command: String, wait: String = "20") throws -> (() throws -> CLI.Result, Item) {
+        let finish = try CLI(home: d.home).start(["hook", "claude-code", "--wait", wait], stdin: permission(command), env: env)
+        for _ in 0..<300 {
+            if let request = try d.client.send(Request(op: .list, filter: .init(kind: .request))).items?.first { return (finish, request) }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        throw CLIError("the hook never posted its request")
+    }
+
+    @Test func allowFromTheNotch() throws {
+        let d = try TestDaemon()
+        let (finish, request) = try ask(d, "npm test")
+        #expect(request.title == "npm test")
+        #expect(request.meta?["description"] == "Run it")
+        #expect(request.expiresAt != nil)
+        _ = try d.client.send(Request(op: .respond, id: request.id, value: "allow"))
+        let result = try finish()
+        #expect(result.status == 0)
+        #expect(result.stdout == #"{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}"#)
+        #expect(try d.client.send(Request(op: .list)).items == [])
+    }
+
+    @Test func denyFromTheNotch() throws {
+        let d = try TestDaemon()
+        let (finish, request) = try ask(d, "git log")
+        _ = try d.client.send(Request(op: .respond, id: request.id, value: "deny"))
+        let result = try finish()
+        #expect(result.stdout.contains(#""behavior":"deny""#))
+    }
+
+    @Test func timeoutHandsOverToTheTerminal() throws {
+        let d = try TestDaemon()
+        let started = Date()
+        let (finish, _) = try ask(d, "pytest", wait: "1")
+        let result = try finish()
+        #expect(result.status == 0 && result.stdout.isEmpty)
+        #expect(Date().timeIntervalSince(started) < 4)
+        let items = try d.client.send(Request(op: .list)).items ?? []
+        #expect(items.map(\.title) == ["perch · pytest"])
+        #expect(items.first?.status == .waiting && items.first?.kind == .task)
+        #expect(items.first?.key == "claude-code:s1")
+    }
+
+    @Test func notOnTheAllowlistGoesToTheTerminalAtOnce() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let started = Date()
+        let result = try cli.run(["hook", "claude-code"], stdin: permission("rm -rf build/"), env: env)
+        #expect(result.status == 0 && result.stdout.isEmpty)
+        #expect(Date().timeIntervalSince(started) < 1)
+        var items = try d.client.send(Request(op: .list)).items ?? []
+        #expect(items.map(\.title) == ["perch · rm -rf build/"])
+        #expect(items.first?.kind == .task && items.first?.status == .waiting)
+        #expect(items.first?.meta?["terminal_reason"] == "`rm -rf` is not on the allowlist")
+
+        // Six seconds later Claude Code's permission_prompt notification must not replace the command text.
+        let notification = #"{"session_id":"s1","cwd":"/w/perch","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}"#
+        try cli.run(["hook", "claude-code"], stdin: notification, env: env)
+        items = try d.client.send(Request(op: .list)).items ?? []
+        #expect(items.map(\.title) == ["perch · rm -rf build/"])
+
+        // Answered in the terminal: the tool ran, the orange goes away without waiting for Stop.
+        let ran = #"{"session_id":"s1","cwd":"/w/perch","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf build/"}}"#
+        try cli.run(["hook", "claude-code"], stdin: ran, env: env)
+        #expect(try d.client.send(Request(op: .list)).items == [])
+    }
+
+    @Test func aBrokenAllowlistApprovesNothing() throws {
+        let d = try TestDaemon()
+        try "{ broken".write(to: d.home.appendingPathComponent("allowlist.json"), atomically: true, encoding: .utf8)
+        let result = try CLI(home: d.home).run(["hook", "claude-code"], stdin: permission("npm test"), env: env)
+        #expect(result.stdout.isEmpty)
+        #expect(try d.client.send(Request(op: .list)).items?.first?.kind == .task)
+        let log = try String(contentsOf: d.home.appendingPathComponent("hook.log"), encoding: .utf8)
+        #expect(log.contains("nothing can be approved from the notch"))
+    }
+}

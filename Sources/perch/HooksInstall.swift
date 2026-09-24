@@ -18,6 +18,8 @@ struct HooksInstall: ParsableCommand {
     @Argument(help: "claude-code | codex") var agent: String
     @Option(help: "Settings file to edit (default: the agent's user settings).") var settings: String?
     @Option(help: "perch binary the hooks run (default: this one).") var binary: String?
+    @Option(help: "Seconds a permission request waits for the notch before the terminal asks.")
+    var wait: Int = Int(HookAdapter.permissionWait)
     @Flag(help: "Print the resulting settings instead of writing them.") var dryRun = false
     @Flag(help: "Print JSON.") var json = false
 
@@ -27,7 +29,8 @@ struct HooksInstall: ParsableCommand {
         let perch = try binary ?? ClaudeSettings.currentBinary()
         var root = try ClaudeSettings.read(path)
         ClaudeSettings.remove(from: &root)
-        ClaudeSettings.add(to: &root, command: "\(ClaudeSettings.shellQuote(perch)) hook claude-code")
+        guard (5...300).contains(wait) else { throw CLIError("--wait must be between 5 and 300 seconds", code: 64) }
+        ClaudeSettings.add(to: &root, perch: ClaudeSettings.shellQuote(perch), wait: wait)
         if dryRun { return print(try ClaudeSettings.render(root)) }
         if perch.contains("/.build/") {
             FileHandle.standardError.write(Data("perch: warning: hooks run \(perch); `swift package clean` would break them. Copy perch somewhere stable and install with --binary.\n".utf8))
@@ -72,12 +75,16 @@ enum ClaudeSettings {
     struct HookEvent {
         let name: String
         let matcher: String?
+        /// Only PermissionRequest blocks (it may return a decision); everything else is async, so the agent never waits.
+        var blocking = false
     }
 
-    /// All async: none of them decides anything, so the agent never waits on Perch.
     static let events = [
         HookEvent(name: "UserPromptSubmit", matcher: nil),
         HookEvent(name: "Notification", matcher: HookAdapter.waitingNotifications.sorted { order($0) < order($1) }.joined(separator: "|")),
+        HookEvent(name: "PermissionRequest", matcher: nil, blocking: true),
+        HookEvent(name: "PostToolUse", matcher: nil),
+        HookEvent(name: "PostToolUseFailure", matcher: nil),
         HookEvent(name: "Stop", matcher: nil),
         HookEvent(name: "StopFailure", matcher: nil),
         HookEvent(name: "SessionEnd", matcher: nil),
@@ -103,7 +110,7 @@ enum ClaudeSettings {
 
     static func isPerch(_ hook: [String: Any]) -> Bool {
         guard let command = hook["command"] as? String else { return false }
-        return command.hasSuffix(" hook claude-code") && command.contains("perch")
+        return command.contains(" hook claude-code") && command.contains("perch")
     }
 
     static func read(_ path: String) throws -> [String: Any] {
@@ -138,10 +145,14 @@ enum ClaudeSettings {
         return removed
     }
 
-    static func add(to root: inout [String: Any], command: String) {
+    static func add(to root: inout [String: Any], perch: String, wait: Int) {
         var hooks = root["hooks"] as? [String: Any] ?? [:]
         for event in events {
-            var group: [String: Any] = ["hooks": [["type": "command", "command": command, "async": true, "timeout": 10]]]
+            let hook: [String: Any] = event.blocking
+                ? ["type": "command", "command": "\(perch) hook claude-code --wait \(wait)", "timeout": wait + 10,
+                   "statusMessage": "Waiting for Perch (⌥⇧A allow · ⌥⇧D deny)…"]
+                : ["type": "command", "command": "\(perch) hook claude-code", "async": true, "timeout": 10]
+            var group: [String: Any] = ["hooks": [hook]]
             if let matcher = event.matcher { group["matcher"] = matcher }
             hooks[event.name] = (hooks[event.name] as? [[String: Any]] ?? []) + [group]
         }

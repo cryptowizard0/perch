@@ -64,13 +64,15 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 | `Notification`（matcher `permission_prompt` / `elicitation_dialog` / `agent_needs_input`；**不接 `idle_prompt`**） | add waiting，key `<agent>:<session_id>` | 否 |
 | `Stop` | session_end；`done --key` resolve waiting；发 notice（`last_assistant_message` 首行摘要，key `<agent>:<session_id>:done`，10 分钟后消失） | 否 |
 | `StopFailure` / `SessionEnd` | session_end；resolve waiting | 否 |
-| `PermissionRequest`（M4） | `perch add --kind request --wait`，拿到 allow/deny 后按各家格式打印 JSON | 是 |
+| `PermissionRequest` | 白名单内：发 request 等刘海（`--wait`，默认 20 秒），有回应就打印决定；超时或白名单外：立刻发一条"去终端"的 waiting（完整命令），不打印任何东西，终端原生提示接管 | 是 |
+| `PostToolUse` / `PostToolUseFailure` | resolve 本会话的 waiting（工具跑了，说明权限已在终端处理） | 否 |
 
 session（Live Activity）只在 perchd 内存里，不进 SQLite：`perch session start|end|ls`，事件 `session.started|ended`。
 
 `perch add --kind request --wait` 的约定：有人回应 → stdout 打印回应值、exit 0；过期（`--expires`）/ 被 done / 被 rm → exit 3、不打印回应。适配器只在 exit 0 时返回决定，其余一律不返回，让终端原生提示接管。
 
-返回格式：Claude Code 是 `{"decision":"allow"|"deny","decisionReason":"…"}`（注意：不是 PreToolUse 的 `permissionDecision`，且 exit code 2 在 PermissionRequest 不生效）；Codex 是 decision 对象里的 `"behavior":"allow"|"deny"`。
+返回格式（M4 按官方文档核对过）：Claude Code 是 `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny","message":"…"}}}`（`message` 只用于 deny；不是 PreToolUse 的 `permissionDecision`；exit code 2 在 PermissionRequest 不生效）。Codex 在 M5 核对。
+PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permission_prompt` 要等提示框挂了约 6 秒才触发。
 配置文件：Claude Code `~/.claude/settings.json`；Codex `~/.codex/hooks.json`（首次运行需在终端确认信任）。
 以官方文档为准：https://code.claude.com/docs/en/hooks 、 https://learn.chatgpt.com/docs/hooks 。
 

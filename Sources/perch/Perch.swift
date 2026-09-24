@@ -117,32 +117,12 @@ struct Add: ParsableCommand {
     /// without an answer, or is removed. A caller that gets no answer must fall back to asking in the
     /// terminal — never treat "no answer" as permission.
     func addAndWait(_ item: Item) throws {
-        let stream: EventStream
-        do { stream = try PerchClient().watch() } catch { throw CLIError(String(describing: error)) }
-        defer { stream.close() }
-        // Subscribed before adding, so the answer cannot arrive before we listen.
-        var current = try call(Request(op: .add, item: item)).item!
-        while current.response == nil && (current.status == .open || current.status == .waiting) {
-            // perchd dismisses the request at expires_at; the slack only guards against a wedged daemon.
-            let timeout = current.expiresAt.map { max($0.timeIntervalSinceNow, 0) + 5 }
-            let event: Event?
-            do {
-                event = try stream.next(timeout: timeout)
-            } catch ClientError.timeout {
-                throw CLIError("request \(current.id) expired without a response", code: 3)
-            } catch {
-                throw CLIError(String(describing: error))
-            }
-            guard let event else { throw CLIError("perchd stopped while waiting for \(current.id)") }
-            guard event.item.id == current.id else { continue }
-            if event.type == .removed { throw CLIError("request \(current.id) was removed without a response", code: 3) }
-            current = event.item
+        switch try RequestWaiter.addAndWait(item, client: PerchClient()) {
+        case .answered(let answered):
+            json ? printJSON(Response(ok: true, item: answered)) : print(answered.response ?? "")
+        case .unanswered(let item, let why):
+            throw CLIError("request \(item.id) \(why) without a response", code: 3)
         }
-        guard let answer = current.response else {
-            let why = current.status == .dismissed ? "expired" : "was closed"
-            throw CLIError("request \(current.id) \(why) without a response", code: 3)
-        }
-        json ? printJSON(Response(ok: true, item: current)) : print(answer)
     }
 
     func parseDue(_ text: String, now: Date) throws -> Date {
@@ -347,11 +327,48 @@ struct SessionLs: ParsableCommand {
 
 // MARK: - Helpers
 
+/// Adds a request and blocks until it is answered or goes away. Shared by `add --wait` and the PermissionRequest hook.
+enum RequestWaiter {
+    enum Outcome {
+        case answered(Item)
+        /// "expired", "was closed", "was removed"
+        case unanswered(Item, String)
+    }
+
+    static func addAndWait(_ item: Item, client: PerchClient) throws -> Outcome {
+        let stream: EventStream
+        do { stream = try client.watch() } catch { throw CLIError(String(describing: error)) }
+        defer { stream.close() }
+        // Subscribed before adding, so the answer cannot arrive before we listen.
+        var current = try call(Request(op: .add, item: item), client: client).item!
+        while current.response == nil && (current.status == .open || current.status == .waiting) {
+            // perchd dismisses the request at expires_at; the slack only guards against a wedged daemon.
+            let timeout = current.expiresAt.map { max($0.timeIntervalSinceNow, 0) + 5 }
+            let event: Event?
+            do {
+                event = try stream.next(timeout: timeout)
+            } catch ClientError.timeout {
+                return .unanswered(current, "expired")
+            } catch {
+                throw CLIError(String(describing: error))
+            }
+            guard let event else { throw CLIError("perchd stopped while waiting for \(current.id)") }
+            guard event.item.id == current.id else { continue }
+            if event.type == .removed { return .unanswered(current, "was removed") }
+            current = event.item
+        }
+        guard current.response != nil else {
+            return .unanswered(current, current.status == .dismissed ? "expired" : "was closed")
+        }
+        return .answered(current)
+    }
+}
+
 /// One round trip to perchd; `ok:false` becomes a CLIError carrying perchd's message.
-func call(_ request: Request, timeout: TimeInterval = 10) throws -> Response {
+func call(_ request: Request, timeout: TimeInterval = 10, client: PerchClient = PerchClient()) throws -> Response {
     let response: Response
     do {
-        response = try PerchClient().send(request, timeout: timeout)
+        response = try client.send(request, timeout: timeout)
     } catch {
         throw CLIError(String(describing: error))
     }

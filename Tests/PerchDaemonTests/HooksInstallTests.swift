@@ -36,15 +36,21 @@ struct HooksInstallTests {
 
         let result = try cli.run("hooks", "install", "claude-code", "--settings", settings.path, "--binary", "/opt/perch/bin/perch")
         #expect(result.status == 0, "\(result.stderr)")
-        #expect(result.stdout.contains("UserPromptSubmit, Notification, Stop, StopFailure, SessionEnd"))
+        #expect(result.stdout.contains("UserPromptSubmit, Notification, PermissionRequest, PostToolUse, PostToolUseFailure, Stop, StopFailure, SessionEnd"))
         var json = try read()
         #expect(json["model"] as? String == "opus")
         let ours = "/opt/perch/bin/perch hook claude-code"
         #expect(commands(json, "Stop") == ["other-tool notify", ours])
         #expect(commands(json, "PreToolUse") == ["/usr/local/bin/guard.sh"])
-        for event in ["UserPromptSubmit", "Notification", "StopFailure", "SessionEnd"] {
+        for event in ["UserPromptSubmit", "Notification", "PostToolUse", "PostToolUseFailure", "StopFailure", "SessionEnd"] {
             #expect(commands(json, event) == [ours], "\(event)")
         }
+        // PermissionRequest blocks (it answers), with room for the wait.
+        #expect(commands(json, "PermissionRequest") == [ours + " --wait 20"])
+        let permission = (((json["hooks"] as! [String: Any])["PermissionRequest"] as! [[String: Any]])[0]["hooks"] as! [[String: Any]])[0]
+        #expect(permission["async"] == nil)
+        #expect(permission["timeout"] as? Int == 30)
+        #expect((permission["statusMessage"] as? String)?.contains("Perch") == true)
         let notification = ((json["hooks"] as! [String: Any])["Notification"] as! [[String: Any]])[0]
         #expect(notification["matcher"] as? String == "permission_prompt|elicitation_dialog|agent_needs_input")
         let hook = (notification["hooks"] as! [[String: Any]])[0]
@@ -53,9 +59,10 @@ struct HooksInstallTests {
         #expect(FileManager.default.fileExists(atPath: settings.path + ".perch-backup"))
 
         // Installing again replaces instead of duplicating (e.g. after moving the binary).
-        try cli.run("hooks", "install", "claude-code", "--settings", settings.path, "--binary", "/new place/perch")
+        try cli.run("hooks", "install", "claude-code", "--settings", settings.path, "--binary", "/new place/perch", "--wait", "30")
         json = try read()
         #expect(commands(json, "Stop") == ["other-tool notify", "'/new place/perch' hook claude-code"])
+        #expect(commands(json, "PermissionRequest") == ["'/new place/perch' hook claude-code --wait 30"])
 
         let removed = try cli.run("hooks", "uninstall", "claude-code", "--settings", settings.path)
         #expect(removed.status == 0)

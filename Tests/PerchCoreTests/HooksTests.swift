@@ -95,3 +95,77 @@ import Testing
         #expect(TerminalLink(string: "/tmp") == nil)
     }
 }
+
+@Suite struct PermissionAdapterTests {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    func input(_ tool: String, _ fields: [String: JSONValue]) -> HookInput {
+        HookInput(sessionID: "s1", event: "PermissionRequest", cwd: "/w/perch", toolName: tool, toolInput: fields)
+    }
+
+    func plan(_ tool: String, _ fields: [String: JSONValue]) -> HookAdapter.PermissionPlan {
+        HookAdapter.permission(for: input(tool, fields), agent: "claude-code", link: "L", allowlist: .defaults, now: now, home: "/Users/me")
+    }
+
+    @Test func decodesToolInput() throws {
+        let json = #"{"session_id":"s1","hook_event_name":"PermissionRequest","cwd":"/w","tool_name":"Bash","tool_input":{"command":"npm test","description":"Run tests","timeout":120000,"run_in_background":false},"permission_suggestions":[{"type":"addRules"}]}"#
+        let decoded = try JSONDecoder().decode(HookInput.self, from: Data(json.utf8))
+        #expect(decoded.toolName == "Bash")
+        #expect(decoded.toolStrings == ["command": "npm test", "description": "Run tests"])
+        #expect(decoded.toolInput?["timeout"] == .number(120000))
+    }
+
+    @Test func allowlistedAsksTheNotch() throws {
+        guard case .ask(let request) = plan("Bash", ["command": .string("npm test"), "description": .string("Run tests")]) else {
+            Issue.record("expected ask"); return
+        }
+        #expect(request.title == "npm test")
+        #expect(request.kind == .request && request.status == .waiting)
+        #expect(request.options == ["allow", "deny"])
+        #expect(request.expiresAt == now.addingTimeInterval(20))
+        #expect(request.key == nil)
+        #expect(request.link == "L")
+        #expect(request.meta == ["session_id": "s1", "tool": "Bash", "project": "perch", "cwd": "/w/perch", "description": "Run tests"])
+    }
+
+    @Test func everythingElseGoesStraightToTheTerminal() throws {
+        guard case .terminal(let item) = plan("Bash", ["command": .string("rm -rf build/")]) else { Issue.record("expected terminal"); return }
+        #expect(item.title == "perch · rm -rf build/")
+        #expect(item.kind == .task && item.status == .waiting)
+        #expect(item.key == "claude-code:s1")
+        #expect(item.meta?["terminal_reason"] == "`rm -rf` is not on the allowlist")
+        guard case .terminal = plan("Read", ["file_path": .string("/Users/me/.ssh/id_rsa")]) else { Issue.record("ssh"); return }
+        guard case .terminal = plan("Write", ["file_path": .string("/w/perch/a.swift")]) else { Issue.record("write"); return }
+    }
+
+    @Test func timedOutRequestBecomesGoToTerminal() {
+        guard case .ask(let request) = plan("Bash", ["command": .string("pytest")]) else { Issue.record("ask"); return }
+        let item = HookAdapter.goToTerminal(after: request, agent: "claude-code", session: "s1")
+        #expect(item.title == "perch · pytest")
+        #expect(item.status == .waiting && item.kind == .task)
+        #expect(item.key == "claude-code:s1")
+    }
+
+    @Test func decisionJSONForClaudeCode() {
+        #expect(HookAdapter.decision(agent: "claude-code", answer: "allow")
+                == #"{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}"#)
+        #expect(HookAdapter.decision(agent: "claude-code", answer: "deny")
+                == #"{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"Denied by the user from the Perch notch."},"hookEventName":"PermissionRequest"}}"#)
+        #expect(HookAdapter.decision(agent: "claude-code", answer: "maybe") == nil)
+    }
+
+    @Test func latePermissionNotificationKeepsTheCommandText() {
+        let notification = HookInput(sessionID: "s1", event: "Notification", notificationType: "permission_prompt", message: "needs permission")
+        #expect(HookAdapter.requests(for: notification, agent: "claude-code", link: nil, now: now, alreadyWaiting: true).isEmpty)
+        #expect(!HookAdapter.requests(for: notification, agent: "claude-code", link: nil, now: now, alreadyWaiting: false).isEmpty)
+        let elicitation = HookInput(sessionID: "s1", event: "Notification", notificationType: "elicitation_dialog", message: "pick one")
+        #expect(!HookAdapter.requests(for: elicitation, agent: "claude-code", link: nil, now: now, alreadyWaiting: true).isEmpty)
+    }
+
+    @Test func toolRunResolvesTheWaitingItem() {
+        for event in ["PostToolUse", "PostToolUseFailure"] {
+            let r = HookAdapter.requests(for: HookInput(sessionID: "s1", event: event, toolName: "Bash"), agent: "claude-code", link: nil, now: now)
+            #expect(r.map(\.op) == [.done] && r.first?.key == "claude-code:s1")
+        }
+    }
+}
