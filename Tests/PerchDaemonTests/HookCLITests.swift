@@ -216,3 +216,41 @@ struct CodexHookTests {
         #expect(items.first?.kind == .notice && items.first?.key == "codex:019a:done")
     }
 }
+
+/// `perch hook hermes` fed Hermes shell-hook payloads, against a real perchd.
+@Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
+struct HermesHookTests {
+    let env = ["TERM_PROGRAM": "Apple_Terminal", "__CFBundleIdentifier": "com.apple.Terminal"]
+
+    @discardableResult
+    func hook(_ cli: CLI, _ event: String, session: String = "s1", _ extra: String) throws -> CLI.Result {
+        let json = #"{"hook_event_name":"\#(event)","tool_name":null,"tool_input":null,"session_id":"\#(session)","cwd":"/w/perch","extra":\#(extra)}"#
+        return try cli.run(["hook", "hermes"], stdin: json, env: env)
+    }
+
+    @Test func aTurnWithADangerousCommand() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+
+        let start = try hook(cli, "pre_llm_call", #"{"user_message":"clean up","conversation_history":[],"is_first_turn":true,"platform":"cli"}"#)
+        #expect(start.status == 0 && start.stdout.isEmpty && start.stderr.isEmpty)  // stdout would become LLM context
+        let session = try #require(try d.client.send(Request(op: .sessions)).sessions?.first)
+        #expect(session.id == "s1" && session.source == "hermes" && session.title == "perch")
+
+        // Hermes asks before `rm -rf`: orange, full command, answered in the terminal.
+        try hook(cli, "pre_approval_request", session: "",
+                 #"{"command":"rm -rf build/","description":"recursive delete","pattern_key":"rm_rf","session_key":"default","surface":"cli"}"#)
+        var items = try d.client.send(Request(op: .list)).items ?? []
+        #expect(items.map(\.title) == ["perch · rm -rf build/"])
+        #expect(items.first?.status == .waiting && items.first?.link == session.link)
+        try hook(cli, "post_approval_response", session: "", #"{"command":"rm -rf build/","session_key":"default","surface":"cli","choice":"once"}"#)
+        #expect(try d.client.send(Request(op: .list)).items == [])
+
+        try hook(cli, "post_llm_call", #"{"assistant_response":"Removed build/.","platform":"cli"}"#)
+        try hook(cli, "on_session_end", #"{"completed":true,"interrupted":false,"platform":"cli"}"#)
+        #expect(try d.client.send(Request(op: .sessions)).sessions == [])
+        items = try d.client.send(Request(op: .list)).items ?? []
+        #expect(items.map(\.title) == ["perch · Removed build/."])
+        #expect(items.first?.kind == .notice)
+    }
+}

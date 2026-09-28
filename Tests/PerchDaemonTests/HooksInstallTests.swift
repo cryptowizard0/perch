@@ -142,9 +142,62 @@ struct HooksInstallTests {
         #expect(commands(try read(), "Stop") == ["/opt/perch/bin/perch hook claude-code"])
     }
 
+    /// Hermes keeps its hooks in config.yaml: Perch owns one marked block and never touches the rest.
+    @Test func hermesConfigYAML() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let config = dir.appendingPathComponent("config.yaml")
+        let original = "model:\n  default: hermes-4\nterminal:\n  backend: local\nhooks_auto_accept: false\n"
+        try original.write(to: config, atomically: true, encoding: .utf8)
+        func text() throws -> String { try String(contentsOf: config, encoding: .utf8) }
+
+        let result = try cli.run("hooks", "install", "hermes", "--settings", config.path, "--binary", "/opt/perch/bin/perch")
+        #expect(result.status == 0, "\(result.stderr)")
+        #expect(result.stdout.contains("pre_llm_call, post_llm_call, on_session_end, pre_approval_request, post_approval_response"))
+        #expect(result.stdout.contains("hermes gateway restart"))  // new hooks need consent and a gateway restart
+        var yaml = try text()
+        #expect(yaml.hasPrefix(original))
+        let block = String(yaml.dropFirst(original.count))
+        #expect(block.contains("\nhooks:\n  pre_llm_call:\n    - command: \"/opt/perch/bin/perch hook hermes\"\n      timeout: 10\n"))
+        for event in ["post_llm_call", "on_session_end", "pre_approval_request", "post_approval_response"] {
+            #expect(block.contains("  \(event):\n    - command: \"/opt/perch/bin/perch hook hermes\"\n"), "\(event)")
+        }
+        #expect(FileManager.default.fileExists(atPath: config.path + ".perch-backup"))
+
+        // Reinstalling replaces the block (a path with a space, quoted for shlex inside a YAML string).
+        try cli.run("hooks", "install", "hermes", "--settings", config.path, "--binary", "/new place/perch")
+        yaml = try text()
+        #expect(yaml.components(separatedBy: "hooks:\n").count == 2)
+        #expect(yaml.contains(#"- command: "'/new place/perch' hook hermes""#))
+
+        let removed = try cli.run("hooks", "uninstall", "hermes", "--settings", config.path)
+        #expect(removed.stdout.contains("removed 5 Perch hooks"))
+        #expect(try text() == original)
+        #expect(try cli.run("hooks", "uninstall", "hermes", "--settings", config.path).stdout.contains("no Perch hooks"))
+    }
+
+    @Test func hermesWithItsOwnHooksIsLeftAlone() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let config = dir.appendingPathComponent("config.yaml")
+        let mine = "model: x\nhooks:\n  post_tool_call:\n    - command: ~/.hermes/agent-hooks/fmt.sh\n"
+        try mine.write(to: config, atomically: true, encoding: .utf8)
+        let result = try cli.run("hooks", "install", "hermes", "--settings", config.path, "--binary", "/b/perch")
+        #expect(result.status == 1)
+        #expect(result.stderr.hasPrefix("perch: \(config.path) already has a hooks: section"))
+        #expect(try String(contentsOf: config, encoding: .utf8) == mine)
+
+        // An empty one is fine: it is replaced.
+        try "model: x\nhooks: {}\nother: 1\n".write(to: config, atomically: true, encoding: .utf8)
+        #expect(try cli.run("hooks", "install", "hermes", "--settings", config.path, "--binary", "/b/perch").status == 0)
+        let yaml = try String(contentsOf: config, encoding: .utf8)
+        #expect(yaml.hasPrefix("model: x\nother: 1\n"))
+        #expect(yaml.components(separatedBy: "\nhooks:\n").count == 2)
+    }
+
     @Test func unknownAgent() throws {
         let result = try cli.run("hooks", "install", "cursor", "--settings", settings.path)
         #expect(result.status == 64)
-        #expect(result.stderr == "perch: unknown agent 'cursor'; use claude-code or codex")
+        #expect(result.stderr == "perch: unknown agent 'cursor'; use claude-code, codex or hermes")
     }
 }

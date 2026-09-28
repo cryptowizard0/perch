@@ -3,7 +3,7 @@ import Foundation
 import PerchClient
 import PerchCore
 
-/// `perch hook <agent>` — the hook adapter. Claude Code / Codex run it with the hook JSON on stdin (see HookAdapter).
+/// `perch hook <agent>` — the hook adapter. Claude Code / Codex / Hermes run it with the hook JSON on stdin (see HookAdapter).
 /// Contract with the agent: print nothing (SessionStart / UserPromptSubmit stdout would be added to the
 /// model's context) except a PermissionRequest decision, always exit 0, never block for long (PermissionRequest:
 /// at most `--wait`). No answer is never permission: then nothing is printed and the terminal asks as usual.
@@ -13,7 +13,7 @@ struct Hook: ParsableCommand {
         abstract: "Hook adapter: reads an agent's hook JSON on stdin and reports to perchd. Prints nothing, exits 0.",
         discussion: "Installed by `perch hooks install`. Agents: \(Hook.agents.joined(separator: ", "))."
     )
-    static let agents = HookSettings.all.map(\.agent)
+    static let agents = HookFiles.all.map(\.agent)
 
     @Argument(help: "claude-code | codex") var agent: String
     @Option(help: "PermissionRequest: seconds to wait for Allow / Deny in the notch before the terminal asks.")
@@ -94,7 +94,7 @@ struct Hook: ParsableCommand {
         let bundle = env["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
         guard program != nil || bundle != nil else { return nil }
         var link = TerminalLink(app: program ?? "app", cwd: input.cwd, bundleID: bundle)
-        if input.event == "UserPromptSubmit" {
+        if HookAdapter.turnStarts.contains(input.event) {
             if link.app == "ghostty" { link.terminalID = Ghostty.focusedTerminal(near: input.cwd) }
             return link.string
         }

@@ -16,10 +16,11 @@ struct HooksInstall: ParsableCommand {
         discussion: """
         claude-code: ~/.claude/settings.json ($CLAUDE_CONFIG_DIR/settings.json if set).
         codex: ~/.codex/hooks.json ($CODEX_HOME/hooks.json if set); Codex runs them only after you trust them in /hooks.
+        hermes: ~/.hermes/config.yaml ($HERMES_HOME/config.yaml if set); Hermes asks once before running them.
         A backup is written next to the file.
         """
     )
-    @Argument(help: "claude-code | codex") var agent: String
+    @Argument(help: "claude-code | codex | hermes") var agent: String
     @Option(help: "Settings file to edit (default: the agent's user settings).") var settings: String?
     @Option(help: "perch binary the hooks run (default: this one).") var binary: String?
     @Option(help: "Seconds a permission request waits for the notch before the terminal asks.")
@@ -28,48 +29,113 @@ struct HooksInstall: ParsableCommand {
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
-        let target = try HookSettings.for(agent)
+        let target = try HookFiles.for(agent)
         let path = settings ?? target.defaultPath
-        let perch = try binary ?? HookSettings.currentBinary()
-        var root = try HookSettings.read(path)
-        target.remove(from: &root)
+        let perch = try binary ?? HookFiles.currentBinary()
         guard (5...300).contains(wait) else { throw CLIError("--wait must be between 5 and 300 seconds", code: 64) }
-        target.add(to: &root, perch: HookSettings.shellQuote(perch), wait: wait)
-        if dryRun { return print(try HookSettings.render(root)) }
+        let text = try target.installing(HookFiles.read(path), path: path, perch: HookFiles.shellQuote(perch), wait: wait)
+        if dryRun { return print(text, terminator: "") }
         if perch.contains("/.build/") {
             FileHandle.standardError.write(Data("perch: warning: hooks run \(perch); `swift package clean` would break them. Copy perch somewhere stable and install with --binary.\n".utf8))
         }
-        try HookSettings.write(root, to: path)
+        try HookFiles.write(text, to: path)
         if json { return printJSON(Response(ok: true)) }
-        print("installed Perch hooks for \(agent) in \(path): \(target.events.map(\.name).joined(separator: ", "))")
+        print("installed Perch hooks for \(agent) in \(path): \(target.eventNames.joined(separator: ", "))")
         if let note = target.installNote { print(note) }
     }
 }
 
 struct HooksUninstall: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "uninstall", abstract: "Remove Perch's hooks (only Perch's).")
-    @Argument(help: "claude-code | codex") var agent: String
+    @Argument(help: "claude-code | codex | hermes") var agent: String
     @Option(help: "Settings file to edit (default: the agent's user settings).") var settings: String?
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
-        let target = try HookSettings.for(agent)
+        let target = try HookFiles.for(agent)
         let path = settings ?? target.defaultPath
-        guard FileManager.default.fileExists(atPath: path) else {
+        guard let text = try HookFiles.read(path) else {
             return json ? printJSON(Response(ok: true)) : print("no \(path); nothing to remove")
         }
-        var root = try HookSettings.read(path)
-        let removed = target.remove(from: &root)
-        if removed > 0 { try HookSettings.write(root, to: path) }
+        let (kept, removed) = try target.removing(text, path: path)
+        if removed > 0 { try HookFiles.write(kept, to: path) }
         if json { return printJSON(Response(ok: true)) }
         print(removed > 0 ? "removed \(removed) Perch hook\(removed == 1 ? "" : "s") from \(path)" : "no Perch hooks in \(path)")
+    }
+}
+
+/// One agent's hook configuration file. Implementations only ever add or remove Perch's own hooks.
+protocol HookFile {
+    var agent: String { get }
+    var eventNames: [String] { get }
+    var defaultPath: String { get }
+    /// Printed after a successful install.
+    var installNote: String? { get }
+    /// The file with Perch's hooks (replacing any old ones). `text` is nil when the file does not exist.
+    func installing(_ text: String?, path: String, perch: String, wait: Int) throws -> String
+    /// The file without Perch's hooks, and how many there were.
+    func removing(_ text: String, path: String) throws -> (text: String, removed: Int)
+}
+
+enum HookFiles {
+    static var all: [any HookFile] { [HookSettings.claudeCode, HookSettings.codex, HermesHooks()] }
+
+    static func `for`(_ agent: String) throws -> any HookFile {
+        guard let file = all.first(where: { $0.agent == agent }) else {
+            let names = all.map(\.agent)
+            throw CLIError("unknown agent '\(agent)'; use \(names.dropLast().joined(separator: ", ")) or \(names.last!)", code: 64)
+        }
+        return file
+    }
+
+    static func currentBinary() throws -> String {
+        let url = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.resolvingSymlinksInPath()
+        if FileManager.default.isExecutableFile(atPath: url.path) { return url.path }
+        guard let path = Bundle.main.executablePath else { throw CLIError("cannot tell where perch is; pass --binary") }
+        return path
+    }
+
+    /// `$<dirVariable>/<file>`, else `~/<defaultDir>/<file>`.
+    static func configFile(dirVariable: String, defaultDir: String, file: String) -> String {
+        let dir = ProcessInfo.processInfo.environment[dirVariable].flatMap { $0.isEmpty ? nil : $0 }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(defaultDir).path
+        return URL(fileURLWithPath: dir).appendingPathComponent(file).path
+    }
+
+    static func read(_ path: String) throws -> String? {
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw CLIError("\(path) is not UTF-8 text; nothing was changed")
+        }
+        return text
+    }
+
+    /// Backs up the old file to `<path>.perch-backup`, then replaces it atomically.
+    static func write(_ text: String, to path: String) throws {
+        let url = URL(fileURLWithPath: path)
+        let fm = FileManager.default
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if fm.fileExists(atPath: path) {
+            let backup = URL(fileURLWithPath: path + ".perch-backup")
+            try? fm.removeItem(at: backup)
+            try fm.copyItem(at: url, to: backup)
+        }
+        try Data(text.utf8).write(to: url, options: .atomic)
+    }
+
+    /// Single-quotes a path for the hook's shell command when it needs it.
+    static func shellQuote(_ s: String) -> String {
+        let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/._-+@%:,"))
+        if !s.isEmpty && s.unicodeScalars.allSatisfy(safe.contains) { return s }
+        return "'" + s.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 }
 
 /// An agent's hook file, edited as plain JSON. Claude Code's settings.json and Codex's hooks.json share the
 /// `hooks → event → [{matcher, hooks: [handler]}]` shape. Only handlers whose command runs `perch … hook <agent>`
 /// are Perch's; everything else is left as it was (key order may change: the file is rewritten sorted).
-struct HookSettings {
+struct HookSettings: HookFile {
     struct HookEvent {
         enum Mode {
             /// The agent never waits for it. Codex caps Interrupt at 3 s even in the background.
@@ -87,17 +153,9 @@ struct HookSettings {
     let agent: String
     let events: [HookEvent]
     let defaultPath: String
-    /// Printed after a successful install.
     var installNote: String?
 
-    static var all: [HookSettings] { [claudeCode, codex] }
-
-    static func `for`(_ agent: String) throws -> HookSettings {
-        guard let settings = all.first(where: { $0.agent == agent }) else {
-            throw CLIError("unknown agent '\(agent)'; use \(all.map(\.agent).joined(separator: " or "))", code: 64)
-        }
-        return settings
-    }
+    var eventNames: [String] { events.map(\.name) }
 
     static var claudeCode: HookSettings {
         HookSettings(agent: "claude-code", events: [
@@ -109,7 +167,7 @@ struct HookSettings {
             HookEvent(name: "Stop"),
             HookEvent(name: "StopFailure"),
             HookEvent(name: "SessionEnd"),
-        ], defaultPath: configFile(dirVariable: "CLAUDE_CONFIG_DIR", defaultDir: ".claude", file: "settings.json"))
+        ], defaultPath: HookFiles.configFile(dirVariable: "CLAUDE_CONFIG_DIR", defaultDir: ".claude", file: "settings.json"))
     }
 
     /// Codex has no Notification / StopFailure / PostToolUseFailure; Interrupt covers Esc (no Stop follows).
@@ -121,7 +179,7 @@ struct HookSettings {
             HookEvent(name: "Stop"),
             HookEvent(name: "Interrupt", mode: .async(timeout: 3)),
             HookEvent(name: "SessionEnd", mode: .sync(timeout: 3)),
-        ], defaultPath: configFile(dirVariable: "CODEX_HOME", defaultDir: ".codex", file: "hooks.json"),
+        ], defaultPath: HookFiles.configFile(dirVariable: "CODEX_HOME", defaultDir: ".codex", file: "hooks.json"),
         installNote: "Codex skips new or changed hooks until you trust them: start codex and review them with /hooks.")
     }
 
@@ -129,18 +187,17 @@ struct HookSettings {
         ["permission_prompt", "elicitation_dialog", "agent_needs_input"].firstIndex(of: type) ?? 99
     }
 
-    /// `$<dirVariable>/<file>`, else `~/<defaultDir>/<file>`.
-    private static func configFile(dirVariable: String, defaultDir: String, file: String) -> String {
-        let dir = ProcessInfo.processInfo.environment[dirVariable].flatMap { $0.isEmpty ? nil : $0 }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(defaultDir).path
-        return URL(fileURLWithPath: dir).appendingPathComponent(file).path
+    func installing(_ text: String?, path: String, perch: String, wait: Int) throws -> String {
+        var root = try parse(text, path: path)
+        remove(from: &root)
+        add(to: &root, perch: perch, wait: wait)
+        return try Self.render(root)
     }
 
-    static func currentBinary() throws -> String {
-        let url = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.resolvingSymlinksInPath()
-        if FileManager.default.isExecutableFile(atPath: url.path) { return url.path }
-        guard let path = Bundle.main.executablePath else { throw CLIError("cannot tell where perch is; pass --binary") }
-        return path
+    func removing(_ text: String, path: String) throws -> (text: String, removed: Int) {
+        var root = try parse(text, path: path)
+        let removed = remove(from: &root)
+        return (try Self.render(root), removed)
     }
 
     func isPerch(_ hook: [String: Any]) -> Bool {
@@ -148,11 +205,9 @@ struct HookSettings {
         return command.contains(" hook \(agent)") && command.contains("perch")
     }
 
-    static func read(_ path: String) throws -> [String: Any] {
-        guard FileManager.default.fileExists(atPath: path) else { return [:] }
-        let data = try Data(contentsOf: URL(fileURLWithPath: path))
-        if data.allSatisfy({ [0x20, 0x0A, 0x0D, 0x09].contains($0) }) { return [:] }
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+    private func parse(_ text: String?, path: String) throws -> [String: Any] {
+        guard let text, !text.allSatisfy(\.isWhitespace) else { return [:] }
+        guard let root = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
             throw CLIError("\(path) is not valid JSON (or not an object); fix it first, nothing was changed")
         }
         return root
@@ -203,26 +258,83 @@ struct HookSettings {
 
     static func render(_ root: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-        return String(decoding: data, as: UTF8.self)
+        return String(decoding: data, as: UTF8.self) + "\n"
     }
+}
 
-    /// Backs up the old file to `<path>.perch-backup`, then replaces it atomically.
-    static func write(_ root: [String: Any], to path: String) throws {
-        let url = URL(fileURLWithPath: path)
-        let fm = FileManager.default
-        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if fm.fileExists(atPath: path) {
-            let backup = URL(fileURLWithPath: path + ".perch-backup")
-            try? fm.removeItem(at: backup)
-            try fm.copyItem(at: url, to: backup)
+/// Hermes Agent's shell hooks live in the top-level `hooks:` map of ~/.hermes/config.yaml. Without a YAML
+/// library Perch owns one marked block at the end of the file and never edits anything else; if the file
+/// already has its own non-empty `hooks:` section, install refuses (two `hooks:` keys would clash).
+///
+/// Hermes runs shell hooks synchronously, so every hook gets a short timeout; the adapter itself is fast.
+struct HermesHooks: HookFile {
+    let agent = "hermes"
+    let eventNames = ["pre_llm_call", "post_llm_call", "on_session_end", "pre_approval_request", "post_approval_response"]
+    var defaultPath: String { HookFiles.configFile(dirVariable: "HERMES_HOME", defaultDir: ".hermes", file: "config.yaml") }
+    let installNote: String? = """
+        Hermes asks once before running a new hook: start `hermes` in a terminal and accept Perch's hooks \
+        (or run it once with --accept-hooks), then `hermes gateway restart` so the gateway picks them up.
+        """
+    static let timeout = 10
+    static let begin = "# >>> perch hooks: added by `perch hooks install hermes`, removed by `perch hooks uninstall hermes` >>>"
+    static let end = "# <<< perch hooks <<<"
+
+    func installing(_ text: String?, path: String, perch: String, wait: Int) throws -> String {
+        var lines = Self.withoutBlock(text ?? "").text.components(separatedBy: "\n")
+        if let index = lines.firstIndex(where: Self.isHooksKey) {
+            guard Self.isEmptySection(lines, at: index) else {
+                throw CLIError("\(path) already has a hooks: section; add Perch's to it by hand (`perch hooks install hermes --settings /dev/null --dry-run` prints them)")
+            }
+            lines.remove(at: index)
         }
-        try Data((try render(root) + "\n").utf8).write(to: url, options: .atomic)
+        var kept = lines.joined(separator: "\n")
+        if !kept.isEmpty && !kept.hasSuffix("\n") { kept += "\n" }
+        return kept + block(perch: perch)
     }
 
-    /// Single-quotes a path for the hook's shell command when it needs it.
-    static func shellQuote(_ s: String) -> String {
-        let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/._-+@%:,"))
-        if !s.isEmpty && s.unicodeScalars.allSatisfy(safe.contains) { return s }
-        return "'" + s.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
+    func removing(_ text: String, path: String) throws -> (text: String, removed: Int) {
+        Self.withoutBlock(text)
+    }
+
+    func block(perch: String) -> String {
+        let command = "\(perch) hook \(agent)"
+        let quoted = "\"" + command.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        var lines = [Self.begin, "hooks:"]
+        for event in eventNames {
+            lines += ["  \(event):", "    - command: \(quoted)", "      timeout: \(Self.timeout)"]
+        }
+        return (lines + [Self.end]).joined(separator: "\n") + "\n"
+    }
+
+    /// The text with Perch's block cut out, and how many hooks it held.
+    static func withoutBlock(_ text: String) -> (text: String, removed: Int) {
+        guard let start = text.range(of: begin + "\n"),
+              let stop = text.range(of: end, range: start.upperBound..<text.endIndex) else { return (text, 0) }
+        var upper = stop.upperBound
+        if upper < text.endIndex, text[upper] == "\n" { upper = text.index(after: upper) }
+        let removed = text[start.lowerBound..<upper].components(separatedBy: "- command:").count - 1
+        var kept = text
+        kept.removeSubrange(start.lowerBound..<upper)
+        return (kept, removed)
+    }
+
+    private static func isHooksKey(_ line: String) -> Bool {
+        guard line.hasPrefix("hooks") else { return false }
+        return line.dropFirst("hooks".count).drop { $0 == " " || $0 == "\t" }.first == ":"
+    }
+
+    /// `hooks: {}` / `hooks: null` / a bare `hooks:` with nothing indented under it.
+    private static func isEmptySection(_ lines: [String], at index: Int) -> Bool {
+        let afterColon = lines[index].split(separator: ":", maxSplits: 1).dropFirst().first ?? ""
+        let value = afterColon.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        if ["{}", "[]", "null", "~"].contains(value) { return true }
+        guard value.isEmpty else { return false }
+        let next = lines[(index + 1)...].first { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return !trimmed.isEmpty && !trimmed.hasPrefix("#")
+        }
+        guard let next else { return true }
+        return !(next.hasPrefix(" ") || next.hasPrefix("\t") || next.hasPrefix("-"))
     }
 }
