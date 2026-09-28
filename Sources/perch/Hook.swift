@@ -31,7 +31,8 @@ struct Hook: ParsableCommand {
         }
         let client = PerchClient()
         let link = terminalLink(for: input, client: client)
-        if input.event == "PermissionRequest" { return permission(input, link: link, client: client, now: now) }
+        let process = agentProcess()
+        if input.event == "PermissionRequest" { return permission(input, link: link, process: process, client: client, now: now) }
         var alreadyWaiting = false
         if input.event == "Notification" {
             let key = HookAdapter.waitingKey(agent: agent, session: input.sessionID)
@@ -40,7 +41,7 @@ struct Hook: ParsableCommand {
         }
         for request in HookAdapter.requests(for: input, agent: agent, link: link, now: now, alreadyWaiting: alreadyWaiting) {
             do {
-                let response = try client.send(request, timeout: 2)
+                let response = try client.send(request.reporting(process), timeout: 2)
                 // Resolving a waiting item that is not there is the normal case.
                 if !response.ok, request.op != .done {
                     HookLog.write("\(input.event) \(request.op.rawValue): \(response.error ?? "failed")")
@@ -56,12 +57,12 @@ struct Hook: ParsableCommand {
     /// if answered. Otherwise, or on timeout: a waiting "go to terminal" item and no output, so the terminal's own
     /// prompt appears. That also goes for a request closed without an answer (by hand, or by another tool of the same
     /// turn finishing): no decision means the terminal asks.
-    func permission(_ input: HookInput, link: String?, client: PerchClient, now: Date) {
+    func permission(_ input: HookInput, link: String?, process: ProcessEntry?, client: PerchClient, now: Date) {
         let (allowlist, problem) = Allowlist.load(from: PerchPaths.allowlist)
         if let problem { HookLog.write(problem) }
         let plan = HookAdapter.permission(for: input, agent: agent, link: link, allowlist: allowlist, wait: wait, now: now)
-        send(Request(op: .sessionReport, report: HookAdapter.permissionReport(for: input, plan: plan, agent: agent, link: link, now: now)),
-             client: client)
+        send(Request(op: .sessionReport, report: HookAdapter.permissionReport(for: input, plan: plan, agent: agent, link: link, now: now))
+            .reporting(process), client: client)
         let fallback: Item
         switch plan {
         case .terminal(let item):
@@ -73,7 +74,7 @@ struct Hook: ParsableCommand {
                     if let answer = item.response, let decision = HookAdapter.decision(agent: agent, answer: answer) {
                         print(decision)
                         let resumed = HookAdapter.sessionReport(input, .resume, agent: agent, link: link, now: Date())
-                        send(Request(op: .sessionReport, report: resumed), client: client)
+                        send(Request(op: .sessionReport, report: resumed).reporting(process), client: client)
                         return
                     }
                 case .unanswered:
@@ -85,9 +86,16 @@ struct Hook: ParsableCommand {
             }
             fallback = HookAdapter.goToTerminal(after: request, agent: agent, session: input.sessionID)
             let handoff = HookAdapter.terminalReport(after: request, input: input, agent: agent, link: link, now: Date())
-            send(Request(op: .sessionReport, report: handoff), client: client)
+            send(Request(op: .sessionReport, report: handoff).reporting(process), client: client)
         }
         send(Request(op: .add, item: fallback), client: client)
+    }
+
+    /// The agent process this hook runs under (it starts hooks through a shell, so it is an ancestor). Every session
+    /// report carries it, and perchd removes the session once that process is gone.
+    func agentProcess() -> ProcessEntry? {
+        guard AgentProcess.names[agent] != nil else { return nil }
+        return AgentProcess.find(agent: agent, from: getpid(), in: SystemProcesses.ancestors(of: getpid()))
     }
 
     /// Fire and forget; failures go to the hook log.
@@ -117,6 +125,18 @@ struct Hook: ParsableCommand {
         // Hermes approvals carry no session id: use this agent's latest turn in the same directory.
         let nearby = sessions.filter { $0.source == agent && $0.link.flatMap(TerminalLink.init(string:))?.cwd == input.cwd }
         return nearby.max { $0.turnStartedAt < $1.turnStartedAt }?.link ?? link.string
+    }
+}
+
+extension Request {
+    /// A session report stamped with the agent process's pid and start time; other requests unchanged.
+    func reporting(_ process: ProcessEntry?) -> Request {
+        guard var report, let process else { return self }
+        report.pid = process.pid
+        report.pidStartedAt = process.startedAt
+        var stamped = self
+        stamped.report = report
+        return stamped
     }
 }
 
