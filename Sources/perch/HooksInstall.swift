@@ -263,8 +263,10 @@ struct HookSettings: HookFile {
 }
 
 /// Hermes Agent's shell hooks live in the top-level `hooks:` map of ~/.hermes/config.yaml. Without a YAML
-/// library Perch owns one marked block at the end of the file and never edits anything else; if the file
-/// already has its own non-empty `hooks:` section, install refuses (two `hooks:` keys would clash).
+/// library Perch writes one marked block at the end of the file and never edits anything else. Hermes may later
+/// rewrite the file with yaml.dump, which drops the markers, so a `hooks:` section is also recognised by its
+/// commands: one holding only Perch's hooks is Perch's; one with anyone else's is left alone and install refuses
+/// (two `hooks:` keys would clash).
 ///
 /// Hermes runs shell hooks synchronously, so every hook gets a short timeout; the adapter itself is fast.
 struct HermesHooks: HookFile {
@@ -279,13 +281,24 @@ struct HermesHooks: HookFile {
     static let begin = "# >>> perch hooks: added by `perch hooks install hermes`, removed by `perch hooks uninstall hermes` >>>"
     static let end = "# <<< perch hooks <<<"
 
+    /// The top-level `hooks:` section (outside Perch's marked block).
+    enum Section: Equatable {
+        case none
+        /// `hooks: {}`, `hooks: null`, or `hooks:` with nothing under it.
+        case empty(Range<Int>)
+        /// Every command in it runs `perch … hook hermes`.
+        case perch(Range<Int>, hooks: Int)
+        /// Someone else's hooks, maybe next to Perch's.
+        case others(withPerch: Bool)
+    }
+
     func installing(_ text: String?, path: String, perch: String, wait: Int) throws -> String {
         var lines = Self.withoutBlock(text ?? "").text.components(separatedBy: "\n")
-        if let index = lines.firstIndex(where: Self.isHooksKey) {
-            guard Self.isEmptySection(lines, at: index) else {
-                throw CLIError("\(path) already has a hooks: section; add Perch's to it by hand (`perch hooks install hermes --settings /dev/null --dry-run` prints them)")
-            }
-            lines.remove(at: index)
+        switch Self.section(in: lines) {
+        case .none: break
+        case .empty(let range), .perch(let range, _): lines.removeSubrange(range)
+        case .others:
+            throw CLIError("\(path) already has a hooks: section; add Perch's to it by hand (`perch hooks install hermes --settings /dev/null --dry-run` prints them)")
         }
         var kept = lines.joined(separator: "\n")
         if !kept.isEmpty && !kept.hasSuffix("\n") { kept += "\n" }
@@ -293,7 +306,17 @@ struct HermesHooks: HookFile {
     }
 
     func removing(_ text: String, path: String) throws -> (text: String, removed: Int) {
-        Self.withoutBlock(text)
+        let (rest, inBlock) = Self.withoutBlock(text)
+        var lines = rest.components(separatedBy: "\n")
+        switch Self.section(in: lines) {
+        case .perch(let range, let hooks):
+            lines.removeSubrange(range)
+            return (lines.joined(separator: "\n"), inBlock + hooks)
+        case .others(withPerch: true):
+            throw CLIError("\(path) mixes Perch's hooks with others under hooks:; remove Perch's entries by hand")
+        case .none, .empty, .others(withPerch: false):
+            return (rest, inBlock)
+        }
     }
 
     func block(perch: String) -> String {
@@ -306,7 +329,7 @@ struct HermesHooks: HookFile {
         return (lines + [Self.end]).joined(separator: "\n") + "\n"
     }
 
-    /// The text with Perch's block cut out, and how many hooks it held.
+    /// The text with Perch's marked block cut out, and how many hooks it held.
     static func withoutBlock(_ text: String) -> (text: String, removed: Int) {
         guard let start = text.range(of: begin + "\n"),
               let stop = text.range(of: end, range: start.upperBound..<text.endIndex) else { return (text, 0) }
@@ -318,23 +341,36 @@ struct HermesHooks: HookFile {
         return (kept, removed)
     }
 
+    static func section(in lines: [String]) -> Section {
+        guard let index = lines.firstIndex(where: isHooksKey) else { return .none }
+        // The section runs until the next top-level key.
+        var stop = index + 1
+        while stop < lines.count, !startsTopLevelKey(lines[stop]) { stop += 1 }
+        let range = index..<stop
+        let afterColon = lines[index].split(separator: ":", maxSplits: 1).dropFirst().first ?? ""
+        let value = afterColon.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        if ["{}", "[]", "null", "~"].contains(value) { return .empty(range) }
+        guard value.isEmpty else { return .others(withPerch: false) }
+        let body = lines[(index + 1)..<stop].map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+        if body.isEmpty { return .empty(range) }
+        let commands = body.compactMap { line -> String? in
+            let entry = line.hasPrefix("- ") ? String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces) : line
+            return entry.hasPrefix("command:") ? entry : nil
+        }
+        let ours = commands.filter { $0.contains("perch") && $0.contains(" hook hermes") }
+        if !commands.isEmpty && ours.count == commands.count { return .perch(range, hooks: ours.count) }
+        return .others(withPerch: !ours.isEmpty)
+    }
+
     private static func isHooksKey(_ line: String) -> Bool {
         guard line.hasPrefix("hooks") else { return false }
         return line.dropFirst("hooks".count).drop { $0 == " " || $0 == "\t" }.first == ":"
     }
 
-    /// `hooks: {}` / `hooks: null` / a bare `hooks:` with nothing indented under it.
-    private static func isEmptySection(_ lines: [String], at index: Int) -> Bool {
-        let afterColon = lines[index].split(separator: ":", maxSplits: 1).dropFirst().first ?? ""
-        let value = afterColon.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first?
-            .trimmingCharacters(in: .whitespaces) ?? ""
-        if ["{}", "[]", "null", "~"].contains(value) { return true }
-        guard value.isEmpty else { return false }
-        let next = lines[(index + 1)...].first { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            return !trimmed.isEmpty && !trimmed.hasPrefix("#")
-        }
-        guard let next else { return true }
-        return !(next.hasPrefix(" ") || next.hasPrefix("\t") || next.hasPrefix("-"))
+    private static func startsTopLevelKey(_ line: String) -> Bool {
+        guard let first = line.first else { return false }
+        return !" \t-#".contains(first)
     }
 }

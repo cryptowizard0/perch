@@ -195,6 +195,45 @@ struct HooksInstallTests {
         #expect(yaml.components(separatedBy: "\nhooks:\n").count == 2)
     }
 
+    /// Hermes rewrites config.yaml with yaml.dump (e.g. after `hermes config set`), dropping Perch's marker
+    /// comments. A `hooks:` section holding only Perch's hooks is still recognised by its commands.
+    @Test func hermesAfterHermesRewroteTheFile() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let config = dir.appendingPathComponent("config.yaml")
+        let rewritten = #"""
+        model: x
+        hooks:
+          pre_llm_call:
+          - command: /opt/perch/bin/perch hook hermes
+            timeout: 10
+          post_llm_call:
+          - command: '''/new place/perch'' hook hermes'
+            timeout: 10
+        other: 1
+
+        """#
+        try rewritten.write(to: config, atomically: true, encoding: .utf8)
+        let removed = try cli.run("hooks", "uninstall", "hermes", "--settings", config.path)
+        #expect(removed.status == 0, "\(removed.stderr)")
+        #expect(removed.stdout.contains("removed 2 Perch hooks"))
+        #expect(try String(contentsOf: config, encoding: .utf8) == "model: x\nother: 1\n")
+
+        try rewritten.write(to: config, atomically: true, encoding: .utf8)
+        #expect(try cli.run("hooks", "install", "hermes", "--settings", config.path, "--binary", "/b/perch").status == 0)
+        let yaml = try String(contentsOf: config, encoding: .utf8)
+        #expect(yaml.hasPrefix("model: x\nother: 1\n"))
+        #expect(yaml.components(separatedBy: "\nhooks:\n").count == 2)
+        #expect(!yaml.contains("/opt/perch"))
+
+        // Mixed with someone else's hook: Perch will not guess which lines are whose.
+        try rewritten.replacingOccurrences(of: "  post_llm_call:", with: "  post_tool_call:\n  - command: ~/.hermes/agent-hooks/fmt.sh\n  post_llm_call:")
+            .write(to: config, atomically: true, encoding: .utf8)
+        let mixed = try cli.run("hooks", "uninstall", "hermes", "--settings", config.path)
+        #expect(mixed.status == 1)
+        #expect(mixed.stderr.contains("remove Perch's entries by hand"))
+    }
+
     @Test func unknownAgent() throws {
         let result = try cli.run("hooks", "install", "cursor", "--settings", settings.path)
         #expect(result.status == 64)
