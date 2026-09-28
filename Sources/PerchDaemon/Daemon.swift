@@ -53,9 +53,11 @@ public final class Daemon {
             }
             watcher.start()
             inbox = watcher
+            // Right away too: sessions whose agent exited while perchd was down go now.
+            reapOnQueue()
             let liveness = DispatchSource.makeTimerSource(queue: queue)
-            liveness.schedule(deadline: .now() + livenessInterval, repeating: livenessInterval, leeway: .seconds(1))
-            liveness.setEventHandler { [weak self] in self?.reapSessions() }
+            liveness.schedule(deadline: .now() + livenessInterval, repeating: livenessInterval, leeway: .milliseconds(100))
+            liveness.setEventHandler { [weak self] in self?.reapOnQueue() }
             liveness.resume()
             livenessTimer = liveness
         }
@@ -81,12 +83,12 @@ public final class Daemon {
         }
     }
 
-    /// Removes sessions whose agent is gone (see `SessionRegistry.reap`). The liveness timer calls it.
-    func checkLiveness() {
-        queue.sync { reapSessions() }
+    /// Removes sessions whose agent is gone (see `SessionRegistry.reap`), as the liveness timer does.
+    func reapSessions() {
+        queue.sync { reapOnQueue() }
     }
 
-    private func reapSessions() {
+    private func reapOnQueue() {
         let ended = sessions.reap()
         publish(sessionEvents: ended)
         afterChange(ended.flatMap { service.resolveRequests(session: $0.session.id) })

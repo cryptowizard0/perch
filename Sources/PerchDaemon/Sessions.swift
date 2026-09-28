@@ -77,6 +77,9 @@ public final class SessionRegistry {
         if let removed = removedAt[id], at < removed { return ignored }
         let existing = try store.session(id: id)
         if let existing, at < existing.updatedAt { return ignored }
+        // A hook that outlived its agent (a PermissionRequest still waiting when the process died) speaks for a
+        // session that is over: it must not bring it back.
+        if report.kind != .end, let pid = report.pid, !isAlive(pid: pid, startedAt: report.pidStartedAt) { return ignored }
 
         if report.kind == .end {
             removedAt[id] = max(removedAt[id] ?? .distantPast, at)
@@ -94,8 +97,10 @@ public final class SessionRegistry {
         s.title = report.title ?? s.title
         s.cwd = report.cwd ?? s.cwd
         s.link = report.link ?? s.link
-        s.pid = report.pid ?? s.pid
-        s.pidStartedAt = report.pidStartedAt ?? s.pidStartedAt
+        if let pid = report.pid {
+            s.pid = pid
+            s.pidStartedAt = report.pidStartedAt
+        }
         s.updatedAt = at
         func enter(_ status: SessionStatus) {
             if s.status != status { s.statusAt = at }
@@ -174,9 +179,14 @@ public final class SessionRegistry {
         let silentSince = now().addingTimeInterval(-Self.silenceLifetime)
         return all.filter { s in
             guard let pid = s.pid else { return s.updatedAt < silentSince }
-            guard let started = probe(pid) else { return true }
-            return s.pidStartedAt.map { Int($0.timeIntervalSince1970) != Int(started.timeIntervalSince1970) } ?? false
+            return !isAlive(pid: pid, startedAt: s.pidStartedAt)
         }.compactMap { try? delete($0) }
+    }
+
+    /// The process runs and, if we know when it started, is the same one (not a reused pid).
+    private func isAlive(pid: Int32, startedAt: Date?) -> Bool {
+        guard let started = probe(pid) else { return false }
+        return startedAt.map { Service.wholeSeconds($0) == Service.wholeSeconds(started) } ?? true
     }
 
     /// Done sessions nobody looked at for `doneLifetime` go idle.

@@ -45,13 +45,13 @@ import Testing
         let stored = try #require(try d.client.send(Request(op: .sessions)).sessions?.first { $0.id == "dies" })
         #expect(stored.pid == 4242 && stored.pidStartedAt == t0.addingTimeInterval(-60))
 
-        d.daemon.checkLiveness()
+        d.daemon.reapSessions()
         #expect(try ids(d) == ["alive", "dies"])
 
         let stream = try d.client.watch()
         processes[4242] = nil
         clock.advance(30)
-        d.daemon.checkLiveness()
+        d.daemon.reapSessions()
         #expect(try ids(d) == ["alive"])
         guard case .session(let ended) = try stream.nextPush(timeout: 5) else { Issue.record("expected session event"); return }
         #expect(ended.type == .ended && ended.session.id == "dies")
@@ -67,7 +67,7 @@ import Testing
         // The agent exited and something else got its pid.
         processes[4242] = t0.addingTimeInterval(20)
         clock.advance(30)
-        d.daemon.checkLiveness()
+        d.daemon.reapSessions()
         #expect(try ids(d).isEmpty)
     }
 
@@ -77,10 +77,10 @@ import Testing
         processes[4242] = t0
         let d = try daemon(clock, processes)
         try report(d, "s1", at: t0, pid: 4242)
-        d.daemon.checkLiveness()
+        d.daemon.reapSessions()
         #expect(try ids(d) == ["s1"])
         processes[4242] = nil
-        d.daemon.checkLiveness()
+        d.daemon.reapSessions()
         #expect(try ids(d).isEmpty)
     }
 
@@ -95,12 +95,62 @@ import Testing
 
         processes[4242] = nil
         clock.advance(30)
-        d.daemon.checkLiveness()
+        d.daemon.reapSessions()
         #expect(try d.client.send(Request(op: .get, id: request.id)).item?.status == .done)
 
         // An async hook from before the process died does not bring it back.
         try report(d, "s1", .stop, at: t0.addingTimeInterval(10), pid: 4242, pidStartedAt: t0)
         #expect(try ids(d).isEmpty)
+    }
+
+    @Test func aHookOutlivingItsAgentDoesNotBringItBack() throws {
+        let clock = Clock(t0)
+        let processes = Processes()
+        processes[4242] = t0
+        let d = try daemon(clock, processes)
+        try report(d, "s1", .waiting, at: t0, pid: 4242, pidStartedAt: t0)
+        processes[4242] = nil
+        clock.advance(30)
+        d.daemon.reapSessions()
+
+        // A PermissionRequest hook still waiting when the agent died hands over to the terminal afterwards.
+        try report(d, "s1", .waiting, at: clock.read(), pid: 4242, pidStartedAt: t0)
+        #expect(try ids(d).isEmpty)
+        // Nor does a new session start from a dead process; a live one does.
+        try report(d, "s2", at: clock.read(), pid: 4242, pidStartedAt: t0)
+        #expect(try ids(d).isEmpty)
+        processes[5353] = t0
+        try report(d, "s1", at: clock.read(), pid: 5353, pidStartedAt: t0)
+        #expect(try ids(d) == ["s1"])
+    }
+
+    @Test func aNewPidComesWithItsOwnStartTime() throws {
+        let clock = Clock(t0)
+        let processes = Processes()
+        processes[4242] = t0
+        processes[5353] = t0.addingTimeInterval(50)
+        let d = try daemon(clock, processes)
+        try report(d, "s1", at: t0, pid: 4242, pidStartedAt: t0)
+        // Resumed in another process that reports no start time: the old one must not stick to the new pid.
+        try report(d, "s1", .stop, at: t0.addingTimeInterval(60), pid: 5353)
+        let s = try #require(try d.client.send(Request(op: .sessions)).sessions?.first)
+        #expect(s.pid == 5353 && s.pidStartedAt == nil)
+        d.daemon.reapSessions()
+        #expect(try ids(d) == ["s1"])
+    }
+
+    @Test func startupSweepsRightAway() throws {
+        let home = TestDaemon.freshHome()
+        let processes = Processes()
+        processes[4242] = t0
+        do {
+            let d = try TestDaemon(home: home, removeHome: false, now: { [t0] in t0 }, probe: { processes[$0] })
+            try report(d, "s1", at: t0, pid: 4242, pidStartedAt: t0)
+            try? FileManager.default.removeItem(atPath: d.daemon.config.socketPath)  // perchd's startup does this
+        }
+        processes[4242] = nil
+        let restarted = try TestDaemon(home: home, now: { [t0] in t0 }, probe: { processes[$0] })
+        #expect(try ids(restarted).isEmpty)
     }
 
     @Test func aSessionWithoutPidGoesAfterADayOfSilence() throws {
@@ -112,17 +162,17 @@ import Testing
         try report(d, "with-pid", at: t0, pid: 4242, pidStartedAt: t0)
 
         clock.advance(24 * 3600 - 1)
-        d.daemon.checkLiveness()
+        d.daemon.reapSessions()
         #expect(try ids(d) == ["no-pid", "with-pid"])
 
         // An event resets the day.
         try report(d, "no-pid", .stop, at: clock.read())
         clock.advance(2)
-        d.daemon.checkLiveness()
+        d.daemon.reapSessions()
         #expect(try ids(d) == ["no-pid", "with-pid"])
 
         clock.advance(24 * 3600)
-        d.daemon.checkLiveness()
+        d.daemon.reapSessions()
         // A live process keeps its session however quiet it is.
         #expect(try ids(d) == ["with-pid"])
     }
@@ -176,7 +226,7 @@ struct HookProcessTests {
         #expect(at >= before.addingTimeInterval(-1) && at <= Date())
 
         // The "agent" has exited: the next sweep removes its session.
-        d.daemon.checkLiveness()
+        d.daemon.reapSessions()
         #expect(try d.client.send(Request(op: .sessions)).sessions == [])
     }
 }
