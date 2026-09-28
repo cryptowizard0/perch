@@ -251,7 +251,9 @@ hermes hooks list               # 5 个都应是 allowed
 - [ ] 让它跑 `rm -rf <临时目录>`：刘海变橙，显示完整命令和原因（"Answer in the terminal · …"）；在 Hermes 里回应后橙色消失
 - [ ] 从 Telegram（gateway）让它跑一条危险命令：刘海显示 "Answer in Telegram"；在 Telegram 里回应后消失
 - [ ] `~/.perch/hook.log` 没有异常；Hermes 每轮没有明显变慢（hook 同步执行）
-- 风险：gateway 的每条消息都会留一条 notice（10 分钟消失），嫌吵再说；两个同时开的 CLI 会话 `session_key` 都是 `default`，审批 waiting 会共用一条。
+- 代码审查后修的（2026-09-28）：审批 key 加 `tool_call_id`（同一聊天排队的多个审批、共用 `default` 的多个 CLI 会话不再互相清掉）；审批 15 分钟过期兜底（Hermes 崩了不会永远橙）；忽略 `platform: subagent` 和后台复盘（`agent/background_review.py`，共用 session_id，靠 prompt 结尾 "You can only call memory and skill management tools" 识别）；Hermes 重写 config.yaml 丢标记后仍能认出 / 卸载 Perch 的 hook；CLI 审批跳到同目录那一轮的终端；gateway 事件一律不带终端链接。
+- 实测延迟（release，隔离 perchd）：`perch hook hermes` 处理带 5 MB conversation_history 的 `pre_llm_call` 中位 12 ms。
+- 仍有的限制：gateway 的每条消息都会留一条 notice（10 分钟消失），嫌吵再说；后台复盘的 `on_session_end` 没法识别，若和你的下一轮重叠，会提前结束那一轮的 Live Activity；gateway 审批没有终端可跳，点标题会直接标完成（手动清掉的出口）。
 
 ### M2 协议扩展：`update`（已实现）
 

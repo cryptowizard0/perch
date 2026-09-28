@@ -71,11 +71,13 @@ Hermes Agent（M6 定：它跑在本机，不在 Docker 里，所以走 shell ho
 
 | 事件 | 适配器行为 |
 | --- | --- |
-| `pre_llm_call` | session_start（标题：gateway 用平台名，CLI 用项目名）；resolve 上一条 notice；Ghostty 下记下聚焦的 terminal |
+| `pre_llm_call` | session_start（标题：gateway 用平台名如 "Telegram"，CLI 用项目名）；resolve 上一条 notice；CLI 在 Ghostty 下记下聚焦的 terminal（gateway 一律没有终端链接） |
 | `post_llm_call` | 发 notice（`assistant_response` 首行） |
 | `on_session_end`（每轮结束都触发，含中断） | session_end |
-| `pre_approval_request` | add waiting（完整命令 + Hermes 给的原因），key `hermes:<session_key>`；CLI 显示"Answer in the terminal"，gateway 显示"Answer in Telegram"等 |
+| `pre_approval_request` | add waiting（完整命令 + Hermes 给的原因），key `hermes:<session_key>:<tool_call_id>`，15 分钟后过期兜底（Hermes 自己 60 s / 300 s 超时）；CLI 显示"Answer in the terminal"（跳到同目录那一轮的终端），gateway 显示"Answer in Telegram"等 |
 | `post_approval_response`（回应或超时） | resolve 那条 waiting |
+
+`platform: subagent`（委派的子 agent）和后台 skill / memory 复盘（和父会话共用 session_id，只能靠它固定的 prompt 结尾识别）的 `pre_llm_call` / `post_llm_call` 一律忽略。
 
 Hermes 的审批 hook 只能观察，不能代答，所以刘海**永远不能批准 Hermes 的命令**，只能提示去哪里回答。审批 hook 带的是 gateway 的 `session_key`（CLI 里是 `default`，gateway 是 `agent:main:<platform>:…`），不是 session_id。
 
@@ -85,7 +87,7 @@ session（Live Activity）只在 perchd 内存里，不进 SQLite：`perch sessi
 
 返回格式（M4 按官方文档核对过）：Claude Code 是 `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny","message":"…"}}}`（`message` 只用于 deny；不是 PreToolUse 的 `permissionDecision`；exit code 2 在 PermissionRequest 不生效）。Codex（M5 核对）读同一个 JSON，所以不分支；不要返回 `updatedInput` / `updatedPermissions` / `interrupt`（Codex 目前对这些 fail closed）。
 PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permission_prompt` 要等提示框挂了约 6 秒才触发。
-配置文件：Claude Code `~/.claude/settings.json`；Codex `~/.codex/hooks.json`（`$CODEX_HOME` 可覆盖；Codex 按 hook 内容的 hash 记信任，新装或改过的 hook 要在 codex 里 `/hooks` 确认后才会跑）；Hermes `~/.hermes/config.yaml` 的 `hooks:`（`$HERMES_HOME` 可覆盖；没有 YAML 库，Perch 只管文件末尾一段带标记的块，文件里已有非空 `hooks:` 就拒绝安装；Hermes 对每个 (事件, 命令) 首次运行要确认，记在 `~/.hermes/shell-hooks-allowlist.json`，gateway 要 `hermes gateway restart` 才会加载）。
+配置文件：Claude Code `~/.claude/settings.json`；Codex `~/.codex/hooks.json`（`$CODEX_HOME` 可覆盖；Codex 按 hook 内容的 hash 记信任，新装或改过的 hook 要在 codex 里 `/hooks` 确认后才会跑）；Hermes `~/.hermes/config.yaml` 的 `hooks:`（`$HERMES_HOME` 可覆盖；没有 YAML 库，Perch 在文件末尾写一段带标记的块；Hermes 用 yaml.dump 重写文件时标记会丢，所以只含 Perch 命令的 `hooks:` 段也认作 Perch 的；混了别人 hook 的 `hooks:` 段不动、安装拒绝；Hermes 对每个 (事件, 命令) 首次运行要确认，记在 `~/.hermes/shell-hooks-allowlist.json`，gateway 要 `hermes gateway restart` 才会加载）。
 以官方文档为准：https://code.claude.com/docs/en/hooks 、 https://learn.chatgpt.com/docs/hooks 、Hermes 仓库的 `website/docs/user-guide/features/hooks.md`（Shell Hooks 一节）。
 
 ## 安全规则（M4 必须实现，不可绕过）
