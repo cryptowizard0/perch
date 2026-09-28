@@ -310,7 +310,7 @@ hermes hooks list               # 5 个都应是 allowed
 - 进程表：`PerchClient/SystemProcesses.swift`，sysctl（`KERN_PROC_PID` 拿 ppid / 启动时间，`KERN_PROCARGS2` 拿 argv[0]），只读 hook 自己的祖先链，不起子进程。僵尸进程算没了。
 - **坑**：内核的进程名（`p_comm`，`ps -c` 不显示它）是可执行文件的真实文件名。终端里的 `claude` 是 `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.x` 的符号链接，内核名是 `2.1.x`；所以按 argv[0] 认。
 - perchd：`Daemon(probe:livenessInterval:)`，probe 是 `(pid) -> 启动时间?`（默认 `SystemProcesses.startTime(of:)`，测试注入假的）。每 30 秒 `SessionRegistry.reap()`：有 pid 的，进程没了或启动时间不同（pid 复用）就移除；没 pid 的，24 小时没有事件就移除。移除和 `perch session rm` 一样：推 `session.ended`、记移除时间（之前观测到的迟到事件不会让它复活）、关掉它的 request。进程活着的会话再安静也不动。perchd 启动时先扫一遍（停机期间退出的 agent 立刻清掉）。来自已死进程的报告（`end` 除外）直接丢弃：agent 死了但 PermissionRequest hook 还在等，之后发的"去终端"不会让会话复活。新 pid 连同它的启动时间一起替换，不会把旧启动时间配给新 pid。
-- 实测（2026-09-28，本机）：Claude 桌面 App 每个会话一个进程（`Claude` → `disclaimer` → `…/claude-code/2.1.x/claude.app/Contents/MacOS/claude`），hook 能找到 → 桌面会话按 pid 清理，不走 24 小时。Codex 桌面 App（ChatGPT.app）所有会话共用一个 `codex app-server` 进程，只有退出 App 才会被清。隔离 perchd 上用"以 `claude` 为名启动的 bash"跑 hook、再 `kill -HUP` 模拟关 tab：20 秒后推 `session.ended`。真 Ghostty tab 的验收并入 #17。
+- 实测（2026-09-28，本机）：Claude 桌面 App 每个会话一个进程（`Claude` → `disclaimer` → `…/claude-code/2.1.x/claude.app/Contents/MacOS/claude`），hook 能找到 → 桌面会话按 pid 清理，不走 24 小时。Codex 桌面 App（ChatGPT.app）所有会话共用一个 `codex app-server` 进程，只有退出 App 才会被清。隔离 perchd 上用"以 `claude` 为名启动的 bash"跑 hook、再 `kill -HUP` 模拟关 tab：20 秒后推 `session.ended`。用户在真 Ghostty tab 里跑 `claude`、关 tab，会话自动消失（2026-09-28 确认）。
 - 已知限制：同一个 session id 同时开在两个进程里（另一个 tab `--resume`），以最后上报的 pid 为准，关掉那个 tab 就移除；那个"去终端" waiting item（过渡期的旧 item，#19 下线）不会随会话被清。用 npm 装的 Claude Code（`node …/cli.js`）argv[0] 可能是 `node`（未实测），那样找不到 pid → 走 24 小时兜底。
 
 ### M2 协议扩展：`update`（已实现）

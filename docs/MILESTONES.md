@@ -61,7 +61,7 @@
 - [x] `perch hook` 沿父进程链找到 agent 进程的 pid 并随事件上报；实测 Claude 桌面 App 会话能否找到（能：每个会话一个 `claude` 进程）
 - [ ] 重写 Claude Code / Codex 的 hook 映射：不再产生 waiting / notice，只保留白名单内 PermissionRequest 的 request（`meta.session_id` 挂会话）；Hermes 不改
 - [x] `perch session ls [--json]` 显示状态；`perch session start|end` 保持兼容；标记已看（Done → Idle）的 op 供 M8 跳转用（`session_seen` / `perch session seen`；`perch session rm` 也已做）
-- [ ] 验收：真实 Claude Code 和 Codex 会话，`perch session ls` 状态流转正确；关掉终端 tab 后 30 秒内消失；`swift test` 通过
+- [ ] 验收：真实 Claude Code 和 Codex 会话，`perch session ls` 状态流转正确；关掉终端 tab 后 30 秒内消失（Claude Code + Ghostty 已确认，#16）；`swift test` 通过
 
 ## M8 — Agent 面板 UI
 
