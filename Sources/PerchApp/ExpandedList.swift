@@ -71,9 +71,9 @@ struct ItemRow: View {
                 .help(item.source)
             VStack(alignment: .leading, spacing: 3) {
                 title
-                if Click.on(item, option: false) == .jump {
-                    // Not approvable here: say so, and why.
-                    Text("Answer in the terminal" + (item.meta?["terminal_reason"].map { " · \($0)" } ?? ""))
+                if let hint = RowFormat.answerHint(item) {
+                    // Not approvable here: say where, and why.
+                    Text(hint)
                         .font(.system(size: 11))
                         .foregroundStyle(Signal.waiting.color.opacity(0.85))
                         .lineLimit(2)

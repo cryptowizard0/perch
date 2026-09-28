@@ -38,6 +38,18 @@ import Testing
         #expect(RowFormat.symbol(source: "some-new-agent") == "cpu")
     }
 
+    /// A permission prompt the notch cannot answer says where to answer it.
+    @Test func answerHints() {
+        let terminal = Item(title: "perch · rm -rf build/", status: .waiting, link: "perch-terminal://ghostty",
+                            meta: ["tool": "Bash", "terminal_reason": "`rm -rf` is not on the allowlist"])
+        #expect(RowFormat.answerHint(terminal) == "Answer in the terminal · `rm -rf` is not on the allowlist")
+        let chat = Item(title: "telegram · sudo reboot", status: .waiting, meta: ["tool": "terminal", "answer_in": "Telegram"])
+        #expect(RowFormat.answerHint(chat) == "Answer in Telegram")
+        // Answered already, or not a permission prompt: nothing to say.
+        #expect(RowFormat.answerHint(Item(title: "x", status: .done, meta: ["tool": "Bash"])) == nil)
+        #expect(RowFormat.answerHint(Item(title: "claude needs input", status: .waiting)) == nil)
+    }
+
     @Test func linkTargets() {
         #expect(RowFormat.linkURL("https://github.com/x/pull/42")?.absoluteString == "https://github.com/x/pull/42")
         #expect(RowFormat.linkURL("zed://file/tmp/a.swift")?.scheme == "zed")

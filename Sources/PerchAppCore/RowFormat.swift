@@ -17,6 +17,13 @@ public enum RowFormat {
         return "\(RelativeTime.duration(now.timeIntervalSince(since))) ago"
     }
 
+    /// A permission prompt waiting somewhere the notch cannot answer: where to answer it, and why.
+    /// `answer_in` names the place (a Hermes gateway chat); otherwise it is the terminal.
+    public static func answerHint(_ item: Item) -> String? {
+        guard item.status == .waiting, let meta = item.meta, meta["tool"] != nil else { return nil }
+        return "Answer in \(meta["answer_in"] ?? "the terminal")" + (meta["terminal_reason"].map { " · \($0)" } ?? "")
+    }
+
     /// SF Symbol for a source. Unknown agents get a generic chip; no code change needed to add one.
     public static func symbol(source: String) -> String {
         switch source {
