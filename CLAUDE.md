@@ -55,7 +55,7 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 
 ## Hook 适配（M3 / M4 / M5）
 
-两家的 hook 事件名、stdin JSON 结构和 600 秒默认超时一致，共用一个适配器：`perch hook <agent>`（Swift，不写 shell 脚本；映射逻辑在 `PerchCore/Hooks.swift` 的 `HookAdapter`），只在返回格式处分支。
+两家的 stdin JSON 结构、返回格式和 600 秒默认超时一致，共用一个适配器：`perch hook <agent>`（Swift，不写 shell 脚本；映射逻辑在 `PerchCore/Hooks.swift` 的 `HookAdapter`）。事件集合不同（M5 核对）：Codex 没有 `Notification` / `StopFailure` / `PostToolUseFailure`（waiting 只来自 PermissionRequest），多一个 `Interrupt`（Esc 打断一轮，不会再有 Stop）；`SessionEnd` 在 Codex 里总是同步跑、最多 3 秒。`perch hooks install <agent>` 按各家的事件表写。
 不阻塞的 hook 一律 `"async": true`；适配器**不往 stdout 打任何东西**（SessionStart / UserPromptSubmit 的 stdout 会进模型上下文）、永远 exit 0，失败写 `~/.perch/hook.log`。
 
 | 事件 | 适配器行为 | 阻塞 agent |
@@ -63,7 +63,7 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 | `UserPromptSubmit` | session_start（Live Activity 按"轮"计时）；resolve 本会话的 waiting 和上一条完成 notice；Ghostty 下记下当前聚焦的 terminal id | 否 |
 | `Notification`（matcher `permission_prompt` / `elicitation_dialog` / `agent_needs_input`；**不接 `idle_prompt`**） | add waiting，key `<agent>:<session_id>` | 否 |
 | `Stop` | session_end；`done --key` resolve waiting；发 notice（`last_assistant_message` 首行摘要，key `<agent>:<session_id>:done`，10 分钟后消失） | 否 |
-| `StopFailure` / `SessionEnd` | session_end；resolve waiting | 否 |
+| `StopFailure` / `SessionEnd` / `Interrupt`（Codex） | session_end；resolve waiting | 否 |
 | `PermissionRequest` | 白名单内：发 request 等刘海（`--wait`，默认 20 秒），有回应就打印决定；超时或白名单外：立刻发一条"去终端"的 waiting（完整命令），不打印任何东西，终端原生提示接管 | 是 |
 | `PostToolUse` / `PostToolUseFailure` | resolve 本会话的 waiting（工具跑了，说明权限已在终端处理） | 否 |
 
@@ -71,9 +71,9 @@ session（Live Activity）只在 perchd 内存里，不进 SQLite：`perch sessi
 
 `perch add --kind request --wait` 的约定：有人回应 → stdout 打印回应值、exit 0；过期（`--expires`）/ 被 done / 被 rm → exit 3、不打印回应。适配器只在 exit 0 时返回决定，其余一律不返回，让终端原生提示接管。
 
-返回格式（M4 按官方文档核对过）：Claude Code 是 `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny","message":"…"}}}`（`message` 只用于 deny；不是 PreToolUse 的 `permissionDecision`；exit code 2 在 PermissionRequest 不生效）。Codex 在 M5 核对。
+返回格式（M4 按官方文档核对过）：Claude Code 是 `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny","message":"…"}}}`（`message` 只用于 deny；不是 PreToolUse 的 `permissionDecision`；exit code 2 在 PermissionRequest 不生效）。Codex（M5 核对）读同一个 JSON，所以不分支；不要返回 `updatedInput` / `updatedPermissions` / `interrupt`（Codex 目前对这些 fail closed）。
 PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permission_prompt` 要等提示框挂了约 6 秒才触发。
-配置文件：Claude Code `~/.claude/settings.json`；Codex `~/.codex/hooks.json`（首次运行需在终端确认信任）。
+配置文件：Claude Code `~/.claude/settings.json`；Codex `~/.codex/hooks.json`（`$CODEX_HOME` 可覆盖；Codex 按 hook 内容的 hash 记信任，新装或改过的 hook 要在 codex 里 `/hooks` 确认后才会跑）。
 以官方文档为准：https://code.claude.com/docs/en/hooks 、 https://learn.chatgpt.com/docs/hooks 。
 
 ## 安全规则（M4 必须实现，不可绕过）

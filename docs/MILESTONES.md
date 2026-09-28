@@ -41,8 +41,8 @@
 
 ## M5 — Codex 复用
 
-- [ ] 同一套脚本，只改返回 JSON 的分支（`behavior`）；`perch hooks install codex` 写 `~/.codex/hooks.json`
-- [ ] 验收：同 M3、M4
+- [x] 同一套适配器 `perch hook codex`（核对后返回 JSON 与 Claude Code 相同，不用分支；新增 `Interrupt` 结束一轮）；`perch hooks install codex` 写 `~/.codex/hooks.json`，`uninstall` 干净移除
+- [ ] 验收：同 M3、M4（Codex 没有 Notification：白名单外的命令靠 PermissionRequest 的"去终端"变橙）
 
 ## M6 — Hermes HTTP 接入
 

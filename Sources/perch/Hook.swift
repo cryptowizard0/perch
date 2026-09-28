@@ -3,7 +3,7 @@ import Foundation
 import PerchClient
 import PerchCore
 
-/// `perch hook <agent>` — the hook adapter. Claude Code runs it with the hook JSON on stdin (see HookAdapter).
+/// `perch hook <agent>` — the hook adapter. Claude Code / Codex run it with the hook JSON on stdin (see HookAdapter).
 /// Contract with the agent: print nothing (SessionStart / UserPromptSubmit stdout would be added to the
 /// model's context) except a PermissionRequest decision, always exit 0, never block for long (PermissionRequest:
 /// at most `--wait`). No answer is never permission: then nothing is printed and the terminal asks as usual.

@@ -137,7 +137,7 @@ flowchart LR
 
 ## Hook 适配
 
-四个事件，Claude Code 和 Codex 共用一套脚本，两家的 hook 事件名、stdin JSON 结构和默认 600 秒超时都一致。
+四个事件，Claude Code 和 Codex 共用一套脚本，两家的 stdin JSON 结构、返回格式和默认 600 秒超时都一致（M5 核对：Codex 没有 `Notification`，多一个 `Interrupt`；实现以 CLAUDE.md 的"Hook 适配"为准）。
 
 | 事件 | 触发时机 | 适配器做什么 | 是否阻塞 agent |
 | --- | --- | --- | --- |
@@ -146,11 +146,11 @@ flowchart LR
 | `Stop` | 一轮结束 | resolve 同一 key 的 waiting，发一条 notice（带 `last_assistant_message` 摘要） | 否 |
 | `PermissionRequest` | 权限提示弹出前 | `perch add --kind request --wait`，阻塞等刘海响应；拿到 allow/deny 后按各家格式打印 JSON 退出 | 是 |
 
-`PermissionRequest` 的返回格式两家不同，适配器按来源分支：Claude Code 返回 `{"decision":"allow"|"deny","decisionReason":"..."}`，Codex 返回 decision 对象里的 `"behavior":"allow"|"deny"`。
+`PermissionRequest` 的返回格式两家相同（M4 / M5 按官方文档核对）：`{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny","message":"…"}}}`。
 
 刘海只是快捷通道，不是唯一通道：适配器等刘海的时间设为 15–30 秒，超时就不返回决定，终端的原生提示照常弹出。在终端前的人最多多等几十秒，不会被卡死。
 
-安装：`perch hooks install claude-code` 写 `~/.claude/settings.json`，`perch hooks install codex` 写 `~/.codex/hooks.json`。Codex 的 hook 首次运行需要用户在终端确认信任。
+安装：`perch hooks install claude-code` 写 `~/.claude/settings.json`，`perch hooks install codex` 写 `~/.codex/hooks.json`。Codex 的 hook 要在 codex 里用 `/hooks` 确认信任后才会跑。
 
 Hermes 不走 hook，直接调 daemon 的 HTTP 接口，语义和 CLI 一一对应。
 

@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-09-28 · M4 代码完成，等真实会话验收；之后 M5
+最后更新：2026-09-28 · M4、M5 代码完成，等真实会话验收；之后 M6
 
 ## 总览
 
@@ -13,7 +13,7 @@
 | M2 | 刘海 UI | ✅ 完成 | 8 项全勾；CLI → 刘海 均值 11 ms。悬停、点击用户已确认 |
 | M3 | Claude Code 被动接入（UserPromptSubmit / Notification / Stop） | ✅ 完成 | 152 个测试；用户在 Ghostty 和 Claude 桌面 App 里实测：变橙、notice、跳回原 tab 都正常 |
 | M4 | PermissionRequest + 白名单 | 🔶 代码完成 | 176 个测试；剩重新安装 + 真实会话验收（见"M4 进度"） |
-| M5 | Codex 复用同一套 hook 脚本 | ⬜ 未开始 | |
+| M5 | Codex 复用同一套 hook 脚本 | 🔶 代码完成 | 剩重新安装 + codex 里 `/hooks` 信任 + 真实会话验收（见"M5 进度"） |
 | M6 | Hermes HTTP 接入 | ⬜ 未开始 | HTTP `POST /rpc` 已就绪，只剩容器内实测 |
 
 ## 开发环境（重要）
@@ -60,7 +60,7 @@ Sources/PerchDaemon/   Daemon（串行队列 + 订阅者 + 过期计时器 + 镜
                        Server / HTTPConnection（Unix socket + 127.0.0.1 HTTP）、Files（MirrorWriter / InboxWatcher）、LaunchAgent
 Sources/perch/         CLI：add / ls / get / done / update / respond / rm / watch / session / hook / hooks
   Hook.swift             `perch hook <agent>`：stdin → HookAdapter → perchd；Ghostty 探测；HookLog
-  HooksInstall.swift     `perch hooks install|uninstall claude-code`（ClaudeSettings：合并 / 移除 settings.json）
+  HooksInstall.swift     `perch hooks install|uninstall claude-code|codex`（HookSettings：每个 agent 一张事件表；合并 / 移除 settings.json / hooks.json）
   AllowlistCommand.swift `perch allowlist show|check|init`；RequestWaiter（Perch.swift）供 add --wait 和 hook 共用
 Sources/perchd/        入口：run（默认）/ install / uninstall
 Sources/PerchAppCore/  刘海 App 的可测逻辑（无 AppKit）：
@@ -183,6 +183,38 @@ scripts/install.sh      # 升级二进制和 App，并把新的 hook（Permissio
 - [ ] Deny（⌥⇧D）：Claude 收到 "Denied by the user from the Perch notch." 并继续
 - 风险：hook 运行期间终端是否真的只转圈、不同时弹提示框（文档没写死），以实测为准。
 
+## M5 进度（Codex）
+
+按官方文档（https://learn.chatgpt.com/docs/hooks ）和本机 codex 0.155.1 二进制里的事件名核对过：
+
+- stdin JSON 与 Claude Code 同形（多 `turn_id` / `model`，`transcript_path`、`description`、`last_assistant_message` 可能是 null，解码都忽略）。
+- PermissionRequest 返回格式与 Claude Code **完全相同**（`hookSpecificOutput.decision.behavior`），`HookAdapter.decision` 不分支。不能返回 `updatedInput` / `updatedPermissions` / `interrupt`。
+- 事件：有 UserPromptSubmit / PermissionRequest / PostToolUse / Stop / SessionEnd，**没有 Notification / StopFailure / PostToolUseFailure**，多 `Interrupt`（Esc 打断，不发 Stop）→ 适配器把 Interrupt 当成 session_end + resolve waiting。
+- 所以 Codex 的橙色只来自 PermissionRequest：白名单内是 request，白名单外 / 超时是"去终端" waiting；Codex 自己提问（没有 hook）不会变橙。
+- Codex 的工具名：`Bash`（`tool_input.command` 是字符串）、`apply_patch`（`command` 是整段 patch）、MCP 工具。后两者不在白名单 → 一律去终端，刘海显示完整 patch。
+- SessionEnd 在 Codex 里总是同步跑，默认 1 秒、最多 3 秒 → 装成同步、timeout 3。
+- 信任：Codex 按 hook 的 hash 记信任，新装或改了（包括换 `--binary` / `--wait`）都要在 codex 里 `/hooks` 重新确认，否则静默跳过。
+- 本机 `~/.codex/hooks.json` 已有 Superset 的 SessionStart / UserPromptSubmit / Stop hook，安装只追加，dry-run 核对过不动它们。
+
+| # | 任务 | 状态 | 要点 |
+| --- | --- | --- | --- |
+| 5.1 | `perch hook codex` | ✅ | 同一个适配器；新增 Interrupt；Codex stdin 的单测 + 真 perchd 的端到端测试（`CodexHookTests`） |
+| 5.2 | `perch hooks install|uninstall codex` | ✅ | `~/.codex/hooks.json`（`$CODEX_HOME`）；install.sh 在有 `~/.codex` 时一起装；装完提示去 `/hooks` 信任 |
+| 5.3 | 验收 | ⬜ | 见下 |
+
+### M5 验收步骤
+
+```
+scripts/install.sh      # 升级二进制，并把 Codex hook 写进 ~/.codex/hooks.json
+```
+然后在 Ghostty 里开 `codex`，先 `/hooks` 把 6 个 Perch hook 标为信任：
+- [ ] 发一条 prompt → 刘海左侧出现 "1 agent · <1m"（来源图标是 `</>`）
+- [ ] 让它跑 `cargo test`（或 `git status`，需要审批的沙箱模式下）：刘海出现 request，Allow → Codex 不弹审批直接跑；Deny → Codex 收到拒绝
+- [ ] 让它改文件（apply_patch）或跑 `rm -rf <临时目录>`：Codex 立刻弹原生审批，刘海只有一条"去终端"，批准后橙色消失
+- [ ] 一轮跑完 → 灰色 notice，Live Activity 消失；跑到一半按 Esc → Live Activity 也消失（Interrupt）
+- [ ] `~/.perch/hook.log` 没有异常
+- 风险：Codex 的 hook 子进程是否继承 `TERM_PROGRAM` / `__CFBundleIdentifier`（决定跳转按钮），以实测为准；`async` hook 在 Codex 里是否真的不阻塞，也以实测为准。
+
 ### M2 协议扩展：`update`（已实现）
 
 - op `update` + `id` + `patch`（`title` / `kind` / `due_at` / `clear_due`，JSON snake_case），只改给了的字段；内容不变不发事件。
@@ -214,7 +246,7 @@ scripts/install.sh      # 升级二进制和 App，并把新的 hook（Permissio
 - Perch.app 还不会开机自启（perchd 有 launchd，App 没有）；也没有图标（`actool` 不可用，要做就放 .icns 到 `packaging/`）。
 - 展开态高度是估算的（request 按 52 字 / 行算），很长的 request 靠列表滚动兜底。
 - `link` 只能打开 URL 和绝对 / `~` 路径；tmux 等终端会话引用没有跳转按钮，等 M3 定机制。
-- Esc 打断一轮时 Claude Code 不发 Stop：Live Activity 会一直挂着，直到下一条 prompt 的 Stop、SessionEnd 或 3 小时超时。
+- Esc 打断一轮时 Claude Code 不发 Stop（Codex 有 Interrupt，没这个问题）：Live Activity 会一直挂着，直到下一条 prompt 的 Stop、SessionEnd 或 3 小时超时。
 - 非 Ghostty 终端只能激活 App，定位不到 tab。Perch.app 还没有注册 `perch-terminal://` URL scheme（todo.md 里的这类链接点不开）。
 - 点击 / 快捷键的 UI 路径没有自动化测试（只测了 `Click` 映射和 `QueueModel`），改交互要人工回归上面的清单。
 
