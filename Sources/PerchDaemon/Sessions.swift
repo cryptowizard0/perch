@@ -1,4 +1,5 @@
 import Foundation
+import PerchClient
 import PerchCore
 
 /// Agent sessions and their state machine (see `SessionReport`), stored in the `sessions` table so a restart
@@ -8,11 +9,18 @@ import PerchCore
 /// one older than the last event seen for that session is ignored (ties are applied: times travel as whole
 /// seconds, and events of one second usually arrive in order). A removed session remembers its removal time for
 /// a while, so a straggler from before does not bring it back.
+///
+/// Sessions also end without an event (a closed terminal tab sends no SessionEnd): `reap()` removes those whose
+/// agent process is gone, and those without a known process after `silenceLifetime` without events.
 public final class SessionRegistry {
     /// Done turns to idle after this long without anyone looking.
     public static let doneLifetime: TimeInterval = 10 * 60
     /// How long a removed id remembers when it was removed.
     static let tombstoneLifetime: TimeInterval = 10 * 60
+    /// How often perchd checks that sessions' agent processes are still there.
+    public static let livenessInterval: TimeInterval = 30
+    /// A session without a pid (Hermes, a node-launched agent) goes after this long without events.
+    public static let silenceLifetime: TimeInterval = 24 * 3600
 
     public struct Outcome {
         public var response: Response
@@ -24,10 +32,12 @@ public final class SessionRegistry {
     let store: Store
     private var removedAt: [String: Date] = [:]
     var now: () -> Date
+    let probe: ProcessProbe
 
-    public init(store: Store, now: @escaping () -> Date = Date.init) {
+    public init(store: Store, now: @escaping () -> Date = Date.init, probe: @escaping ProcessProbe = SystemProcesses.startTime(of:)) {
         self.store = store
         self.now = now
+        self.probe = probe
     }
 
     public func handle(_ request: Request) -> Outcome {
@@ -146,9 +156,27 @@ public final class SessionRegistry {
     /// Manual removal (a session whose end never arrived). The next event for it brings it back.
     private func remove(_ rawID: String?) throws -> Outcome {
         let s = try existing(rawID)
+        return Outcome(response: Response(ok: true, sessions: [s]), events: [try delete(s)])
+    }
+
+    /// Removes it and remembers when, so events observed before then do not bring it back.
+    private func delete(_ s: Session) throws -> SessionEvent {
         try store.deleteSession(id: s.id)
         removedAt[s.id] = Service.wholeSeconds(now())
-        return Outcome(response: Response(ok: true, sessions: [s]), events: [SessionEvent(type: .ended, session: s, at: now())])
+        return SessionEvent(type: .ended, session: s, at: now())
+    }
+
+    /// Removes sessions that ended without telling: the agent process is gone, or its pid now belongs to a process
+    /// started at another time (reuse); without a pid, no events for `silenceLifetime`. Returns their end events;
+    /// the caller resolves their requests.
+    public func reap() -> [SessionEvent] {
+        guard let all = try? store.sessions() else { return [] }
+        let silentSince = now().addingTimeInterval(-Self.silenceLifetime)
+        return all.filter { s in
+            guard let pid = s.pid else { return s.updatedAt < silentSince }
+            guard let started = probe(pid) else { return true }
+            return s.pidStartedAt.map { Int($0.timeIntervalSince1970) != Int(started.timeIntervalSince1970) } ?? false
+        }.compactMap { try? delete($0) }
     }
 
     /// Done sessions nobody looked at for `doneLifetime` go idle.
@@ -177,6 +205,9 @@ public final class SessionRegistry {
         removedAt = removedAt.filter { $0.value > cutoff }
     }
 }
+
+/// When the process with this pid started, or nil if there is none. `SystemProcesses.startTime(of:)` in perchd.
+public typealias ProcessProbe = (Int32) -> Date?
 
 extension Request.Op {
     var isSession: Bool {

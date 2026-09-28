@@ -1,4 +1,5 @@
 import Foundation
+import PerchClient
 import PerchCore
 
 /// Where one perchd instance keeps its files. Tests point this at a temp dir.
@@ -27,15 +28,18 @@ public final class Daemon {
     let sessions: SessionRegistry
     private var subscribers: [UUID: (Response) -> Void] = [:]
     private var expiryTimer: DispatchSourceTimer?
+    private var livenessTimer: DispatchSourceTimer?
     private let mirror: MirrorWriter
     private var inbox: InboxWatcher?
 
-    public init(config: DaemonConfig, now: @escaping () -> Date = Date.init) throws {
+    /// `probe` tells whether a session's agent process still runs; `livenessInterval` is how often it is asked.
+    public init(config: DaemonConfig, now: @escaping () -> Date = Date.init, probe: @escaping ProcessProbe = SystemProcesses.startTime(of:),
+                livenessInterval: TimeInterval = SessionRegistry.livenessInterval) throws {
         self.config = config
         try FileManager.default.createDirectory(at: config.home, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         service = Service(store: try Store(path: config.databasePath), now: now)
-        sessions = SessionRegistry(store: service.store, now: now)
+        sessions = SessionRegistry(store: service.store, now: now, probe: probe)
         mirror = MirrorWriter(path: config.mirrorPath)
         if !FileManager.default.fileExists(atPath: config.inboxPath) {
             FileManager.default.createFile(atPath: config.inboxPath, contents: nil)
@@ -49,11 +53,17 @@ public final class Daemon {
             }
             watcher.start()
             inbox = watcher
+            let liveness = DispatchSource.makeTimerSource(queue: queue)
+            liveness.schedule(deadline: .now() + livenessInterval, repeating: livenessInterval, leeway: .seconds(1))
+            liveness.setEventHandler { [weak self] in self?.reapSessions() }
+            liveness.resume()
+            livenessTimer = liveness
         }
     }
 
     deinit {
         expiryTimer?.cancel()
+        livenessTimer?.cancel()
         inbox?.stop()
     }
 
@@ -69,6 +79,17 @@ public final class Daemon {
             afterChange(events)
             return response
         }
+    }
+
+    /// Removes sessions whose agent is gone (see `SessionRegistry.reap`). The liveness timer calls it.
+    func checkLiveness() {
+        queue.sync { reapSessions() }
+    }
+
+    private func reapSessions() {
+        let ended = sessions.reap()
+        publish(sessionEvents: ended)
+        afterChange(ended.flatMap { service.resolveRequests(session: $0.session.id) })
     }
 
     /// Registers a watcher. `sink` first receives the `{"ok":true}` acknowledgement, then one

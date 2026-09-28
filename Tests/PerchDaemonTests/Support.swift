@@ -14,10 +14,12 @@ final class TestDaemon {
     /// False to keep the home for a second perchd (restart tests).
     let removeHome: Bool
 
-    init(home: URL = TestDaemon.freshHome(), removeHome: Bool = true, now: @escaping () -> Date = Date.init) throws {
+    init(home: URL = TestDaemon.freshHome(), removeHome: Bool = true, now: @escaping () -> Date = Date.init,
+         probe: @escaping ProcessProbe = SystemProcesses.startTime(of:),
+         livenessInterval: TimeInterval = SessionRegistry.livenessInterval) throws {
         self.home = home
         self.removeHome = removeHome
-        daemon = try Daemon(config: DaemonConfig(home: home), now: now)
+        daemon = try Daemon(config: DaemonConfig(home: home), now: now, probe: probe, livenessInterval: livenessInterval)
         server = Server(daemon: daemon)
         try server.listenUnix(path: daemon.config.socketPath)
         try server.listenHTTP(port: 0)
