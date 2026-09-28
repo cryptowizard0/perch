@@ -203,6 +203,9 @@ scripts/install.sh      # 升级二进制和 App，并把新的 hook（Permissio
 
 ## 已知限制 / 技术债
 
+剩余工作都已开成 GitHub issue：https://github.com/cryptowizard0/perch/issues
+（#1 M4 验收 · #2 M5 Codex · #3 M6 Hermes · #4 许可证 · #5 README · #6 #7 inbox · #8 Esc 打断 · #9 自启 + 图标 · #10 URL scheme / 其他终端 · #11 展开态高度 · #12 UI 自动化测试 · #13 等待时长复盘）。做完一项就关对应 issue。
+
 - inbox 最后一行如果还没写完（没有换行符）就被读到，会被当成一整行吸收。`echo >>` 一次写入没问题。
 - inbox 在"读取 → 核对 → 原地重写"之间有微秒级窗口，这期间追加的行可能丢失（已尽量缩小）。
 - 从 `.build/` 执行 `perchd install` 会打印提醒：执行 `swift package clean` 后 agent 就会失效。日常使用要先把二进制复制到固定位置再装。
