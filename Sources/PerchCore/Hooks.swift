@@ -18,6 +18,7 @@ public struct HookInput: Decodable, Equatable, Sendable {
 
     /// The Hermes `extra` fields Perch reads (the rest, like the whole conversation history, is skipped).
     public struct Extra: Decodable, Equatable, Sendable {
+        public var userMessage: String?
         public var assistantResponse: String?
         public var platform: String?
         /// pre_approval_request / post_approval_response.
@@ -25,21 +26,27 @@ public struct HookInput: Decodable, Equatable, Sendable {
         public var description: String?
         public var sessionKey: String?
         public var surface: String?
+        public var toolCallID: String?
 
         enum CodingKeys: String, CodingKey {
             case platform, command, description, surface
+            case userMessage = "user_message"
             case assistantResponse = "assistant_response"
             case sessionKey = "session_key"
+            case toolCallID = "tool_call_id"
         }
 
-        public init(assistantResponse: String? = nil, platform: String? = nil, command: String? = nil,
-                    description: String? = nil, sessionKey: String? = nil, surface: String? = nil) {
+        public init(userMessage: String? = nil, assistantResponse: String? = nil, platform: String? = nil,
+                    command: String? = nil, description: String? = nil, sessionKey: String? = nil,
+                    surface: String? = nil, toolCallID: String? = nil) {
+            self.userMessage = userMessage
             self.assistantResponse = assistantResponse
             self.platform = platform
             self.command = command
             self.description = description
             self.sessionKey = sessionKey
             self.surface = surface
+            self.toolCallID = toolCallID
         }
     }
 
@@ -94,11 +101,11 @@ public struct HookInput: Decodable, Equatable, Sendable {
 /// | pre_llm_call | session_start; resolve the last notice |
 /// | post_llm_call | add a notice with the reply |
 /// | on_session_end (end of every turn) | session_end |
-/// | pre_approval_request | add waiting with the full command, key `hermes:<session_key>`: answer where Hermes asks |
+/// | pre_approval_request | add waiting with the full command (see `approvalKey`): answer where Hermes asks |
 /// | post_approval_response (answered or timed out) | resolve it |
 ///
-/// Hermes approval hooks only observe, so the notch can never answer them. They carry the gateway's
-/// `session_key` (`default` in the CLI, `agent:main:<platform>:…` in the gateway), not the session id.
+/// Hermes approval hooks only observe, so the notch can never answer them. Subagent and background-review
+/// turns are ignored; gateway turns (Telegram, …) are named after the platform and have no terminal link.
 public enum HookAdapter {
     /// Notification types that mean "an agent is blocked on the human". `idle_prompt` is left out on purpose:
     /// Stop already posts a notice, and every finished turn turning orange would dilute the signal.
@@ -108,9 +115,9 @@ public enum HookAdapter {
     static let summaryLength = 140
 
     public static func waitingKey(agent: String, session: String) -> String { "\(agent):\(session)" }
+    public static func noticeKey(agent: String, session: String) -> String { "\(agent):\(session):done" }
     /// Events that start a turn: the human just typed, so that terminal has focus.
     public static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call"]
-    public static func noticeKey(agent: String, session: String) -> String { "\(agent):\(session):done" }
 
     /// `alreadyWaiting`: this session already has an active waiting item. A late `permission_prompt` notification
     /// then leaves it alone, so the full command text from PermissionRequest is not replaced by a generic message.
@@ -153,62 +160,81 @@ public enum HookAdapter {
         case "PostToolUse", "PostToolUseFailure":
             return [Request(op: .done, key: waiting)]
 
-        // Hermes. Gateway turns happen in a chat app: no terminal to jump to, whatever started the gateway.
+        default:
+            return hermes(input, agent: agent, link: link, now: now)
+        }
+    }
+
+    // MARK: - Hermes
+
+    /// A Hermes approval that never got its response (Hermes died mid-approval) fades after this long, well past
+    /// Hermes's own timeouts (`approvals.timeout` 60 s in the CLI, `gateway_timeout` 300 s).
+    public static let approvalLifetime: TimeInterval = 15 * 60
+    /// The fixed end of the prompt Hermes gives its background skill / memory review, a fork that shares the
+    /// parent's session id (agent/background_review.py). Nothing else tells its turns apart.
+    static let backgroundReviewMarker = "You can only call memory and skill management tools"
+
+    static func hermes(_ input: HookInput, agent: String, link: String?, now: Date) -> [Request] {
+        let extra = input.extra ?? .init()
+        // Delegated children and the background review run turns of their own: Hermes working, not waiting on you.
+        if extra.platform == "subagent" || extra.userMessage?.contains(backgroundReviewMarker) == true { return [] }
+        let session = input.sessionID
+        let platform = gatewayPlatform(extra)
+        let place = platform ?? projectName(input.cwd)
+        // Gateway turns happen in a chat app: no terminal to jump to, whatever started the gateway.
+        let link = platform == nil ? link : nil
+        var meta = ["session_id": session]
+        if let cwd = input.cwd { meta["cwd"] = cwd }
+
+        switch input.event {
         case "pre_llm_call":
-            let link = viaGateway(input) ? nil : link
             return [
-                Request(op: .sessionStart, session: Session(id: session, source: agent, title: hermesPlace(input), link: link, startedAt: now)),
+                Request(op: .sessionStart, session: Session(id: session, source: agent, title: place, link: link, startedAt: now)),
                 Request(op: .done, key: noticeKey(agent: agent, session: session)),
             ]
         case "post_llm_call":
-            let link = viaGateway(input) ? nil : link
             return [Request(op: .add, item: Item(
-                title: "\(hermesPlace(input)) · \(summary(input.extra?.assistantResponse))", kind: .notice, source: agent,
+                title: "\(place) · \(summary(extra.assistantResponse))", kind: .notice, source: agent,
                 link: link, meta: meta, key: noticeKey(agent: agent, session: session),
                 expiresAt: now.addingTimeInterval(noticeLifetime)
             ))]
         case "on_session_end":
             return [Request(op: .sessionEnd, id: session, at: now)]
         case "pre_approval_request":
-            let extra = input.extra ?? .init()
-            let link = viaGateway(input) ? nil : link
-            let sessionKey = extra.sessionKey ?? "default"
-            var approval = ["tool": "terminal", "session_key": sessionKey]
+            var approval = ["tool": "terminal", "session_key": extra.sessionKey ?? "default"]
             if let cwd = input.cwd { approval["cwd"] = cwd }
             if let reason = extra.description, !reason.isEmpty { approval["terminal_reason"] = reason }
-            if let platform = gatewayPlatform(extra) { approval["answer_in"] = platform.prefix(1).uppercased() + platform.dropFirst() }
+            if let platform { approval["answer_in"] = platform }
             return [Request(op: .add, item: Item(
-                title: "\(hermesPlace(input)) · \(extra.command ?? "a command")", kind: .task, status: .waiting, source: agent,
-                link: link, meta: approval, key: waitingKey(agent: agent, session: sessionKey)
+                title: "\(place) · \(extra.command ?? "a command")", kind: .task, status: .waiting, source: agent,
+                link: link, meta: approval, key: approvalKey(agent: agent, extra),
+                expiresAt: now.addingTimeInterval(approvalLifetime)
             ))]
         case "post_approval_response":
-            return [Request(op: .done, key: waitingKey(agent: agent, session: input.extra?.sessionKey ?? "default"))]
-
+            return [Request(op: .done, key: approvalKey(agent: agent, extra))]
         default:
             return []
         }
     }
 
-    /// Where a Hermes turn happens: the chat platform for the gateway, else the project directory.
-    static func hermesPlace(_ input: HookInput) -> String {
-        if let platform = input.extra.flatMap(gatewayPlatform) { return platform }
-        if let platform = input.extra?.platform, !platform.isEmpty, platform != "cli" { return platform }
-        return projectName(input.cwd)
+    /// Approval hooks carry the gateway's `session_key` (`default` in the CLI), not the session id; the tool call
+    /// id tells apart approvals queued in the same chat (and CLI sessions, which all share `default`).
+    static func approvalKey(agent: String, _ extra: HookInput.Extra) -> String {
+        let call = extra.toolCallID.flatMap { $0.isEmpty ? nil : ":\($0)" } ?? ""
+        return waitingKey(agent: agent, session: (extra.sessionKey ?? "default") + call)
     }
 
-    /// A Hermes event from the messaging gateway rather than the terminal CLI.
-    private static func viaGateway(_ input: HookInput) -> Bool {
-        guard let extra = input.extra else { return false }
-        if extra.surface == "gateway" { return true }
-        return extra.platform.map { !$0.isEmpty && $0 != "cli" } ?? false
-    }
-
-    /// `agent:<profile>:<platform>:…` → platform, for approvals asked through the gateway.
-    private static func gatewayPlatform(_ extra: HookInput.Extra) -> String? {
-        guard extra.surface == "gateway", let key = extra.sessionKey else { return nil }
-        let parts = key.split(separator: ":")
-        guard parts.count > 2, parts[0] == "agent" else { return nil }
-        return String(parts[2])
+    /// The gateway's platform ("Telegram"); nil in the terminal CLI. Turn events say `platform`; approvals only
+    /// say `surface: gateway` and a session key `agent:<profile>:<platform>:…`.
+    static func gatewayPlatform(_ extra: HookInput.Extra) -> String? {
+        var name: String?
+        if let platform = extra.platform, !platform.isEmpty, platform != "cli" {
+            name = platform
+        } else if extra.surface == "gateway" {
+            let parts = (extra.sessionKey ?? "").split(separator: ":")
+            name = parts.count > 2 && parts[0] == "agent" ? String(parts[2]) : "Hermes"
+        }
+        return name.map { $0.prefix(1).uppercased() + $0.dropFirst() }
     }
 
     // MARK: - PermissionRequest

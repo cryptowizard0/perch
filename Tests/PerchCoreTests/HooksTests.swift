@@ -220,7 +220,7 @@ import Testing
         """#)
         #expect(decoded.event == "pre_approval_request" && decoded.sessionID == "")
         #expect(decoded.extra == HookInput.Extra(command: "rm -rf build/", description: "recursive delete",
-                                                 sessionKey: "default", surface: "cli"))
+                                                 sessionKey: "default", surface: "cli", toolCallID: "c1"))
     }
 
     @Test func aTurnStartsAndClearsTheLastNotice() throws {
@@ -233,10 +233,10 @@ import Testing
     /// Gateway turns happen in a chat app: named after it, and never linked to whatever terminal started the gateway.
     @Test func gatewayTurnsAreNamedAfterThePlatform() throws {
         let r = requests(try input(#"{"hook_event_name":"pre_llm_call","session_id":"s2","cwd":"/","extra":{"platform":"telegram"}}"#))
-        #expect(r[0].session?.title == "telegram")
+        #expect(r[0].session?.title == "Telegram")
         #expect(r[0].session?.link == nil)
         let post = requests(try input(#"{"hook_event_name":"post_llm_call","session_id":"s2","cwd":"/","extra":{"platform":"telegram","assistant_response":"done"}}"#))
-        #expect(post.first?.item?.title == "telegram · done")
+        #expect(post.first?.item?.title == "Telegram · done")
         #expect(post.first?.item?.link == nil)
     }
 
@@ -254,12 +254,14 @@ import Testing
     }
 
     @Test func anApprovalInTheCLIWaitsInTheTerminal() throws {
-        let r = requests(try input(#"{"hook_event_name":"pre_approval_request","session_id":"","cwd":"/w/perch","extra":{"command":"rm -rf build/","description":"recursive delete","session_key":"default","surface":"cli"}}"#))
+        let r = requests(try input(#"{"hook_event_name":"pre_approval_request","session_id":"","cwd":"/w/perch","extra":{"command":"rm -rf build/","description":"recursive delete","session_key":"default","surface":"cli","tool_call_id":"c1"}}"#))
         let item = try #require(r.first?.item)
         #expect(r.map(\.op) == [.add])
         #expect(item.title == "perch · rm -rf build/")
         #expect(item.kind == .task && item.status == .waiting && item.source == "hermes")
-        #expect(item.key == "hermes:default")
+        #expect(item.key == "hermes:default:c1")
+        // If Hermes dies mid-approval no response comes: fade well after Hermes's own timeouts (60 s CLI, 300 s gateway).
+        #expect(item.expiresAt == now.addingTimeInterval(15 * 60))
         #expect(item.link == "L")
         #expect(item.meta == ["tool": "terminal", "terminal_reason": "recursive delete", "session_key": "default", "cwd": "/w/perch"])
     }
@@ -268,16 +270,33 @@ import Testing
     @Test func anApprovalFromTheGatewayWaitsInTheChat() throws {
         let r = requests(try input(#"{"hook_event_name":"pre_approval_request","session_id":"","cwd":"/","extra":{"command":"sudo reboot","description":"sudo","session_key":"agent:main:telegram:dm:42","surface":"gateway"}}"#))
         let item = try #require(r.first?.item)
-        #expect(item.title == "telegram · sudo reboot")
-        #expect(item.key == "hermes:agent:main:telegram:dm:42")
+        #expect(item.title == "Telegram · sudo reboot")
+        #expect(item.key == "hermes:agent:main:telegram:dm:42")  // no tool_call_id: one per chat
         #expect(item.meta?["answer_in"] == "Telegram")
         #expect(item.link == nil)
     }
 
     @Test func theResponseClearsIt() throws {
         for choice in ["once", "deny", "timeout"] {
-            let r = requests(try input(#"{"hook_event_name":"post_approval_response","session_id":"","cwd":"/","extra":{"command":"rm -rf build/","session_key":"default","surface":"cli","choice":"\#(choice)"}}"#))
-            #expect(r.map(\.op) == [.done] && r.first?.key == "hermes:default")
+            let r = requests(try input(#"{"hook_event_name":"post_approval_response","session_id":"","cwd":"/","extra":{"command":"rm -rf build/","session_key":"default","surface":"cli","choice":"\#(choice)","tool_call_id":"c1"}}"#))
+            #expect(r.map(\.op) == [.done] && r.first?.key == "hermes:default:c1")
+        }
+    }
+
+    /// Delegated children run whole turns of their own: they are Hermes working, not Hermes waiting for you.
+    @Test func subagentsAreIgnored() throws {
+        for event in ["pre_llm_call", "post_llm_call", "on_session_end"] {
+            #expect(requests(try input(#"{"hook_event_name":"\#(event)","session_id":"child","cwd":"/w","extra":{"platform":"subagent","assistant_response":"x"}}"#)).isEmpty)
+        }
+    }
+
+    /// The background skill / memory review is a fork that shares the parent's session id: it must not replace
+    /// the real turn's notice or start a Live Activity.
+    @Test func theBackgroundReviewIsIgnored() throws {
+        let prompt = "Review the conversation above…\n\nYou can only call memory and skill management tools. Other tools will be denied at runtime — do not attempt them."
+        let encoded = String(decoding: try JSONEncoder().encode(prompt), as: UTF8.self)
+        for event in ["pre_llm_call", "post_llm_call"] {
+            #expect(requests(try input(#"{"hook_event_name":"\#(event)","session_id":"s1","cwd":"/w","extra":{"platform":"cli","user_message":\#(encoded),"assistant_response":"Saved a skill."}}"#)).isEmpty)
         }
     }
 
