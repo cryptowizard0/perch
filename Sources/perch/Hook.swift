@@ -15,7 +15,7 @@ struct Hook: ParsableCommand {
     )
     static let agents = HookFiles.all.map(\.agent)
 
-    @Argument(help: "claude-code | codex") var agent: String
+    @Argument(help: "claude-code | codex | hermes") var agent: String
     @Option(help: "PermissionRequest: seconds to wait for Allow / Deny in the notch before the terminal asks.")
     var wait: Double = HookAdapter.permissionWait
 
@@ -99,7 +99,10 @@ struct Hook: ParsableCommand {
             return link.string
         }
         let sessions = (try? client.send(Request(op: .sessions), timeout: 2))?.sessions ?? []
-        return sessions.first { $0.id == input.sessionID }?.link ?? link.string
+        if let own = sessions.first(where: { $0.id == input.sessionID }) { return own.link ?? link.string }
+        // Hermes approvals carry no session id: use this agent's latest turn in the same directory.
+        let nearby = sessions.filter { $0.source == agent && $0.link.flatMap(TerminalLink.init(string:))?.cwd == input.cwd }
+        return nearby.max { $0.startedAt < $1.startedAt }?.link ?? link.string
     }
 }
 

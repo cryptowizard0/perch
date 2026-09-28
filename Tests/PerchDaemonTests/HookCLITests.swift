@@ -254,3 +254,18 @@ struct HermesHookTests {
         #expect(items.first?.kind == .notice)
     }
 }
+
+extension HermesHookTests {
+    /// Approval hooks carry no session id: they jump to the terminal of the Hermes turn running in that directory
+    /// (whose Ghostty terminal id was captured when the prompt was typed).
+    @Test func approvalsJumpToTheTurnsTerminal() throws {
+        let d = try TestDaemon()
+        let turn = "perch-terminal://ghostty?id=T1&cwd=/w/perch&bundle=com.mitchellh.ghostty"
+        _ = try d.client.send(Request(op: .sessionStart, session: Session(id: "s1", source: "hermes", title: "perch", link: turn, startedAt: Date())))
+        try hook(CLI(home: d.home), "pre_approval_request", session: "",
+                 #"{"command":"rm -rf build/","description":"recursive delete","session_key":"default","surface":"cli","tool_call_id":"c9"}"#)
+        let item = try #require(try d.client.send(Request(op: .list)).items?.first)
+        #expect(item.link == turn)
+        #expect(item.key == "hermes:default:c9")
+    }
+}
