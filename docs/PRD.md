@@ -52,7 +52,7 @@ v0.1 只做一个闭环：agent 在等你 → 刘海亮 → 就地处理或跳�
 - todo 底座：daemon + SQLite + CLI
 - 刘海 UI：收起态、展开态、快速录入、实时更新
 - Claude Code 和 Codex 的 hook 适配器（同一套脚本）
-- Hermes 的 HTTP 接入（daemon 的 localhost 端口）
+- Hermes 的接入（M6 定：Hermes 跑在本机，走 shell hook，同一个适配器；HTTP 端口留给容器里的客户端）
 - 三个控制动词：approve、deny、open
 - 刘海批准的安全白名单
 - 时间提醒：系统通知 + 刘海脉冲
@@ -108,7 +108,8 @@ flowchart LR
   CC[Claude Code hook] --> CLI[perch CLI]
   CX[Codex hook] --> CLI
   H[人 · 终端] --> CLI
-  HM[Hermes · Docker] -->|localhost:port| D[daemon + SQLite]
+  HM[Hermes shell hook] --> CLI
+  CT[容器里的客户端] -->|localhost:port| D[daemon + SQLite]
   CLI -->|Unix socket| D
   D -->|事件推送| UI[刘海 UI]
   D -->|渲染| MD[todo.md 只读镜像]
@@ -152,7 +153,7 @@ flowchart LR
 
 安装：`perch hooks install claude-code` 写 `~/.claude/settings.json`，`perch hooks install codex` 写 `~/.codex/hooks.json`。Codex 的 hook 要在 codex 里用 `/hooks` 确认信任后才会跑。
 
-Hermes 不走 hook，直接调 daemon 的 HTTP 接口，语义和 CLI 一一对应。
+~~Hermes 不走 hook，直接调 daemon 的 HTTP 接口~~。M6 改：Hermes 实际跑在本机（不在 Docker 里），有自己的 shell hook（`pre_llm_call` / `post_llm_call` / `pre_approval_request` 等），所以和 Claude Code、Codex 一样走 `perch hook hermes`。Hermes 的审批 hook 只能观察，刘海只能提示去哪里回答，不能批准。HTTP 接口保留，给够不着 Unix socket 的容器客户端。
 
 Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) · [Codex hooks](https://learn.chatgpt.com/docs/hooks)
 
@@ -224,7 +225,7 @@ Swift 全栈，一种语言：SwiftUI 做刘海 UI，daemon 和 CLI 用 Swift Ar
 | 3 | Claude Code 的 `Notification` / `Stop` / `SessionStart` 适配 | 跑一个需要权限的任务，刘海变橙；跑完后 notice 出现并自动消失 |
 | 4 | `PermissionRequest` + 白名单 | 刘海里 Allow 一次 `npm test`，终端不弹提示；`rm` 只显示"去终端"；超时后终端提示正常弹出 |
 | 5 | Codex 复用同一套脚本 | 同步骤 3、4，只改返回 JSON 的分支 |
-| 6 | Hermes HTTP 接入 | 容器内 `curl host.docker.internal:port` 能 add 和 respond |
+| 6 | Hermes 接入（M6 改为 shell hook） | Hermes 一轮 → Live Activity + notice；危险命令等审批时刘海变橙，回应后消失 |
 
 `todo.md` 镜像和 `inbox.md` 收件箱放在第 1 步和第 2 步之间，工作量小，不单列。
 

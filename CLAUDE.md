@@ -42,7 +42,7 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 1. **daemon 是唯一真相。** 只有 `perchd` 打开 SQLite。CLI、刘海 App、Hermes 全是客户端，谁都不直接碰数据库。
 2. **CLI 是唯一契约。** 任何能跑 shell 的 agent 零学习成本接入；存储格式可以随时换，CLI 参数不能随便改。全部子命令支持 `--json`；`add --key` 幂等。
 3. **推事件，不轮询。** daemon 通过 socket 广播 `Event`，刘海 UI 订阅。CLI 调用到刘海更新 ≤ 200 ms。
-4. **传输层。** Unix socket `~/.perch/perchd.sock`（本机），加 `127.0.0.1:7331` HTTP（给 Docker 里的 Hermes，`host.docker.internal:7331`）。两者跑同一套 JSON（`Sources/PerchCore/Protocol.swift`）：socket 上是 newline-delimited JSON，HTTP 上是 `POST /rpc`；`watch` 保持连接并逐行推送带 `event` 的 `Response`。
+4. **传输层。** Unix socket `~/.perch/perchd.sock`（本机），加 `127.0.0.1:7331` HTTP（给跑在容器里、够不着 socket 的客户端，`host.docker.internal:7331`；本机的 Hermes 走 hook，见下）。两者跑同一套 JSON（`Sources/PerchCore/Protocol.swift`）：socket 上是 newline-delimited JSON，HTTP 上是 `POST /rpc`；`watch` 保持连接并逐行推送带 `event` 的 `Response`。
 5. **文件是单向的。** `~/.perch/todo.md` 是 daemon 渲染的只读镜像；`~/.perch/inbox.md` 是追加式收件箱，daemon 监听到 `- [ ] …` 就吸收进库并清空。**没有双向同步，永远不要实现。**
 6. **刘海只是快捷通道，不是唯一通道。** hook 等刘海响应 15–30 秒，超时不返回决定，终端原生提示照常弹出。任何情况下都不会因为 Perch 而默认放行。
 7. **一种语言。** 全部 Swift 5.9 / macOS 14+。daemon 和 CLI 打成单二进制。
@@ -67,14 +67,26 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 | `PermissionRequest` | 白名单内：发 request 等刘海（`--wait`，默认 20 秒），有回应就打印决定；超时或白名单外：立刻发一条"去终端"的 waiting（完整命令），不打印任何东西，终端原生提示接管 | 是 |
 | `PostToolUse` / `PostToolUseFailure` | resolve 本会话的 waiting（工具跑了，说明权限已在终端处理） | 否 |
 
+Hermes Agent（M6 定：它跑在本机，不在 Docker 里，所以走 shell hook 而不是 HTTP）：同一个适配器 `perch hook hermes`，事件名是 snake_case，细节在 stdin 的 `extra` 里。Hermes 的 shell hook **同步**执行（timeout 10），stdout 若是 JSON 会被解析（`pre_llm_call` 的 `context` 会进 LLM 上下文），所以同样什么都不打印。
+
+| 事件 | 适配器行为 |
+| --- | --- |
+| `pre_llm_call` | session_start（标题：gateway 用平台名，CLI 用项目名）；resolve 上一条 notice；Ghostty 下记下聚焦的 terminal |
+| `post_llm_call` | 发 notice（`assistant_response` 首行） |
+| `on_session_end`（每轮结束都触发，含中断） | session_end |
+| `pre_approval_request` | add waiting（完整命令 + Hermes 给的原因），key `hermes:<session_key>`；CLI 显示"Answer in the terminal"，gateway 显示"Answer in Telegram"等 |
+| `post_approval_response`（回应或超时） | resolve 那条 waiting |
+
+Hermes 的审批 hook 只能观察，不能代答，所以刘海**永远不能批准 Hermes 的命令**，只能提示去哪里回答。审批 hook 带的是 gateway 的 `session_key`（CLI 里是 `default`，gateway 是 `agent:main:<platform>:…`），不是 session_id。
+
 session（Live Activity）只在 perchd 内存里，不进 SQLite：`perch session start|end|ls`，事件 `session.started|ended`。
 
 `perch add --kind request --wait` 的约定：有人回应 → stdout 打印回应值、exit 0；过期（`--expires`）/ 被 done / 被 rm → exit 3、不打印回应。适配器只在 exit 0 时返回决定，其余一律不返回，让终端原生提示接管。
 
 返回格式（M4 按官方文档核对过）：Claude Code 是 `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny","message":"…"}}}`（`message` 只用于 deny；不是 PreToolUse 的 `permissionDecision`；exit code 2 在 PermissionRequest 不生效）。Codex（M5 核对）读同一个 JSON，所以不分支；不要返回 `updatedInput` / `updatedPermissions` / `interrupt`（Codex 目前对这些 fail closed）。
 PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permission_prompt` 要等提示框挂了约 6 秒才触发。
-配置文件：Claude Code `~/.claude/settings.json`；Codex `~/.codex/hooks.json`（`$CODEX_HOME` 可覆盖；Codex 按 hook 内容的 hash 记信任，新装或改过的 hook 要在 codex 里 `/hooks` 确认后才会跑）。
-以官方文档为准：https://code.claude.com/docs/en/hooks 、 https://learn.chatgpt.com/docs/hooks 。
+配置文件：Claude Code `~/.claude/settings.json`；Codex `~/.codex/hooks.json`（`$CODEX_HOME` 可覆盖；Codex 按 hook 内容的 hash 记信任，新装或改过的 hook 要在 codex 里 `/hooks` 确认后才会跑）；Hermes `~/.hermes/config.yaml` 的 `hooks:`（`$HERMES_HOME` 可覆盖；没有 YAML 库，Perch 只管文件末尾一段带标记的块，文件里已有非空 `hooks:` 就拒绝安装；Hermes 对每个 (事件, 命令) 首次运行要确认，记在 `~/.hermes/shell-hooks-allowlist.json`，gateway 要 `hermes gateway restart` 才会加载）。
+以官方文档为准：https://code.claude.com/docs/en/hooks 、 https://learn.chatgpt.com/docs/hooks 、Hermes 仓库的 `website/docs/user-guide/features/hooks.md`（Shell Hooks 一节）。
 
 ## 安全规则（M4 必须实现，不可绕过）
 

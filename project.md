@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-09-28 · M4、M5 代码完成，等真实会话验收；之后 M6
+最后更新：2026-09-28 · M4、M5、M6 代码完成，等真实会话验收
 
 ## 总览
 
@@ -14,7 +14,7 @@
 | M3 | Claude Code 被动接入（UserPromptSubmit / Notification / Stop） | ✅ 完成 | 152 个测试；用户在 Ghostty 和 Claude 桌面 App 里实测：变橙、notice、跳回原 tab 都正常 |
 | M4 | PermissionRequest + 白名单 | 🔶 代码完成 | 176 个测试；剩重新安装 + 真实会话验收（见"M4 进度"） |
 | M5 | Codex 复用同一套 hook 脚本 | 🔶 代码完成 | 剩重新安装 + codex 里 `/hooks` 信任 + 真实会话验收（见"M5 进度"） |
-| M6 | Hermes HTTP 接入 | ⬜ 未开始 | HTTP `POST /rpc` 已就绪，只剩容器内实测 |
+| M6 | Hermes 接入（改为 shell hook） | 🔶 代码完成 | 剩安装 + Hermes 里确认 hook + 重启 gateway + 真实会话验收（见"M6 进度"） |
 
 ## 开发环境（重要）
 
@@ -60,7 +60,7 @@ Sources/PerchDaemon/   Daemon（串行队列 + 订阅者 + 过期计时器 + 镜
                        Server / HTTPConnection（Unix socket + 127.0.0.1 HTTP）、Files（MirrorWriter / InboxWatcher）、LaunchAgent
 Sources/perch/         CLI：add / ls / get / done / update / respond / rm / watch / session / hook / hooks
   Hook.swift             `perch hook <agent>`：stdin → HookAdapter → perchd；Ghostty 探测；HookLog
-  HooksInstall.swift     `perch hooks install|uninstall claude-code|codex`（HookSettings：每个 agent 一张事件表；合并 / 移除 settings.json / hooks.json）
+  HooksInstall.swift     `perch hooks install|uninstall claude-code|codex|hermes`（HookFile 协议：HookSettings 改 JSON，HermesHooks 管 config.yaml 里的标记块）
   AllowlistCommand.swift `perch allowlist show|check|init`；RequestWaiter（Perch.swift）供 add --wait 和 hook 共用
 Sources/perchd/        入口：run（默认）/ install / uninstall
 Sources/PerchAppCore/  刘海 App 的可测逻辑（无 AppKit）：
@@ -218,6 +218,40 @@ scripts/install.sh      # 升级二进制，并把 Codex hook 写进 ~/.codex/ho
 - `codex exec` 是非交互的，不会发审批（"does not allow requests for escalated permissions"），所以 PermissionRequest、Interrupt 只能在交互式 codex 里验收。
 - 测试时不要 `pkill -f "perch watch"`：会把别的会话的 watch 一起杀掉，只按 PID 杀自己起的进程。
 - 风险：Codex 的 hook 子进程是否继承 `TERM_PROGRAM` / `__CFBundleIdentifier`（决定跳转按钮），以实测为准；`async` hook 在 Codex 里是否真的不阻塞，也以实测为准。
+
+## M6 进度（Hermes，改为 shell hook）
+
+用户定（2026-09-28）：原计划"Docker 里的 Hermes 走 `curl host.docker.internal:7331/rpc`"不成立——本机的 Hermes Agent（Nous Research，v0.18）跑在宿主机上（`terminal.backend: local`，`hermes gateway run` 常驻），Docker 也没开。Hermes 有和 Claude Code 类似的 shell hook，于是做成 hook 适配器。
+
+按 Hermes 源码（`~/.hermes/hermes-agent`：`agent/shell_hooks.py`、`tools/approval.py`、`agent/turn_*.py`）核对：
+- stdin：`{"hook_event_name","tool_name","tool_input","session_id","cwd","extra":{…}}`；审批事件的 `session_id` 是空串，身份在 `extra.session_key`。`extra` 里还有整段 `conversation_history`，解码时跳过。
+- shell hook 用 `subprocess.run` **同步**执行，默认 60 秒、上限 300 → 装成 timeout 10；stdout 的 JSON 会被解析（`pre_llm_call` 的 `context` 进 LLM 上下文），适配器照旧不打印。
+- `on_session_end` 在**每轮**结束都触发（`run_conversation` 末尾，含中断），不是会话结束 → 当 session_end 用；`post_llm_call` 只在有回复、没被中断时触发 → 发 notice。
+- `pre_approval_request` / `post_approval_response` 只能观察（返回值被忽略），CLI 和 gateway（Telegram 等）都会触发；`choice` 是 once / session / always / deny / timeout。刘海只能提示去哪儿回答。
+- 同意：每个 (事件, 命令) 首次要确认，存 `~/.hermes/shell-hooks-allowlist.json`；非 TTY（gateway）没确认过的 hook 会被静默跳过 → 先在终端跑一次 `hermes` 确认，再 `hermes gateway restart`。
+- `hermes hooks list` / `hermes hooks doctor` 可以检查。
+- 已用 Hermes 自己的解析器（`iter_configured_hooks`）核对 dry-run 结果：5 个 hook 都认，config 其余部分不变。
+
+| # | 任务 | 状态 | 要点 |
+| --- | --- | --- | --- |
+| 6.1 | 适配器 | ✅ | `HookAdapter` 加 Hermes 分支；`HermesAdapterTests` + 真 perchd 的 `HermesHookTests` |
+| 6.2 | `perch hooks install|uninstall hermes` | ✅ | config.yaml 末尾的标记块；已有非空 `hooks:` 拒绝，`hooks: {}` 之类会替换；install.sh 在有 `~/.hermes` 时一起装（失败不影响其余安装） |
+| 6.3 | 刘海文案 | ✅ | `RowFormat.answerHint`：终端 / "Answer in Telegram" |
+| 6.4 | 验收 | ⬜ | 见下 |
+
+### M6 验收步骤
+
+```
+scripts/install.sh              # 或只装 hook：perch hooks install hermes
+hermes                          # 终端里跑一次，确认 Perch 的 5 个 hook（或 hermes --accept-hooks）
+hermes gateway restart          # gateway 才会加载新 hook
+hermes hooks list               # 5 个都应是 allowed
+```
+- [ ] 终端里 `hermes` 发一条消息 → 刘海出现 "1 agent · …"（纸飞机图标）；回复后 Live Activity 消失，出现灰色 notice
+- [ ] 让它跑 `rm -rf <临时目录>`：刘海变橙，显示完整命令和原因（"Answer in the terminal · …"）；在 Hermes 里回应后橙色消失
+- [ ] 从 Telegram（gateway）让它跑一条危险命令：刘海显示 "Answer in Telegram"；在 Telegram 里回应后消失
+- [ ] `~/.perch/hook.log` 没有异常；Hermes 每轮没有明显变慢（hook 同步执行）
+- 风险：gateway 的每条消息都会留一条 notice（10 分钟消失），嫌吵再说；两个同时开的 CLI 会话 `session_key` 都是 `default`，审批 waiting 会共用一条。
 
 ### M2 协议扩展：`update`（已实现）
 
