@@ -80,7 +80,8 @@ PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permissi
 
 - 展开态必须显示完整命令原文，不截断不摘要。
 - 白名单之外的工具不给批准按钮，只显示"去终端"。默认白名单：Read / Glob / Grep / WebFetch / WebSearch；Bash 只放 `npm test`、`pytest`、`cargo test`、`git status|diff|log`。`rm`、`sudo`、`git push --force`、`curl | sh`、写 `.env` / `~/.ssh` / `*.pem` 一律去终端。
-- 白名单是本地配置文件，用户可改；默认值宁严勿松。
+- 白名单是本地配置文件，用户可改；默认值宁严勿松。已实现（M4）：`~/.perch/allowlist.json`（没有文件 = 默认值；文件坏了 = 什么都不能在刘海批准），`perch allowlist [show|check|init]`。Bash 带 shell 元字符（`; & | $ \` > < ( ) \` 换行）或危险参数（`--output` 等）一律去终端；受保护路径对所有工具生效。
+- 白名单外的请求不会变成 request：hook 立刻返回（终端马上弹提示框），刘海里只出一条"去终端"的 waiting。刘海按钮只对 request 显示，所以不存在"白名单外却有 Allow 按钮"的路径。
 
 ## 范围守卫（不要做）
 
@@ -101,5 +102,5 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 
 - ~~`link` 跳回终端的机制~~ 已定（M3）：`perch-terminal://<app>?id=&cwd=&bundle=`。Ghostty（≥ 1.3，AppleScript）在 UserPromptSubmit 时记下聚焦的 terminal id，跳转时 `focus` 那个 terminal，找不到按目录找，再不行激活 App；其他终端只激活 App（按 `__CFBundleIdentifier`）。
 - ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。
-- hook 等刘海的超时取 15 还是 30 秒，用一周后定。
+- hook 等刘海的超时：先用 20 秒（M4 定，`perch hooks install claude-code --wait N` 可改），用一周后再看。
 - 开源许可证。

@@ -233,6 +233,6 @@ Swift 全栈，一种语言：SwiftUI 做刘海 UI，daemon 和 CLI 用 Swift Ar
 - [x] `link` 跳回终端的机制：日常用 Ghostty。Ghostty ≥ 1.3 可 AppleScript：提交 prompt 时记下聚焦的 terminal id，跳转时 focus 它；其他终端只激活 App。
 - [x] 产品名 Perch（栖），CLI `perch`：agent 停在刘海上等你。
 - [x] 全局快捷键默认值：快速录入 ⌥⇧Space。
-- [ ] hook 等刘海的超时具体取 15 还是 30 秒，用一周后再定。
+- [x] hook 等刘海的超时：先用 20 秒（可改），用一周后再看。
 
 产品化余地：这个品类里 13 家全在做音乐控制，"agent 的灵动岛"的位置是空的。护城河不在 UI，在 hook 适配器目录和安全白名单——每多支持一个 agent 就是一个适配器，开源 CLI 加适配器目录天然是面向 Claude Code / Codex 用户的分发方式。自用跑通前不展开。

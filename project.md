@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-09-24 · M3 完成，下一步 M4
+最后更新：2026-09-28 · M4 代码完成，等真实会话验收；之后 M5
 
 ## 总览
 
@@ -12,7 +12,7 @@
 | M1 | daemon + CLI + SQLite + watch | ✅ 完成 | 10 项全勾，73 个测试通过 |
 | M2 | 刘海 UI | ✅ 完成 | 8 项全勾；CLI → 刘海 均值 11 ms。悬停、点击用户已确认 |
 | M3 | Claude Code 被动接入（UserPromptSubmit / Notification / Stop） | ✅ 完成 | 152 个测试；用户在 Ghostty 和 Claude 桌面 App 里实测：变橙、notice、跳回原 tab 都正常 |
-| M4 | PermissionRequest + 白名单 | ⬜ 未开始 | CLI 侧 `--wait` 已就绪 |
+| M4 | PermissionRequest + 白名单 | 🔶 代码完成 | 176 个测试；剩重新安装 + 真实会话验收（见"M4 进度"） |
 | M5 | Codex 复用同一套 hook 脚本 | ⬜ 未开始 | |
 | M6 | Hermes HTTP 接入 | ⬜ 未开始 | HTTP `POST /rpc` 已就绪，只剩容器内实测 |
 
@@ -51,7 +51,9 @@ Sources/PerchCore/     纯逻辑，无 I/O，App 可直接复用：
   Markdown.swift         MirrorRenderer（todo.md）、Inbox（inbox.md 解析）、QuickEntry（"标题 @15:00" → 标题 + due）
   Paths.swift            ~/.perch（PERCH_HOME 可覆盖）
   Sessions.swift         Session / SessionEvent（Live Activity，不入库）
-  Hooks.swift            HookInput / HookAdapter（hook 事件 → 请求，纯函数）
+  Hooks.swift            HookInput / HookAdapter（hook 事件 → 请求；PermissionRequest 的 ask / terminal 计划；决定 JSON）
+  Allowlist.swift        刘海可批准的范围（tools / bash / protected_paths）
+  PermissionPrompt.swift request 显示的完整文本；JSONValue.swift 任意 JSON（tool_input）
   TerminalLink.swift     perch-terminal://<app>?id=&cwd=&bundle=
 Sources/PerchClient/   PerchClient.send / watch() → EventStream；BufferedSocket（阻塞式 socket + 读缓冲）
 Sources/PerchDaemon/   Daemon（串行队列 + 订阅者 + 过期计时器 + 镜像 + inbox 监听）、Service（各 op）、Store（sqlite）、SessionRegistry、
@@ -59,6 +61,7 @@ Sources/PerchDaemon/   Daemon（串行队列 + 订阅者 + 过期计时器 + 镜
 Sources/perch/         CLI：add / ls / get / done / update / respond / rm / watch / session / hook / hooks
   Hook.swift             `perch hook <agent>`：stdin → HookAdapter → perchd；Ghostty 探测；HookLog
   HooksInstall.swift     `perch hooks install|uninstall claude-code`（ClaudeSettings：合并 / 移除 settings.json）
+  AllowlistCommand.swift `perch allowlist show|check|init`；RequestWaiter（Perch.swift）供 add --wait 和 hook 共用
 Sources/perchd/        入口：run（默认）/ install / uninstall
 Sources/PerchAppCore/  刘海 App 的可测逻辑（无 AppKit）：
   NotchGeometry          刘海矩形、收起 / 展开 frame、无刘海胶囊
@@ -158,6 +161,28 @@ scripts/install.sh          # perch/perchd → ~/.local/bin，Perch.app → ~/Ap
 - [x] `~/.perch/hook.log` 没有异常
 - hook 里的 osascript 问 Ghostty 聚焦的 terminal：实测不弹授权。
 
+## M4 进度（PermissionRequest + 白名单）
+
+用户定的：等刘海 20 秒（`perch hooks install claude-code --wait N` 可改）；总是先走刘海（不判断人是否在终端前）；⌥⇧A / ⌥⇧D 只在有 request 时注册，⌥⇧O 在队列非空时注册。
+
+| # | 任务 | 状态 | 要点 |
+| --- | --- | --- | --- |
+| 4.1 | 白名单 | ✅ | `Allowlist`（PerchCore）+ `~/.perch/allowlist.json` + `perch allowlist show/check/init`；缺文件用默认值，坏文件什么都不放（fail closed） |
+| 4.2 | PermissionRequest 适配 | ✅ | 白名单内：request + 等 `--wait` 秒，回应就打印 `hookSpecificOutput.decision.behavior`；超时 / 白名单外：不打印，发"去终端" waiting（key 同 Notification，迟到的 permission_prompt 不会覆盖命令原文）。新增 PostToolUse / PostToolUseFailure：工具跑了就 resolve waiting，不再等到 Stop |
+| 4.3 | 刘海 request 行 + 快捷键 | ✅ | 完整命令（等宽、可选中）、用途 · 项目、Allow / Deny / Terminal；"去终端"行写明原因，点标题跳终端；GlobalHotKey 按 id 分发（修了多个热键互相触发的问题） |
+| 4.4 | 验收 | ⬜ | 见下 |
+
+### M4 验收步骤
+
+```
+scripts/install.sh      # 升级二进制和 App，并把新的 hook（PermissionRequest / PostToolUse*）写进 settings.json
+```
+- [ ] Ghostty 里让 claude 跑 `npm test`（或 `git status`）：终端显示 "Waiting for Perch…" 转圈，刘海出现 request；点 Allow（或 ⌥⇧A）→ 终端不弹提示，命令直接跑
+- [ ] 让它跑 `rm -rf <某个临时目录>`：终端立刻弹原生提示；刘海只有一条"Answer in the terminal · …"，点它回到那个 tab；在终端批准后橙色马上消失
+- [ ] 再来一次 `npm test`，不理刘海：20 秒后终端原生提示正常弹出，刘海那条变成"去终端"
+- [ ] Deny（⌥⇧D）：Claude 收到 "Denied by the user from the Perch notch." 并继续
+- 风险：hook 运行期间终端是否真的只转圈、不同时弹提示框（文档没写死），以实测为准。
+
 ### M2 协议扩展：`update`（已实现）
 
 - op `update` + `id` + `patch`（`title` / `kind` / `due_at` / `clear_due`，JSON snake_case），只改给了的字段；内容不变不发事件。
@@ -173,7 +198,7 @@ scripts/install.sh          # perch/perchd → ~/.local/bin，Perch.app → ~/Ap
 | `update` / snooze op 的形状 | M2.5 | ✅ 已定：通用 `update` op + `perch update`（见上方） |
 | 全局快捷键默认值（快速录入；⌥⇧A / ⌥⇧D / ⌥⇧O） | M2.6、M4 | ✅ 快速录入 ⌥⇧Space；其余沿用 PRD，M4 实现 |
 | `link` 跳回终端的机制（Zed / Warp / tmux / iTerm） | M2.4 跳转按钮、M3 | ✅ Ghostty AppleScript focus terminal id；其他终端激活 App |
-| hook 等刘海的超时取 15 秒还是 30 秒 | M4 | 用一周后定 |
+| hook 等刘海的超时取 15 秒还是 30 秒 | M4 | ✅ 先用 20 秒（`--wait` 可改），用一周后再看 |
 | 开源许可证 | 分发 | 未定 |
 
 ## 已知限制 / 技术债
