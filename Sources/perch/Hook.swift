@@ -13,7 +13,7 @@ struct Hook: ParsableCommand {
         abstract: "Hook adapter: reads an agent's hook JSON on stdin and reports to perchd. Prints nothing, exits 0.",
         discussion: "Installed by `perch hooks install`. Agents: \(Hook.agents.joined(separator: ", "))."
     )
-    static let agents = ["claude-code", "codex"]
+    static let agents = HookSettings.all.map(\.agent)
 
     @Argument(help: "claude-code | codex") var agent: String
     @Option(help: "PermissionRequest: seconds to wait for Allow / Deny in the notch before the terminal asks.")

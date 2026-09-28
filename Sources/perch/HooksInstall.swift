@@ -72,8 +72,8 @@ struct HooksUninstall: ParsableCommand {
 struct HookSettings {
     struct HookEvent {
         enum Mode {
-            /// The agent never waits for it.
-            case async
+            /// The agent never waits for it. Codex caps Interrupt at 3 s even in the background.
+            case async(timeout: Int = 10)
             /// PermissionRequest: may return a decision, so the agent waits up to `--wait`.
             case blocking
             /// Runs inline with a short cap (Codex's SessionEnd is always synchronous, at most 3 s).
@@ -81,7 +81,7 @@ struct HookSettings {
         }
         let name: String
         var matcher: String?
-        var mode: Mode = .async
+        var mode: Mode = .async()
     }
 
     let agent: String
@@ -90,12 +90,13 @@ struct HookSettings {
     /// Printed after a successful install.
     var installNote: String?
 
+    static var all: [HookSettings] { [claudeCode, codex] }
+
     static func `for`(_ agent: String) throws -> HookSettings {
-        switch agent {
-        case "claude-code": return claudeCode
-        case "codex": return codex
-        default: throw CLIError("unknown agent '\(agent)'; use claude-code or codex", code: 64)
+        guard let settings = all.first(where: { $0.agent == agent }) else {
+            throw CLIError("unknown agent '\(agent)'; use \(all.map(\.agent).joined(separator: " or "))", code: 64)
         }
+        return settings
     }
 
     static var claudeCode: HookSettings {
@@ -108,7 +109,7 @@ struct HookSettings {
             HookEvent(name: "Stop"),
             HookEvent(name: "StopFailure"),
             HookEvent(name: "SessionEnd"),
-        ], defaultPath: configFile(env: "CLAUDE_CONFIG_DIR", fallback: ".claude", name: "settings.json"))
+        ], defaultPath: configFile(dirVariable: "CLAUDE_CONFIG_DIR", defaultDir: ".claude", file: "settings.json"))
     }
 
     /// Codex has no Notification / StopFailure / PostToolUseFailure; Interrupt covers Esc (no Stop follows).
@@ -118,9 +119,9 @@ struct HookSettings {
             HookEvent(name: "PermissionRequest", mode: .blocking),
             HookEvent(name: "PostToolUse"),
             HookEvent(name: "Stop"),
-            HookEvent(name: "Interrupt"),
+            HookEvent(name: "Interrupt", mode: .async(timeout: 3)),
             HookEvent(name: "SessionEnd", mode: .sync(timeout: 3)),
-        ], defaultPath: configFile(env: "CODEX_HOME", fallback: ".codex", name: "hooks.json"),
+        ], defaultPath: configFile(dirVariable: "CODEX_HOME", defaultDir: ".codex", file: "hooks.json"),
         installNote: "Codex skips new or changed hooks until you trust them: start codex and review them with /hooks.")
     }
 
@@ -128,9 +129,10 @@ struct HookSettings {
         ["permission_prompt", "elicitation_dialog", "agent_needs_input"].firstIndex(of: type) ?? 99
     }
 
-    private static func configFile(env name: String, fallback: String, name file: String) -> String {
-        let dir = ProcessInfo.processInfo.environment[name].flatMap { $0.isEmpty ? nil : $0 }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(fallback).path
+    /// `$<dirVariable>/<file>`, else `~/<defaultDir>/<file>`.
+    private static func configFile(dirVariable: String, defaultDir: String, file: String) -> String {
+        let dir = ProcessInfo.processInfo.environment[dirVariable].flatMap { $0.isEmpty ? nil : $0 }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(defaultDir).path
         return URL(fileURLWithPath: dir).appendingPathComponent(file).path
     }
 
@@ -184,8 +186,8 @@ struct HookSettings {
         for event in events {
             let hook: [String: Any]
             switch event.mode {
-            case .async:
-                hook = ["type": "command", "command": command, "async": true, "timeout": 10]
+            case .async(let timeout):
+                hook = ["type": "command", "command": command, "async": true, "timeout": timeout]
             case .blocking:
                 hook = ["type": "command", "command": "\(command) --wait \(wait)", "timeout": wait + 10,
                         "statusMessage": "Waiting for Perch (⌥⇧A allow · ⌥⇧D deny)…"]

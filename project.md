@@ -192,7 +192,8 @@ scripts/install.sh      # 升级二进制和 App，并把新的 hook（Permissio
 - 事件：有 UserPromptSubmit / PermissionRequest / PostToolUse / Stop / SessionEnd，**没有 Notification / StopFailure / PostToolUseFailure**，多 `Interrupt`（Esc 打断，不发 Stop）→ 适配器把 Interrupt 当成 session_end + resolve waiting。
 - 所以 Codex 的橙色只来自 PermissionRequest：白名单内是 request，白名单外 / 超时是"去终端" waiting；Codex 自己提问（没有 hook）不会变橙。
 - Codex 的工具名：`Bash`（`tool_input.command` 是字符串）、`apply_patch`（`command` 是整段 patch）、MCP 工具。后两者不在白名单 → 一律去终端，刘海显示完整 patch。
-- SessionEnd 在 Codex 里总是同步跑，默认 1 秒、最多 3 秒 → 装成同步、timeout 3。
+- SessionEnd 在 Codex 里总是同步跑，默认 1 秒、最多 3 秒 → 装成同步、timeout 3。Interrupt 同样限 1–3 秒（后台跑也一样）→ async、timeout 3。
+- Stop / Interrupt 的 stdout 只能是空或 JSON（纯文本无效）；适配器本来就不打印，验收时留意 Codex 对空输出的处理。
 - 信任：Codex 按 hook 的 hash 记信任，新装或改了（包括换 `--binary` / `--wait`）都要在 codex 里 `/hooks` 重新确认，否则静默跳过。
 - 本机 `~/.codex/hooks.json` 已有 Superset 的 SessionStart / UserPromptSubmit / Stop hook，安装只追加，dry-run 核对过不动它们。
 

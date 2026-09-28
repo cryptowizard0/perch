@@ -69,6 +69,15 @@ struct HookCLITests {
     }
 }
 
+/// Waits (up to 3 s) for a hook running in the background to post its request to the notch.
+func postedRequest(_ d: TestDaemon) throws -> Item {
+    for _ in 0..<300 {
+        if let request = try d.client.send(Request(op: .list, filter: .init(kind: .request))).items?.first { return request }
+        Thread.sleep(forTimeInterval: 0.01)
+    }
+    throw CLIError("the hook never posted its request")
+}
+
 /// PermissionRequest through `perch hook claude-code`: the notch answers, or the terminal asks.
 @Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
 struct PermissionHookTests {
@@ -81,11 +90,7 @@ struct PermissionHookTests {
     /// Starts the hook in the background and returns once its request is in the notch.
     func ask(_ d: TestDaemon, _ command: String, wait: String = "20") throws -> (() throws -> CLI.Result, Item) {
         let finish = try CLI(home: d.home).start(["hook", "claude-code", "--wait", wait], stdin: permission(command), env: env)
-        for _ in 0..<300 {
-            if let request = try d.client.send(Request(op: .list, filter: .init(kind: .request))).items?.first { return (finish, request) }
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        throw CLIError("the hook never posted its request")
+        return (finish, try postedRequest(d))
     }
 
     @Test func allowFromTheNotch() throws {
@@ -166,6 +171,7 @@ struct CodexHookTests {
         #"{"session_id":"019a","turn_id":"t1","transcript_path":null,"cwd":"/w/perch","permission_mode":"default","model":"gpt-6","hook_event_name":"\#(name)"\#(extra)}"#
     }
 
+    @discardableResult
     func hook(_ cli: CLI, _ json: String, wait: String? = nil) throws -> CLI.Result {
         try cli.run(["hook", "codex"] + (wait.map { ["--wait", $0] } ?? []), stdin: json, env: env)
     }
@@ -182,12 +188,7 @@ struct CodexHookTests {
         // Allowlisted: the notch answers and Codex gets the decision.
         let bash = event("PermissionRequest", #","tool_name":"Bash","tool_input":{"command":"cargo test","description":null}"#)
         let finish = try CLI(home: d.home).start(["hook", "codex", "--wait", "20"], stdin: bash, env: env)
-        var request: Item?
-        for _ in 0..<300 where request == nil {
-            request = try d.client.send(Request(op: .list, filter: .init(kind: .request))).items?.first
-            if request == nil { Thread.sleep(forTimeInterval: 0.01) }
-        }
-        let asked = try #require(request)
+        let asked = try postedRequest(d)
         #expect(asked.title == "cargo test" && asked.source == "codex")
         _ = try d.client.send(Request(op: .respond, id: asked.id, value: "allow"))
         let answered = try finish()

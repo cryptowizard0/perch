@@ -101,7 +101,7 @@ struct HooksInstallTests {
         let hooksFile = dir.appendingPathComponent("hooks.json")
         let other = #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"SUPERSET_AGENT_ID=codex \"/x/notify.sh\""}]}]}}"#
         try other.write(to: hooksFile, atomically: true, encoding: .utf8)
-        func read() throws -> [String: Any] { try JSONSerialization.jsonObject(with: Data(contentsOf: hooksFile)) as! [String: Any] }
+        func readCodex() throws -> [String: Any] { try JSONSerialization.jsonObject(with: Data(contentsOf: hooksFile)) as! [String: Any] }
         func hook(_ json: [String: Any], _ event: String) -> [String: Any]? {
             (((json["hooks"] as? [String: Any])?[event] as? [[String: Any]])?.last?["hooks"] as? [[String: Any]])?.first
         }
@@ -110,7 +110,7 @@ struct HooksInstallTests {
         #expect(result.status == 0, "\(result.stderr)")
         #expect(result.stdout.contains("UserPromptSubmit, PermissionRequest, PostToolUse, Stop, Interrupt, SessionEnd"))
         #expect(result.stdout.contains("/hooks"))  // Codex skips hooks until they are trusted
-        let json = try read()
+        let json = try readCodex()
         let ours = "/opt/perch/bin/perch hook codex"
         #expect(commands(json, "Stop") == [#"SUPERSET_AGENT_ID=codex "/x/notify.sh""#, ours])
         // Codex has no Notification / StopFailure / PostToolUseFailure.
@@ -120,6 +120,8 @@ struct HooksInstallTests {
             #expect(commands(json, event) == [ours], "\(event)")
             #expect(hook(json, event)?["async"] as? Bool == true, "\(event)")
         }
+        // Codex caps Interrupt (like SessionEnd) at 1–3 s, even in the background.
+        #expect(hook(json, "Interrupt")?["timeout"] as? Int == 3)
         #expect(commands(json, "PermissionRequest") == [ours + " --wait 20"])
         #expect(hook(json, "PermissionRequest")?["async"] == nil)
         #expect(hook(json, "PermissionRequest")?["timeout"] as? Int == 30)
@@ -135,9 +137,9 @@ struct HooksInstallTests {
 
         let removed = try cli.run("hooks", "uninstall", "codex", "--settings", hooksFile.path)
         #expect(removed.stdout.contains("removed 6 Perch hooks"))
-        #expect(commands(try read(), "Stop") == [#"SUPERSET_AGENT_ID=codex "/x/notify.sh""#])
-        #expect(Set((try read()["hooks"] as? [String: Any] ?? [:]).keys) == ["Stop"])
-        #expect(commands(try self.read(), "Stop") == ["/opt/perch/bin/perch hook claude-code"])
+        #expect(commands(try readCodex(), "Stop") == [#"SUPERSET_AGENT_ID=codex "/x/notify.sh""#])
+        #expect(Set((try readCodex()["hooks"] as? [String: Any] ?? [:]).keys) == ["Stop"])
+        #expect(commands(try read(), "Stop") == ["/opt/perch/bin/perch hook claude-code"])
     }
 
     @Test func unknownAgent() throws {
