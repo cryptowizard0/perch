@@ -153,13 +153,15 @@ public enum HookAdapter {
         case "PostToolUse", "PostToolUseFailure":
             return [Request(op: .done, key: waiting)]
 
-        // Hermes
+        // Hermes. Gateway turns happen in a chat app: no terminal to jump to, whatever started the gateway.
         case "pre_llm_call":
+            let link = viaGateway(input) ? nil : link
             return [
                 Request(op: .sessionStart, session: Session(id: session, source: agent, title: hermesPlace(input), link: link, startedAt: now)),
                 Request(op: .done, key: noticeKey(agent: agent, session: session)),
             ]
         case "post_llm_call":
+            let link = viaGateway(input) ? nil : link
             return [Request(op: .add, item: Item(
                 title: "\(hermesPlace(input)) · \(summary(input.extra?.assistantResponse))", kind: .notice, source: agent,
                 link: link, meta: meta, key: noticeKey(agent: agent, session: session),
@@ -169,6 +171,7 @@ public enum HookAdapter {
             return [Request(op: .sessionEnd, id: session, at: now)]
         case "pre_approval_request":
             let extra = input.extra ?? .init()
+            let link = viaGateway(input) ? nil : link
             let sessionKey = extra.sessionKey ?? "default"
             var approval = ["tool": "terminal", "session_key": sessionKey]
             if let cwd = input.cwd { approval["cwd"] = cwd }
@@ -191,6 +194,13 @@ public enum HookAdapter {
         if let platform = input.extra.flatMap(gatewayPlatform) { return platform }
         if let platform = input.extra?.platform, !platform.isEmpty, platform != "cli" { return platform }
         return projectName(input.cwd)
+    }
+
+    /// A Hermes event from the messaging gateway rather than the terminal CLI.
+    private static func viaGateway(_ input: HookInput) -> Bool {
+        guard let extra = input.extra else { return false }
+        if extra.surface == "gateway" { return true }
+        return extra.platform.map { !$0.isEmpty && $0 != "cli" } ?? false
     }
 
     /// `agent:<profile>:<platform>:…` → platform, for approvals asked through the gateway.

@@ -230,9 +230,14 @@ import Testing
         #expect(r[1].key == "hermes:s1:done")
     }
 
+    /// Gateway turns happen in a chat app: named after it, and never linked to whatever terminal started the gateway.
     @Test func gatewayTurnsAreNamedAfterThePlatform() throws {
-        let r = requests(try input(#"{"hook_event_name":"pre_llm_call","session_id":"s2","cwd":"/","extra":{"platform":"telegram"}}"#), link: nil)
+        let r = requests(try input(#"{"hook_event_name":"pre_llm_call","session_id":"s2","cwd":"/","extra":{"platform":"telegram"}}"#))
         #expect(r[0].session?.title == "telegram")
+        #expect(r[0].session?.link == nil)
+        let post = requests(try input(#"{"hook_event_name":"post_llm_call","session_id":"s2","cwd":"/","extra":{"platform":"telegram","assistant_response":"done"}}"#))
+        #expect(post.first?.item?.title == "telegram · done")
+        #expect(post.first?.item?.link == nil)
     }
 
     @Test func aFinishedTurnLeavesANoticeAndEndsTheSession() throws {
@@ -261,7 +266,7 @@ import Testing
 
     /// Gateway approvals are answered in the chat app; there is no terminal to jump to.
     @Test func anApprovalFromTheGatewayWaitsInTheChat() throws {
-        let r = requests(try input(#"{"hook_event_name":"pre_approval_request","session_id":"","cwd":"/","extra":{"command":"sudo reboot","description":"sudo","session_key":"agent:main:telegram:dm:42","surface":"gateway"}}"#), link: nil)
+        let r = requests(try input(#"{"hook_event_name":"pre_approval_request","session_id":"","cwd":"/","extra":{"command":"sudo reboot","description":"sudo","session_key":"agent:main:telegram:dm:42","surface":"gateway"}}"#))
         let item = try #require(r.first?.item)
         #expect(item.title == "telegram · sudo reboot")
         #expect(item.key == "hermes:agent:main:telegram:dm:42")
