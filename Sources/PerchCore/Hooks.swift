@@ -1,7 +1,8 @@
 import Foundation
 
 /// What Claude Code (and Codex, same shape) sends a command hook on stdin. Only the fields Perch uses;
-/// Codex's extra fields (`turn_id`, `model`, …) and nulls are ignored.
+/// Codex's extra fields (`turn_id`, `model`, …) and nulls are ignored. Hermes shell hooks send the same
+/// top-level fields and put the event's details in `extra`.
 public struct HookInput: Decodable, Equatable, Sendable {
     public var sessionID: String
     public var event: String
@@ -12,9 +13,38 @@ public struct HookInput: Decodable, Equatable, Sendable {
     /// PermissionRequest / PostToolUse.
     public var toolName: String?
     public var toolInput: [String: JSONValue]?
+    /// Hermes: the event's keyword arguments.
+    public var extra: Extra?
+
+    /// The Hermes `extra` fields Perch reads (the rest, like the whole conversation history, is skipped).
+    public struct Extra: Decodable, Equatable, Sendable {
+        public var assistantResponse: String?
+        public var platform: String?
+        /// pre_approval_request / post_approval_response.
+        public var command: String?
+        public var description: String?
+        public var sessionKey: String?
+        public var surface: String?
+
+        enum CodingKeys: String, CodingKey {
+            case platform, command, description, surface
+            case assistantResponse = "assistant_response"
+            case sessionKey = "session_key"
+        }
+
+        public init(assistantResponse: String? = nil, platform: String? = nil, command: String? = nil,
+                    description: String? = nil, sessionKey: String? = nil, surface: String? = nil) {
+            self.assistantResponse = assistantResponse
+            self.platform = platform
+            self.command = command
+            self.description = description
+            self.sessionKey = sessionKey
+            self.surface = surface
+        }
+    }
 
     enum CodingKeys: String, CodingKey {
-        case cwd, message
+        case cwd, message, extra
         case sessionID = "session_id"
         case event = "hook_event_name"
         case notificationType = "notification_type"
@@ -25,7 +55,7 @@ public struct HookInput: Decodable, Equatable, Sendable {
 
     public init(sessionID: String, event: String, cwd: String? = nil, notificationType: String? = nil,
                 message: String? = nil, lastAssistantMessage: String? = nil, toolName: String? = nil,
-                toolInput: [String: JSONValue]? = nil) {
+                toolInput: [String: JSONValue]? = nil, extra: Extra? = nil) {
         self.sessionID = sessionID
         self.event = event
         self.cwd = cwd
@@ -34,6 +64,7 @@ public struct HookInput: Decodable, Equatable, Sendable {
         self.lastAssistantMessage = lastAssistantMessage
         self.toolName = toolName
         self.toolInput = toolInput
+        self.extra = extra
     }
 
     /// The string fields of `tool_input` (command, file_path, url, …); what the allowlist and the notch look at.
@@ -55,6 +86,19 @@ public struct HookInput: Decodable, Equatable, Sendable {
 ///
 /// Codex sends the same JSON for the events it has. It has no Notification, StopFailure or PostToolUseFailure
 /// (its waiting items come only from PermissionRequest), and adds Interrupt (Esc on a running turn, no Stop).
+///
+/// Hermes Agent (shell hooks, snake_case events; details in `extra`):
+///
+/// | event | requests |
+/// | --- | --- |
+/// | pre_llm_call | session_start; resolve the last notice |
+/// | post_llm_call | add a notice with the reply |
+/// | on_session_end (end of every turn) | session_end |
+/// | pre_approval_request | add waiting with the full command, key `hermes:<session_key>`: answer where Hermes asks |
+/// | post_approval_response (answered or timed out) | resolve it |
+///
+/// Hermes approval hooks only observe, so the notch can never answer them. They carry the gateway's
+/// `session_key` (`default` in the CLI, `agent:main:<platform>:…` in the gateway), not the session id.
 public enum HookAdapter {
     /// Notification types that mean "an agent is blocked on the human". `idle_prompt` is left out on purpose:
     /// Stop already posts a notice, and every finished turn turning orange would dilute the signal.
@@ -64,6 +108,8 @@ public enum HookAdapter {
     static let summaryLength = 140
 
     public static func waitingKey(agent: String, session: String) -> String { "\(agent):\(session)" }
+    /// Events that start a turn: the human just typed, so that terminal has focus.
+    public static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call"]
     public static func noticeKey(agent: String, session: String) -> String { "\(agent):\(session):done" }
 
     /// `alreadyWaiting`: this session already has an active waiting item. A late `permission_prompt` notification
@@ -106,9 +152,53 @@ public enum HookAdapter {
             return [Request(op: .sessionEnd, id: session, at: now), Request(op: .done, key: waiting)]
         case "PostToolUse", "PostToolUseFailure":
             return [Request(op: .done, key: waiting)]
+
+        // Hermes
+        case "pre_llm_call":
+            return [
+                Request(op: .sessionStart, session: Session(id: session, source: agent, title: hermesPlace(input), link: link, startedAt: now)),
+                Request(op: .done, key: noticeKey(agent: agent, session: session)),
+            ]
+        case "post_llm_call":
+            return [Request(op: .add, item: Item(
+                title: "\(hermesPlace(input)) · \(summary(input.extra?.assistantResponse))", kind: .notice, source: agent,
+                link: link, meta: meta, key: noticeKey(agent: agent, session: session),
+                expiresAt: now.addingTimeInterval(noticeLifetime)
+            ))]
+        case "on_session_end":
+            return [Request(op: .sessionEnd, id: session, at: now)]
+        case "pre_approval_request":
+            let extra = input.extra ?? .init()
+            let sessionKey = extra.sessionKey ?? "default"
+            var approval = ["tool": "terminal", "session_key": sessionKey]
+            if let cwd = input.cwd { approval["cwd"] = cwd }
+            if let reason = extra.description, !reason.isEmpty { approval["terminal_reason"] = reason }
+            if let platform = gatewayPlatform(extra) { approval["answer_in"] = platform.prefix(1).uppercased() + platform.dropFirst() }
+            return [Request(op: .add, item: Item(
+                title: "\(hermesPlace(input)) · \(extra.command ?? "a command")", kind: .task, status: .waiting, source: agent,
+                link: link, meta: approval, key: waitingKey(agent: agent, session: sessionKey)
+            ))]
+        case "post_approval_response":
+            return [Request(op: .done, key: waitingKey(agent: agent, session: input.extra?.sessionKey ?? "default"))]
+
         default:
             return []
         }
+    }
+
+    /// Where a Hermes turn happens: the chat platform for the gateway, else the project directory.
+    static func hermesPlace(_ input: HookInput) -> String {
+        if let platform = input.extra.flatMap(gatewayPlatform) { return platform }
+        if let platform = input.extra?.platform, !platform.isEmpty, platform != "cli" { return platform }
+        return projectName(input.cwd)
+    }
+
+    /// `agent:<profile>:<platform>:…` → platform, for approvals asked through the gateway.
+    private static func gatewayPlatform(_ extra: HookInput.Extra) -> String? {
+        guard extra.surface == "gateway", let key = extra.sessionKey else { return nil }
+        let parts = key.split(separator: ":")
+        guard parts.count > 2, parts[0] == "agent" else { return nil }
+        return String(parts[2])
     }
 
     // MARK: - PermissionRequest

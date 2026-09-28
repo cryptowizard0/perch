@@ -199,3 +199,86 @@ import Testing
         }
     }
 }
+
+/// Hermes Agent shell hooks: the same adapter, Hermes's own event names and payload (`extra` carries the details).
+@Suite struct HermesAdapterTests {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    func input(_ json: String) throws -> HookInput {
+        try JSONDecoder().decode(HookInput.self, from: Data(json.utf8))
+    }
+
+    func requests(_ input: HookInput, link: String? = "L") -> [Request] {
+        HookAdapter.requests(for: input, agent: "hermes", link: link, now: now)
+    }
+
+    @Test func decodesHermesStdin() throws {
+        let decoded = try input(#"""
+        {"hook_event_name":"pre_approval_request","tool_name":null,"tool_input":null,"session_id":"","cwd":"/w/perch",
+         "extra":{"command":"rm -rf build/","description":"recursive delete","pattern_key":"rm_rf","pattern_keys":["rm_rf"],
+                  "session_key":"default","surface":"cli","turn_id":"t1","tool_call_id":"c1"}}
+        """#)
+        #expect(decoded.event == "pre_approval_request" && decoded.sessionID == "")
+        #expect(decoded.extra == HookInput.Extra(command: "rm -rf build/", description: "recursive delete",
+                                                 sessionKey: "default", surface: "cli"))
+    }
+
+    @Test func aTurnStartsAndClearsTheLastNotice() throws {
+        let r = requests(try input(#"{"hook_event_name":"pre_llm_call","session_id":"s1","cwd":"/w/perch","extra":{"user_message":"hi","conversation_history":[{"role":"user","content":"hi"}],"is_first_turn":true,"platform":"cli"}}"#))
+        #expect(r.map(\.op) == [.sessionStart, .done])
+        #expect(r[0].session == Session(id: "s1", source: "hermes", title: "perch", link: "L", startedAt: now))
+        #expect(r[1].key == "hermes:s1:done")
+    }
+
+    @Test func gatewayTurnsAreNamedAfterThePlatform() throws {
+        let r = requests(try input(#"{"hook_event_name":"pre_llm_call","session_id":"s2","cwd":"/","extra":{"platform":"telegram"}}"#), link: nil)
+        #expect(r[0].session?.title == "telegram")
+    }
+
+    @Test func aFinishedTurnLeavesANoticeAndEndsTheSession() throws {
+        let post = requests(try input(#"{"hook_event_name":"post_llm_call","session_id":"s1","cwd":"/w/perch","extra":{"assistant_response":"**Deployed** v2 to staging.\nDetails…","platform":"cli"}}"#))
+        #expect(post.map(\.op) == [.add])
+        let notice = try #require(post.first?.item)
+        #expect(notice.title == "perch · Deployed v2 to staging.")
+        #expect(notice.kind == .notice && notice.source == "hermes" && notice.key == "hermes:s1:done")
+        #expect(notice.expiresAt == now.addingTimeInterval(600))
+
+        let end = requests(try input(#"{"hook_event_name":"on_session_end","session_id":"s1","cwd":"/w/perch","extra":{"completed":true,"interrupted":false}}"#))
+        #expect(end.map(\.op) == [.sessionEnd])
+        #expect(end[0].id == "s1" && end[0].at == now)
+    }
+
+    @Test func anApprovalInTheCLIWaitsInTheTerminal() throws {
+        let r = requests(try input(#"{"hook_event_name":"pre_approval_request","session_id":"","cwd":"/w/perch","extra":{"command":"rm -rf build/","description":"recursive delete","session_key":"default","surface":"cli"}}"#))
+        let item = try #require(r.first?.item)
+        #expect(r.map(\.op) == [.add])
+        #expect(item.title == "perch · rm -rf build/")
+        #expect(item.kind == .task && item.status == .waiting && item.source == "hermes")
+        #expect(item.key == "hermes:default")
+        #expect(item.link == "L")
+        #expect(item.meta == ["tool": "terminal", "terminal_reason": "recursive delete", "session_key": "default", "cwd": "/w/perch"])
+    }
+
+    /// Gateway approvals are answered in the chat app; there is no terminal to jump to.
+    @Test func anApprovalFromTheGatewayWaitsInTheChat() throws {
+        let r = requests(try input(#"{"hook_event_name":"pre_approval_request","session_id":"","cwd":"/","extra":{"command":"sudo reboot","description":"sudo","session_key":"agent:main:telegram:dm:42","surface":"gateway"}}"#), link: nil)
+        let item = try #require(r.first?.item)
+        #expect(item.title == "telegram · sudo reboot")
+        #expect(item.key == "hermes:agent:main:telegram:dm:42")
+        #expect(item.meta?["answer_in"] == "Telegram")
+        #expect(item.link == nil)
+    }
+
+    @Test func theResponseClearsIt() throws {
+        for choice in ["once", "deny", "timeout"] {
+            let r = requests(try input(#"{"hook_event_name":"post_approval_response","session_id":"","cwd":"/","extra":{"command":"rm -rf build/","session_key":"default","surface":"cli","choice":"\#(choice)"}}"#))
+            #expect(r.map(\.op) == [.done] && r.first?.key == "hermes:default")
+        }
+    }
+
+    @Test func otherHermesEventsAreIgnored() throws {
+        for event in ["pre_tool_call", "post_tool_call", "on_session_start", "transform_llm_output"] {
+            #expect(requests(try input(#"{"hook_event_name":"\#(event)","session_id":"s1","cwd":"/"}"#)).isEmpty)
+        }
+    }
+}
