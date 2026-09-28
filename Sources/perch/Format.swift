@@ -32,9 +32,21 @@ enum Format {
         return "\(time.string(from: event.at))  \(pad(type, 7))  \(row(event.item, sourceWidth: 0))"
     }
 
+    /// `<id>  <status>  <source>  <title>  · 4m  <what it is about>`. Running counts from the turn's start,
+    /// the rest from when the session entered its status.
     static func session(_ session: Session, now: Date = Date()) -> String {
-        let minutes = Int(now.timeIntervalSince(session.startedAt) / 60)
-        return "\(session.id)  \(session.source)  \(session.title)  · \(minutes)m"
+        let since = session.status == .running ? session.turnStartedAt : session.statusAt
+        let minutes = max(0, Int(now.timeIntervalSince(since) / 60))
+        var line = "\(session.id)  \(pad(session.status.rawValue, 7))  \(session.source)  \(session.title)  · \(minutes)m"
+        let about: String?
+        switch session.status {
+        case .running: about = session.prompt
+        case .waiting: about = session.detail
+        case .failed: about = session.error
+        case .done, .idle: about = session.lastMessage
+        }
+        if let about, !about.isEmpty { line += "  " + about.split(whereSeparator: \.isNewline).joined(separator: " · ") }
+        return line
     }
 
     static func sessionEvent(_ event: SessionEvent) -> String {

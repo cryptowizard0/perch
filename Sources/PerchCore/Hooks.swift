@@ -10,6 +10,10 @@ public struct HookInput: Decodable, Equatable, Sendable {
     public var notificationType: String?
     public var message: String?
     public var lastAssistantMessage: String?
+    /// UserPromptSubmit: what the human typed.
+    public var prompt: String?
+    /// StopFailure: the error type (`rate_limit`, …). Any JSON, so an unexpected shape never breaks decoding.
+    public var error: JSONValue?
     /// PermissionRequest / PostToolUse.
     public var toolName: String?
     public var toolInput: [String: JSONValue]?
@@ -51,7 +55,7 @@ public struct HookInput: Decodable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case cwd, message, extra
+        case cwd, message, extra, prompt, error
         case sessionID = "session_id"
         case event = "hook_event_name"
         case notificationType = "notification_type"
@@ -62,7 +66,9 @@ public struct HookInput: Decodable, Equatable, Sendable {
 
     public init(sessionID: String, event: String, cwd: String? = nil, notificationType: String? = nil,
                 message: String? = nil, lastAssistantMessage: String? = nil, toolName: String? = nil,
-                toolInput: [String: JSONValue]? = nil, extra: Extra? = nil) {
+                toolInput: [String: JSONValue]? = nil, extra: Extra? = nil, prompt: String? = nil, error: JSONValue? = nil) {
+        self.prompt = prompt
+        self.error = error
         self.sessionID = sessionID
         self.event = event
         self.cwd = cwd
@@ -82,14 +88,19 @@ public struct HookInput: Decodable, Equatable, Sendable {
 
 /// Turns one hook invocation into perchd requests. Pure; `perch hook <agent>` does the I/O.
 ///
-/// | event | requests |
-/// | --- | --- |
-/// | UserPromptSubmit | session_start; resolve this session's waiting item and last "finished" notice (you are back) |
-/// | Notification (needs you) | add waiting, key `<agent>:<session>` |
-/// | Stop | session_end; resolve the waiting item; add a notice with the last message, key `<agent>:<session>:done` |
-/// | StopFailure / SessionEnd / Interrupt | session_end; resolve the waiting item |
-/// | PostToolUse / PostToolUseFailure | resolve the waiting item (a tool ran, so the permission prompt is answered) |
-/// | PermissionRequest | see `permission(for:…)`: blocking, handled by `perch hook` itself |
+/// Claude Code and Codex drive the session state machine with a `session_report` per event (see `SessionReport`).
+/// Until the notch shows sessions, the waiting / notice items it shows today are still posted next to them.
+///
+/// | event | session report | items |
+/// | --- | --- | --- |
+/// | UserPromptSubmit | prompt (first line) → running | resolve this session's waiting item and last "finished" notice |
+/// | Notification (needs you) | waiting with the message (a recorded command stays) | add waiting, key `<agent>:<session>` |
+/// | PermissionRequest | waiting with the full command; see `permission(for:…)`, handled by `perch hook` itself | request or waiting |
+/// | PostToolUse / PostToolUseFailure | resume → running; resolves the session's request | resolve the waiting item |
+/// | Stop | stop → done with the last reply's first line | resolve the waiting item; add a notice, key `<agent>:<session>:done` |
+/// | StopFailure | failure → failed with the error type | resolve the waiting item |
+/// | Interrupt (Codex) | interrupt → idle | resolve the waiting item |
+/// | SessionEnd | end → removed | resolve the waiting item |
 ///
 /// Codex sends the same JSON for the events it has. It has no Notification, StopFailure or PostToolUseFailure
 /// (its waiting items come only from PermissionRequest), and adds Interrupt (Esc on a running turn, no Stop).
@@ -129,40 +140,65 @@ public enum HookAdapter {
         var meta = ["session_id": session]
         if let cwd = input.cwd { meta["cwd"] = cwd }
 
+        func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> Request {
+            Request(op: .sessionReport, report: sessionReport(input, kind, agent: agent, link: link, now: now, fill))
+        }
+        let resolveWaiting = Request(op: .done, key: waiting)
         switch input.event {
         case "UserPromptSubmit":
             return [
-                Request(op: .sessionStart, session: Session(id: session, source: agent, title: project, link: link, startedAt: now)),
-                Request(op: .done, key: waiting),
+                report(.prompt) { $0.prompt = oneLine(input.prompt ?? "") },
+                resolveWaiting,
                 Request(op: .done, key: noticeKey(agent: agent, session: session)),
             ]
         case "Notification":
             guard let type = input.notificationType, waitingNotifications.contains(type) else { return [] }
-            if alreadyWaiting && type == "permission_prompt" { return [] }
+            let question = report(.waiting) {
+                $0.detail = input.message.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty } ?? waitingForAnswer
+                $0.keepDetail = type == "permission_prompt"
+            }
+            if alreadyWaiting && type == "permission_prompt" { return [question] }
             meta["notification_type"] = type
             let message = oneLine(input.message ?? "") ?? "needs you"
-            return [Request(op: .add, item: Item(
+            return [question, Request(op: .add, item: Item(
                 title: "\(project) · \(message)", kind: .task, status: .waiting, source: agent,
                 link: link, meta: meta, key: waiting
             ))]
         case "Stop":
             return [
-                Request(op: .sessionEnd, id: session, at: now),
-                Request(op: .done, key: waiting),
+                report(.stop) { $0.lastMessage = oneLine(input.lastAssistantMessage ?? "") },
+                resolveWaiting,
                 Request(op: .add, item: Item(
                     title: "\(project) · \(summary(input.lastAssistantMessage))", kind: .notice, source: agent,
                     link: link, meta: meta, key: noticeKey(agent: agent, session: session),
                     expiresAt: now.addingTimeInterval(noticeLifetime)
                 )),
             ]
-        case "StopFailure", "SessionEnd", "Interrupt":
-            return [Request(op: .sessionEnd, id: session, at: now), Request(op: .done, key: waiting)]
+        case "StopFailure":
+            return [report(.failure) { $0.error = input.errorType }, resolveWaiting]
+        case "Interrupt":
+            return [report(.interrupt), resolveWaiting]
+        case "SessionEnd":
+            return [report(.end), resolveWaiting]
         case "PostToolUse", "PostToolUseFailure":
-            return [Request(op: .done, key: waiting)]
+            return [report(.resume), resolveWaiting]
 
         default:
             return hermes(input, agent: agent, link: link, now: now)
         }
+    }
+
+    /// What a needs-you session says when the agent asked something without saying what.
+    public static let waitingForAnswer = "Waiting for your answer"
+    public static let answerInTerminal = "Answer in the terminal"
+
+    /// A report about `input`'s session, carrying what every event knows (agent, project, directory, jump link).
+    public static func sessionReport(_ input: HookInput, _ kind: SessionReport.Kind, agent: String, link: String?, now: Date,
+                                     _ fill: (inout SessionReport) -> Void = { _ in }) -> SessionReport {
+        var report = SessionReport(id: input.sessionID, kind: kind, at: now, source: agent, title: projectName(input.cwd),
+                                   cwd: input.cwd, link: link)
+        fill(&report)
+        return report
     }
 
     // MARK: - Hermes
@@ -267,6 +303,22 @@ public enum HookAdapter {
         }
     }
 
+    /// The session side of a PermissionRequest: needs you, with the full command, and where to answer when the
+    /// notch cannot (an allowlisted request carries its own Allow / Deny).
+    public static func permissionReport(for input: HookInput, plan: PermissionPlan, agent: String, link: String?,
+                                        now: Date) -> SessionReport {
+        var detail = PermissionPrompt.title(tool: input.toolName ?? "tool", input: input.toolStrings)
+        if case .terminal(let item) = plan {
+            detail += "\n" + answerInTerminal + (item.meta?["terminal_reason"].map { ": \($0)" } ?? "")
+        }
+        return sessionReport(input, .waiting, agent: agent, link: link, now: now) { $0.detail = detail }
+    }
+
+    /// The notch request timed out: the terminal's own prompt is showing now.
+    public static func terminalReport(after request: Item, input: HookInput, agent: String, link: String?, now: Date) -> SessionReport {
+        sessionReport(input, .waiting, agent: agent, link: link, now: now) { $0.detail = request.title + "\n" + answerInTerminal }
+    }
+
     /// After a notch request timed out (or was closed without an answer): the terminal prompt is showing now.
     public static func goToTerminal(after request: Item, agent: String, session: String) -> Item {
         goToTerminal(text: request.title, agent: agent, session: session, cwd: request.meta?["cwd"], link: request.link,
@@ -313,4 +365,16 @@ public enum HookAdapter {
         }
         return nil
     }
+}
+
+extension HookInput {
+    /// StopFailure's `error` when it is a string, else "unknown".
+    public var errorType: String {
+        if case .string(let type)? = error, !type.isEmpty { return type }
+        return "unknown"
+    }
+}
+
+extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

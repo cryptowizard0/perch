@@ -52,13 +52,18 @@ struct Hook: ParsableCommand {
         }
     }
 
-    /// Allowlisted: a request in the notch, wait up to `wait` s, print the decision if answered. Otherwise, or on
-    /// timeout: a waiting "go to terminal" item and no output, so the terminal's own prompt appears.
+    /// The session needs you either way. Allowlisted: a request in the notch, wait up to `wait` s, print the decision
+    /// if answered. Otherwise, or on timeout: a waiting "go to terminal" item and no output, so the terminal's own
+    /// prompt appears. That also goes for a request closed without an answer (by hand, or by another tool of the same
+    /// turn finishing): no decision means the terminal asks.
     func permission(_ input: HookInput, link: String?, client: PerchClient, now: Date) {
         let (allowlist, problem) = Allowlist.load(from: PerchPaths.allowlist)
         if let problem { HookLog.write(problem) }
+        let plan = HookAdapter.permission(for: input, agent: agent, link: link, allowlist: allowlist, wait: wait, now: now)
+        send(Request(op: .sessionReport, report: HookAdapter.permissionReport(for: input, plan: plan, agent: agent, link: link, now: now)),
+             client: client)
         let fallback: Item
-        switch HookAdapter.permission(for: input, agent: agent, link: link, allowlist: allowlist, wait: wait, now: now) {
+        switch plan {
         case .terminal(let item):
             fallback = item
         case .ask(let request):
@@ -67,22 +72,31 @@ struct Hook: ParsableCommand {
                 case .answered(let item):
                     if let answer = item.response, let decision = HookAdapter.decision(agent: agent, answer: answer) {
                         print(decision)
+                        let resumed = HookAdapter.sessionReport(input, .resume, agent: agent, link: link, now: Date())
+                        send(Request(op: .sessionReport, report: resumed), client: client)
                         return
                     }
-                    fallback = HookAdapter.goToTerminal(after: request, agent: agent, session: input.sessionID)
                 case .unanswered:
-                    fallback = HookAdapter.goToTerminal(after: request, agent: agent, session: input.sessionID)
+                    break
                 }
             } catch {
                 HookLog.write("PermissionRequest: \(error)")
                 return
             }
+            fallback = HookAdapter.goToTerminal(after: request, agent: agent, session: input.sessionID)
+            let handoff = HookAdapter.terminalReport(after: request, input: input, agent: agent, link: link, now: Date())
+            send(Request(op: .sessionReport, report: handoff), client: client)
         }
+        send(Request(op: .add, item: fallback), client: client)
+    }
+
+    /// Fire and forget; failures go to the hook log.
+    func send(_ request: Request, client: PerchClient) {
         do {
-            let response = try client.send(Request(op: .add, item: fallback), timeout: 2)
-            if !response.ok { HookLog.write("PermissionRequest add: \(response.error ?? "failed")") }
+            let response = try client.send(request, timeout: 2)
+            if !response.ok { HookLog.write("\(agent) \(request.op.rawValue): \(response.error ?? "failed")") }
         } catch {
-            HookLog.write("PermissionRequest: \(error)")
+            HookLog.write("\(agent) \(request.op.rawValue): \(error)")
         }
     }
 
@@ -102,7 +116,7 @@ struct Hook: ParsableCommand {
         if let own = sessions.first(where: { $0.id == input.sessionID }) { return own.link ?? link.string }
         // Hermes approvals carry no session id: use this agent's latest turn in the same directory.
         let nearby = sessions.filter { $0.source == agent && $0.link.flatMap(TerminalLink.init(string:))?.cwd == input.cwd }
-        return nearby.max { $0.startedAt < $1.startedAt }?.link ?? link.string
+        return nearby.max { $0.turnStartedAt < $1.turnStartedAt }?.link ?? link.string
     }
 }
 

@@ -283,13 +283,13 @@ struct Watch: ParsableCommand {
 struct SessionCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "session",
-        abstract: "Report running agent turns (the notch's Live Activity). Hook adapters call this.",
-        subcommands: [SessionStart.self, SessionEnd.self, SessionLs.self]
+        abstract: "Agent sessions: running, waiting for you, done, failed or idle. Hook adapters report them.",
+        subcommands: [SessionLs.self, SessionSeen.self, SessionRm.self, SessionStart.self, SessionEnd.self]
     )
 }
 
 struct SessionStart: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "start", abstract: "A turn started (again: restarts the clock).")
+    static let configuration = CommandConfiguration(commandName: "start", abstract: "A turn started: the session is running (again: restarts the clock).")
     @Argument(help: "The agent's session id.") var id: String
     @Option(help: "claude-code, codex, …") var source: String = "unknown"
     @Option(help: "Short label, e.g. the project name.") var title: String?
@@ -304,7 +304,7 @@ struct SessionStart: ParsableCommand {
 }
 
 struct SessionEnd: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "end", abstract: "The turn is over.")
+    static let configuration = CommandConfiguration(commandName: "end", abstract: "The session is over: remove it.")
     @Argument(help: "The agent's session id.") var id: String
     @Flag(help: "Print JSON.") var json = false
 
@@ -315,13 +315,40 @@ struct SessionEnd: ParsableCommand {
 }
 
 struct SessionLs: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "ls", abstract: "List running turns.")
+    static let configuration = CommandConfiguration(commandName: "ls", abstract: "List sessions with their status.")
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
         let response = try call(Request(op: .sessions))
         if json { return printJSON(response) }
-        for session in response.sessions ?? [] { print(Format.session(session)) }
+        let sessions = response.sessions ?? []
+        if sessions.isEmpty { FileHandle.standardError.write(Data("no sessions\n".utf8)) }
+        for session in sessions { print(Format.session(session)) }
+    }
+}
+
+struct SessionSeen: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "seen", abstract: "Mark a done session as seen: it becomes idle.")
+    @Argument(help: "The agent's session id.") var id: String
+    @Flag(help: "Print JSON.") var json = false
+
+    func run() throws {
+        let response = try call(Request(op: .sessionSeen, id: id))
+        if json { return printJSON(response) }
+        if let s = response.sessions?.first { print("\(s.status.rawValue) \(s.id)  \(s.title)") }
+    }
+}
+
+struct SessionRm: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "rm", abstract: "Remove a session (e.g. one whose agent is gone). Its next event brings it back.")
+    @Argument(help: "The agent's session id.") var id: String
+    @Flag(help: "Print JSON.") var json = false
+
+    func run() throws {
+        let response = try call(Request(op: .sessionRemove, id: id))
+        if json { return printJSON(response) }
+        if let s = response.sessions?.first { print("removed \(s.id)  \(s.title)") }
     }
 }
 

@@ -41,9 +41,9 @@ struct HookCLITests {
         try hook(cli, event("Notification", #","notification_type":"idle_prompt","message":"Claude is waiting for your input""#))
         #expect(try d.client.send(Request(op: .list)).items?.count == 1)
 
-        // Stop: turn over, waiting resolved, a notice that fades.
+        // Stop: turn done, waiting resolved, a notice that fades.
         try hook(cli, event("Stop", #","stop_hook_active":false,"last_assistant_message":"All 12 tests pass.""#))
-        #expect(try d.client.send(Request(op: .sessions)).sessions == [])
+        #expect(try d.client.send(Request(op: .sessions)).sessions?.map(\.status) == [.done])
         items = try d.client.send(Request(op: .list)).items ?? []
         #expect(items.map(\.title) == ["perch · All 12 tests pass."])
         #expect(items.first?.kind == .notice)
@@ -204,9 +204,9 @@ struct CodexHookTests {
         try hook(cli, event("PostToolUse", #","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch"},"tool_response":{},"tool_use_id":"u1""#))
         #expect(try d.client.send(Request(op: .list)).items == [])
 
-        // Esc: Codex sends Interrupt and no Stop; the Live Activity ends anyway.
+        // Esc: Codex sends Interrupt and no Stop; the session goes idle anyway.
         try hook(cli, event("Interrupt"))
-        #expect(try d.client.send(Request(op: .sessions)).sessions == [])
+        #expect(try d.client.send(Request(op: .sessions)).sessions?.map(\.status) == [.idle])
 
         // A finished turn leaves a notice; a null last message still reads.
         try hook(cli, event("UserPromptSubmit", #","prompt":"again""#))

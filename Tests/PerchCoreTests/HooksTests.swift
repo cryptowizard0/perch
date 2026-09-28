@@ -21,9 +21,11 @@ import Testing
     }
 
     @Test func promptStartsTheTurnAndClearsWhatWasWaiting() {
-        let r = requests(HookInput(sessionID: "abc", event: "UserPromptSubmit", cwd: "/Users/me/work/perch"))
-        #expect(r.map(\.op) == [.sessionStart, .done, .done])
-        #expect(r[0].session == Session(id: "abc", source: "claude-code", title: "perch", link: link, startedAt: now))
+        let r = requests(HookInput(sessionID: "abc", event: "UserPromptSubmit", cwd: "/Users/me/work/perch",
+                                   prompt: "\n  Fix the **flaky** test\nin CI"))
+        #expect(r.map(\.op) == [.sessionReport, .done, .done])
+        #expect(r[0].report == SessionReport(id: "abc", kind: .prompt, at: now, source: "claude-code", title: "perch",
+                                             cwd: "/Users/me/work/perch", link: link, prompt: "Fix the flaky test"))
         #expect(r[1].key == "claude-code:abc")
         #expect(r[2].key == "claude-code:abc:done")
     }
@@ -31,8 +33,10 @@ import Testing
     @Test func permissionPromptBecomesWaiting() throws {
         let r = requests(HookInput(sessionID: "abc", event: "Notification", cwd: "/w/perch",
                                    notificationType: "permission_prompt", message: "Claude needs your permission to use Bash"))
-        let item = try #require(r.first?.item)
-        #expect(r.map(\.op) == [.add])
+        #expect(r.map(\.op) == [.sessionReport, .add])
+        let report = try #require(r[0].report)
+        #expect(report.kind == .waiting && report.detail == "Claude needs your permission to use Bash" && report.keepDetail == true)
+        let item = try #require(r[1].item)
         #expect(item.title == "perch · Claude needs your permission to use Bash")
         #expect(item.kind == .task && item.status == .waiting)
         #expect(item.source == "claude-code")
@@ -49,11 +53,11 @@ import Testing
         #expect(!requests(HookInput(sessionID: "abc", event: "Notification", notificationType: "agent_needs_input")).isEmpty)
     }
 
-    @Test func stopEndsTheTurnAndLeavesANotice() throws {
+    @Test func stopFinishesTheTurnAndLeavesANotice() throws {
         let message = "## Done\n\n**All 12 tests pass** and the PR is pushed.\nMore detail…"
         let r = requests(HookInput(sessionID: "abc", event: "Stop", cwd: "/w/perch", lastAssistantMessage: message))
-        #expect(r.map(\.op) == [.sessionEnd, .done, .add])
-        #expect(r[0].id == "abc" && r[0].at == now)
+        #expect(r.map(\.op) == [.sessionReport, .done, .add])
+        #expect(r[0].report?.kind == .stop && r[0].report?.lastMessage == "Done" && r[0].report?.at == now)
         #expect(r[1].key == "claude-code:abc")
         let notice = try #require(r[2].item)
         #expect(notice.kind == .notice)
@@ -73,8 +77,11 @@ import Testing
 
     @Test func endingEvents() {
         // Interrupt: Codex, Esc on a running turn (no Stop follows).
-        for event in ["StopFailure", "SessionEnd", "Interrupt"] {
-            #expect(requests(HookInput(sessionID: "abc", event: event)).map(\.op) == [.sessionEnd, .done])
+        let kinds: [String: SessionReport.Kind] = ["StopFailure": .failure, "SessionEnd": .end, "Interrupt": .interrupt]
+        for (event, kind) in kinds {
+            let r = requests(HookInput(sessionID: "abc", event: event))
+            #expect(r.map(\.op) == [.sessionReport, .done])
+            #expect(r[0].report?.kind == kind)
         }
         #expect(requests(HookInput(sessionID: "abc", event: "PreToolUse")).isEmpty)
     }
@@ -186,17 +193,43 @@ import Testing
 
     @Test func latePermissionNotificationKeepsTheCommandText() {
         let notification = HookInput(sessionID: "s1", event: "Notification", notificationType: "permission_prompt", message: "needs permission")
-        #expect(HookAdapter.requests(for: notification, agent: "claude-code", link: nil, now: now, alreadyWaiting: true).isEmpty)
-        #expect(!HookAdapter.requests(for: notification, agent: "claude-code", link: nil, now: now, alreadyWaiting: false).isEmpty)
+        // Only the session report, which keeps a recorded command (keep_detail); no item replaces it.
+        let late = HookAdapter.requests(for: notification, agent: "claude-code", link: nil, now: now, alreadyWaiting: true)
+        #expect(late.map(\.op) == [.sessionReport] && late[0].report?.keepDetail == true)
+        #expect(HookAdapter.requests(for: notification, agent: "claude-code", link: nil, now: now, alreadyWaiting: false).map(\.op)
+                == [.sessionReport, .add])
         let elicitation = HookInput(sessionID: "s1", event: "Notification", notificationType: "elicitation_dialog", message: "pick one")
-        #expect(!HookAdapter.requests(for: elicitation, agent: "claude-code", link: nil, now: now, alreadyWaiting: true).isEmpty)
+        let question = HookAdapter.requests(for: elicitation, agent: "claude-code", link: nil, now: now, alreadyWaiting: true)
+        #expect(question.map(\.op) == [.sessionReport, .add] && question[0].report?.keepDetail == false)
     }
 
     @Test func toolRunResolvesTheWaitingItem() {
         for event in ["PostToolUse", "PostToolUseFailure"] {
             let r = HookAdapter.requests(for: HookInput(sessionID: "s1", event: event, toolName: "Bash"), agent: "claude-code", link: nil, now: now)
-            #expect(r.map(\.op) == [.done] && r.first?.key == "claude-code:s1")
+            #expect(r.map(\.op) == [.sessionReport, .done] && r[0].report?.kind == .resume && r[1].key == "claude-code:s1")
         }
+    }
+
+    @Test func stopFailureRecordsTheErrorType() throws {
+        let json = #"{"session_id":"s1","cwd":"/w/perch","hook_event_name":"StopFailure","error":"rate_limit","error_details":"429 Too Many Requests","last_assistant_message":"API Error: Rate limit reached"}"#
+        let input = try JSONDecoder().decode(HookInput.self, from: Data(json.utf8))
+        let r = HookAdapter.requests(for: input, agent: "claude-code", link: nil, now: now)
+        #expect(r[0].report?.kind == .failure && r[0].report?.error == "rate_limit")
+        // An error that is not a string still decodes.
+        let odd = try JSONDecoder().decode(HookInput.self, from: Data(#"{"session_id":"s1","hook_event_name":"StopFailure","error":{"x":1}}"#.utf8))
+        #expect(odd.errorType == "unknown")
+    }
+
+    @Test func permissionReportsTheCommandAndWhereToAnswer() {
+        let npm = input("Bash", ["command": .string("npm test")])
+        let asked = HookAdapter.permission(for: npm, agent: "claude-code", link: "L", allowlist: .defaults, now: now, home: "/Users/me")
+        let ask = HookAdapter.permissionReport(for: npm, plan: asked, agent: "claude-code", link: "L", now: now)
+        #expect(ask.kind == .waiting && ask.detail == "npm test" && ask.link == "L" && ask.title == "perch")
+
+        let rm = input("Bash", ["command": .string("rm -rf build/")])
+        let terminal = HookAdapter.permission(for: rm, agent: "claude-code", link: "L", allowlist: .defaults, now: now, home: "/Users/me")
+        #expect(HookAdapter.permissionReport(for: rm, plan: terminal, agent: "claude-code", link: "L", now: now).detail
+                == "rm -rf build/\nAnswer in the terminal: `rm -rf` is not on the allowlist")
     }
 }
 
