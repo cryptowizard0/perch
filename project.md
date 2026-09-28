@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-09-28 · M1–M6 全部完成（M4–M6 由用户确认验收通过）· 同日方向调整为 agent 面板；M7 进行中：会话状态机（#15）已完成，下一步 pid 存活检测（#16）
+最后更新：2026-09-28 · M1–M6 全部完成（M4–M6 由用户确认验收通过）· 同日方向调整为 agent 面板；M7 进行中：会话状态机（#15）、pid 存活检测（#16）已完成，下一步真实会话验收（#17）
 
 ## 总览
 
@@ -15,7 +15,7 @@
 | M4 | PermissionRequest + 白名单 | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M5 | Codex 复用同一套 hook 脚本 | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M6 | Hermes 接入（改为 shell hook） | ✅ 完成 | 用户确认验收通过（2026-09-28） |
-| M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ⏳ 进行中 | #15 状态机 ✅；#16 存活检测、#17 真实会话验收待做。不动 UI |
+| M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ⏳ 进行中 | #15 状态机 ✅；#16 存活检测 ✅；#17 真实会话验收待做。不动 UI |
 | M8 | Agent 面板 UI；刘海 todo UI 下线 | 未开始 | |
 | M9 | Hermes 迁到会话模型 | 未开始 | M8 验收后单独设计 |
 
@@ -78,11 +78,13 @@ Sources/PerchCore/     纯逻辑，无 I/O，App 可直接复用：
   Markdown.swift         MirrorRenderer（todo.md）、Inbox（inbox.md 解析）、QuickEntry（"标题 @15:00" → 标题 + due）
   Paths.swift            ~/.perch（PERCH_HOME 可覆盖）
   Sessions.swift         Session / SessionStatus / SessionReport / SessionEvent（会话，M7 起入库）
+  AgentProcess.swift     ProcessEntry / AgentProcess.find：沿父进程链找 agent 进程（纯函数）
   Hooks.swift            HookInput / HookAdapter（hook 事件 → 请求；PermissionRequest 的 ask / terminal 计划；决定 JSON）
   Allowlist.swift        刘海可批准的范围（tools / bash / protected_paths）
   PermissionPrompt.swift request 显示的完整文本；JSONValue.swift 任意 JSON（tool_input）
   TerminalLink.swift     perch-terminal://<app>?id=&cwd=&bundle=
-Sources/PerchClient/   PerchClient.send / watch() → EventStream；BufferedSocket（阻塞式 socket + 读缓冲）
+Sources/PerchClient/   PerchClient.send / watch() → EventStream；BufferedSocket（阻塞式 socket + 读缓冲）；
+                       SystemProcesses（sysctl 读进程：hook 的祖先链、perchd 的存活探测）
 Sources/PerchDaemon/   Daemon（串行队列 + 订阅者 + 过期计时器 + 镜像 + inbox 监听）、Service（各 op）、Store（sqlite：items + sessions）、SessionRegistry（会话状态机）、
                        Server / HTTPConnection（Unix socket + 127.0.0.1 HTTP）、Files（MirrorWriter / InboxWatcher）、LaunchAgent
 Sources/perch/         CLI：add / ls / get / done / update / respond / rm / watch / session / hook / hooks
@@ -288,7 +290,7 @@ hermes hooks list               # 5 个都应是 allowed
 | # | 任务 | 状态 | 要点 |
 | --- | --- | --- | --- |
 | 7.1 | 会话状态机（#15） | ✅ | 见下 |
-| 7.2 | pid 存活检测 + 24 小时兜底（#16） | 未开始 | `sessions` 表的 `pid` / `pid_started_at` 列和 `SessionReport` 的字段已留好，存了就会写进库 |
+| 7.2 | pid 存活检测 + 24 小时兜底（#16） | ✅ | 见下 |
 | 7.3 | 真实会话验收（#17） | 未开始 | |
 
 7.1 的做法（2026-09-28）：
@@ -301,7 +303,15 @@ hermes hooks list               # 5 个都应是 allowed
 - 事件：每次变化推 `session.updated`，移除推 `session.ended`，新一轮开始额外先推 `session.started`（给老客户端）。刘海的 Live Activity 只数 Running，按 `turn_started_at` 计时。
 - daemon 的计时器按注入的时钟算延迟（`next - now()`），测试挪时钟后随便发个请求就能触发 Done → Idle。
 - 过渡期：Claude Code / Codex 仍并行发 waiting / notice item（#19 下线）；Hermes 不变（`session_start` = running，`session_end` = 移除）。
-- 已知限制：时间是整秒，同一秒内乱序到达的两个事件仍按到达顺序生效（和 M3 一样）；移除记忆只在内存里，perchd 重启后迟到的旧事件可能让已移除的会话复活（等 #16 的进程检测清掉）；并行工具时一个工具的 PostToolUse 会把会话从 waiting 拉回 running，直到那个 PermissionRequest 超时交给终端。
+- 已知限制：时间是整秒，同一秒内乱序到达的两个事件仍按到达顺序生效（和 M3 一样）；移除记忆只在内存里，perchd 重启后迟到的旧事件可能让已移除的会话复活（进程检测会再清掉它）；并行工具时一个工具的 PostToolUse 会把会话从 waiting 拉回 running，直到那个 PermissionRequest 超时交给终端。
+
+7.2 的做法（2026-09-28）：
+- `perch hook` 从自己往上走父进程链，找 argv[0] 最后一段叫 `claude`（claude-code）/ `codex`（codex）的最近祖先（`PerchCore/AgentProcess.swift`，纯函数，给进程表就能测）；每条 `session_report` 带它的 pid 和启动时间（整秒）。Hermes 不找（M9）。
+- 进程表：`PerchClient/SystemProcesses.swift`，sysctl（`KERN_PROC_PID` 拿 ppid / 启动时间，`KERN_PROCARGS2` 拿 argv[0]），只读 hook 自己的祖先链，不起子进程。僵尸进程算没了。
+- **坑**：内核的进程名（`p_comm`，`ps -c` 不显示它）是可执行文件的真实文件名。终端里的 `claude` 是 `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.x` 的符号链接，内核名是 `2.1.x`；所以按 argv[0] 认。
+- perchd：`Daemon(probe:livenessInterval:)`，probe 是 `(pid) -> 启动时间?`（默认 `SystemProcesses.startTime(of:)`，测试注入假的）。每 30 秒 `SessionRegistry.reap()`：有 pid 的，进程没了或启动时间不同（pid 复用）就移除；没 pid 的，24 小时没有事件就移除。移除和 `perch session rm` 一样：推 `session.ended`、记移除时间（之前观测到的迟到事件不会让它复活）、关掉它的 request。进程活着的会话再安静也不动。
+- 实测（2026-09-28，本机）：Claude 桌面 App 每个会话一个进程（`Claude` → `disclaimer` → `…/claude-code/2.1.x/claude.app/Contents/MacOS/claude`），hook 能找到 → 桌面会话按 pid 清理，不走 24 小时。Codex 桌面 App（ChatGPT.app）所有会话共用一个 `codex app-server` 进程，只有退出 App 才会被清。隔离 perchd 上用"以 `claude` 为名启动的 bash"跑 hook、再 `kill -HUP` 模拟关 tab：20 秒后推 `session.ended`。真 Ghostty tab 的验收并入 #17。
+- 已知限制：用 npm 装的 Claude Code（`node …/cli.js`）argv[0] 可能是 `node`（未实测），那样找不到 pid → 走 24 小时兜底。
 
 ### M2 协议扩展：`update`（已实现）
 

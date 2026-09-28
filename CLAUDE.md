@@ -11,7 +11,7 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 ```
 Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd（daemon）、PerchApp（刘海 App）
 Sources/PerchCore/       模型、wire protocol、路径、纯解析/渲染。所有客户端共享，不含任何 I/O
-Sources/PerchClient/     Unix socket 客户端（CLI 和刘海 App 共用）
+Sources/PerchClient/     Unix socket 客户端（CLI 和刘海 App 共用）；sysctl 读进程（hook 找 agent、perchd 存活检测）
 Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd
 Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像、launchd
 Sources/CSQLite/         系统 libsqlite3 的最小声明（见下方 SQLite 决定）
@@ -55,7 +55,7 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 `id`（4 位可手打，如 `t7k2`）、`title`、`kind`（task / notice / request）、`status`（open / waiting / done / dismissed）、`source`（自由字符串）、`due_at`、`link`、`meta`、`key`、request 专用的 `options` / `response` / `expires_at`、`created_at` / `updated_at`。
 `kind` 区分 task 和 notice 是刻意的："agent 完成了"不是待办，混在一起会稀释橙色信号。
 
-M7 起有 `sessions` 表（schema v2，字段与 `Session`（`Sources/PerchCore/Sessions.swift`）一一对应）：会话状态只放这里，重启后原样恢复。hook 适配器发 `session_report`（`SessionReport`：prompt / waiting / resume / stop / failure / interrupt / end，与 agent 无关），状态机在 perchd 的 `SessionRegistry`：比该会话最后一次事件旧的报告丢弃（平局照收），被移除的会话 10 分钟内记着移除时间，旧事件不会让它复活；Done 10 分钟后变 Idle（`session_seen` 立刻变）；resume / stop / failure / interrupt / end 顺带把 `meta.session_id` 指向该会话的 request 关掉（不带回应）。白名单内的 PermissionRequest 仍发 request（经 `meta.session_id` 挂到会话）。（M8 前）Claude Code / Codex 的 hook 仍然同时发 waiting / notice item，保证旧刘海的橙色信号不断，#19 下线。清理：pid 存活检测（30 秒，比对进程启动时间防复用）为主，拿不到 pid 的 24 小时无事件兜底（#16，未做），`perch session rm` 手动移除（已做）。
+M7 起有 `sessions` 表（schema v2，字段与 `Session`（`Sources/PerchCore/Sessions.swift`）一一对应）：会话状态只放这里，重启后原样恢复。hook 适配器发 `session_report`（`SessionReport`：prompt / waiting / resume / stop / failure / interrupt / end，与 agent 无关），状态机在 perchd 的 `SessionRegistry`：比该会话最后一次事件旧的报告丢弃（平局照收），被移除的会话 10 分钟内记着移除时间，旧事件不会让它复活；Done 10 分钟后变 Idle（`session_seen` 立刻变）；resume / stop / failure / interrupt / end 顺带把 `meta.session_id` 指向该会话的 request 关掉（不带回应）。白名单内的 PermissionRequest 仍发 request（经 `meta.session_id` 挂到会话）。（M8 前）Claude Code / Codex 的 hook 仍然同时发 waiting / notice item，保证旧刘海的橙色信号不断，#19 下线。清理：pid 存活检测（30 秒，比对进程启动时间防复用）为主，拿不到 pid 的 24 小时无事件兜底，`perch session rm` 手动移除（#16）。`perch hook` 沿父进程链找 argv[0] 叫 `claude` / `codex` 的最近祖先（`AgentProcess`，纯函数；进程表由 `PerchClient/SystemProcesses.swift` 用 sysctl 读），每条 `session_report` 带上它的 pid 和启动时间。**按 argv[0] 认，不按内核进程名**：`~/.local/bin/claude` 是指向 `versions/2.1.x` 的符号链接，内核记的名字是 `2.1.x`。
 
 ## Hook 适配（M3 / M4 / M5）
 
@@ -122,7 +122,7 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 
 - ~~`link` 跳回终端的机制~~ 已定（M3）：`perch-terminal://<app>?id=&cwd=&bundle=`。Ghostty（≥ 1.3，AppleScript）在 UserPromptSubmit 时记下聚焦的 terminal id，跳转时 `focus` 那个 terminal，找不到按目录找，再不行激活 App；其他终端只激活 App（按 `__CFBundleIdentifier`）。
 - ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。M8 起快速录入随 todo UI 下线，⌥⇧A / D / O 保留（队首 = 排序最前的 Needs you 会话）。
-- Claude 桌面 App 里的会话能否沿父进程链找到 agent 的 pid：M7 实测，找不到就对这类会话用 24 小时超时。
+- ~~Claude 桌面 App 里的会话能否沿父进程链找到 agent 的 pid~~ 已定（M7 实测）：能。桌面 App 每个会话一个 `claude` 进程（`Claude` → `disclaimer` → `claude`），会话进程退出就移除。Codex 桌面 App（ChatGPT.app）所有会话共用一个 `codex app-server` 进程，只有退出 App 才会按 pid 清掉。
 - 全屏 App 下刘海面板是否可见：M8 核实。
 - hook 等刘海的超时：先用 20 秒（M4 定，`perch hooks install claude-code --wait N` 可改），用一周后再看。
 - 开源许可证。
