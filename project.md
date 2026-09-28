@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-09-28 · M1–M6 全部完成（M4–M6 由用户确认验收通过）· 同日方向调整为 agent 面板，下一步 M7
+最后更新：2026-09-28 · M1–M6 全部完成（M4–M6 由用户确认验收通过）· 同日方向调整为 agent 面板；M7 进行中：会话状态机（#15）已完成，下一步 pid 存活检测（#16）
 
 ## 总览
 
@@ -15,7 +15,7 @@
 | M4 | PermissionRequest + 白名单 | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M5 | Codex 复用同一套 hook 脚本 | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M6 | Hermes 接入（改为 shell hook） | ✅ 完成 | 用户确认验收通过（2026-09-28） |
-| M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ⏳ 下一步 | 不动 UI |
+| M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ⏳ 进行中 | #15 状态机 ✅；#16 存活检测、#17 真实会话验收待做。不动 UI |
 | M8 | Agent 面板 UI；刘海 todo UI 下线 | 未开始 | |
 | M9 | Hermes 迁到会话模型 | 未开始 | M8 验收后单独设计 |
 
@@ -77,13 +77,13 @@ Sources/PerchCore/     纯逻辑，无 I/O，App 可直接复用：
   DueParser.swift        @15:00 / +30m / +1h30m / ISO-8601
   Markdown.swift         MirrorRenderer（todo.md）、Inbox（inbox.md 解析）、QuickEntry（"标题 @15:00" → 标题 + due）
   Paths.swift            ~/.perch（PERCH_HOME 可覆盖）
-  Sessions.swift         Session / SessionEvent（Live Activity，不入库）
+  Sessions.swift         Session / SessionStatus / SessionReport / SessionEvent（会话，M7 起入库）
   Hooks.swift            HookInput / HookAdapter（hook 事件 → 请求；PermissionRequest 的 ask / terminal 计划；决定 JSON）
   Allowlist.swift        刘海可批准的范围（tools / bash / protected_paths）
   PermissionPrompt.swift request 显示的完整文本；JSONValue.swift 任意 JSON（tool_input）
   TerminalLink.swift     perch-terminal://<app>?id=&cwd=&bundle=
 Sources/PerchClient/   PerchClient.send / watch() → EventStream；BufferedSocket（阻塞式 socket + 读缓冲）
-Sources/PerchDaemon/   Daemon（串行队列 + 订阅者 + 过期计时器 + 镜像 + inbox 监听）、Service（各 op）、Store（sqlite）、SessionRegistry、
+Sources/PerchDaemon/   Daemon（串行队列 + 订阅者 + 过期计时器 + 镜像 + inbox 监听）、Service（各 op）、Store（sqlite：items + sessions）、SessionRegistry（会话状态机）、
                        Server / HTTPConnection（Unix socket + 127.0.0.1 HTTP）、Files（MirrorWriter / InboxWatcher）、LaunchAgent
 Sources/perch/         CLI：add / ls / get / done / update / respond / rm / watch / session / hook / hooks
   Hook.swift             `perch hook <agent>`：stdin → HookAdapter → perchd；Ghostty 探测；HookLog
@@ -110,8 +110,8 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 ## 已定下的契约（M2+ 依赖，改之前先想清楚）
 
 - Wire：Unix socket 上一行一个 JSON；HTTP `POST /rpc` 同一套 JSON。`watch` 先回 `{"ok":true}` 确认，再逐行推 `{"ok":true,"event":{…}}`。**确认之后发生的变化保证能收到**，所以客户端正确做法是：先 `watch()`，再 `list` 拿快照。
-- op：`ping / add / list / get / done / respond / remove / update / watch / session_start / session_end / sessions`。
-- session（M3，Live Activity）：只在 perchd 内存里，不进 SQLite；`watch` 推 `{"ok":true,"session_event":{…}}`，`EventStream.next()` 只返回 item 事件（老客户端不受影响），`nextPush()` 两种都给。每条消息带观测时间，比该 id 最后一条旧的消息丢弃（async hook 会乱序）；超过 3 小时没结束的 turn 自动清掉。`list` 默认只返回 open + waiting，已按队列顺序排好。
+- op：`ping / add / list / get / done / respond / remove / update / watch / session_start / session_end / sessions / session_report / session_seen / session_remove`。
+- session（M7 起）：进 SQLite `sessions` 表，五种状态，由 `session_report` 驱动（见下方"M7 进度"）；`watch` 另推 `session.updated`（每次变化）和 `session.ended`（移除）。以下是 M3 的旧约定，已作废的部分见 M7：session 只在 perchd 内存里，不进 SQLite；`watch` 推 `{"ok":true,"session_event":{…}}`，`EventStream.next()` 只返回 item 事件（老客户端不受影响），`nextPush()` 两种都给。每条消息带观测时间，比该 id 最后一条旧的消息丢弃（async hook 会乱序）；超过 3 小时没结束的 turn 自动清掉。`list` 默认只返回 open + waiting，已按队列顺序排好。
 - `add --key`：同 key 更新原项（保留 id 和 created_at），会重新打开已关闭项并清空旧 response；内容完全相同的重复 add 不发事件。
 - request：默认 status waiting、options `allow,deny`；`respond` 校验选项，回应后 status 变 done。
 - `expires_at`：到点 daemon 把 open / waiting 项置为 dismissed 并推 `item.updated`（notice 自动消失、request 超时都靠它）。
@@ -282,6 +282,26 @@ hermes hooks list               # 5 个都应是 allowed
 - 代码审查后修的（2026-09-28）：审批 key 加 `tool_call_id`（同一聊天排队的多个审批、共用 `default` 的多个 CLI 会话不再互相清掉）；审批 15 分钟过期兜底（Hermes 崩了不会永远橙）；忽略 `platform: subagent` 和后台复盘（`agent/background_review.py`，共用 session_id，靠 prompt 结尾 "You can only call memory and skill management tools" 识别）；Hermes 重写 config.yaml 丢标记后仍能认出 / 卸载 Perch 的 hook；CLI 审批跳到同目录那一轮的终端；gateway 事件一律不带终端链接。
 - 实测延迟（release，隔离 perchd）：`perch hook hermes` 处理带 5 MB conversation_history 的 `pre_llm_call` 中位 12 ms。
 - 仍有的限制：gateway 的每条消息都会留一条 notice（10 分钟消失），嫌吵再说；后台复盘的 `on_session_end` 没法识别，若和你的下一轮重叠，会提前结束那一轮的 Live Activity；gateway 审批没有终端可跳，点标题会直接标完成（手动清掉的出口）。
+
+## M7 进度（会话状态机）
+
+| # | 任务 | 状态 | 要点 |
+| --- | --- | --- | --- |
+| 7.1 | 会话状态机（#15） | ✅ | 见下 |
+| 7.2 | pid 存活检测 + 24 小时兜底（#16） | 未开始 | `sessions` 表的 `pid` / `pid_started_at` 列和 `SessionReport` 的字段已留好，存了就会写进库 |
+| 7.3 | 真实会话验收（#17） | 未开始 | |
+
+7.1 的做法（2026-09-28）：
+- 适配器把每个 hook 事件归一成 `SessionReport`（prompt / waiting / resume / stop / failure / interrupt / end），op `session_report`；状态机在 perchd 的 `SessionRegistry`，和 agent 无关。表见 `SessionReport` / `HookAdapter` 的文档注释。
+- `sessions` 表，schema v2（`PRAGMA user_version` 从 1 迁到 2，items 不动）。`started_at` = 首次出现，`turn_started_at` = 本轮开始，`status_at` = 进入当前状态（Done → Idle 不改它，Idle 行仍能显示"多久前完成"），`updated_at` = 最后一次事件的观测时间。
+- 乱序：报告的 `at`（整秒，未来时间按 perchd 时钟截断）比 `updated_at` 旧就丢弃，平局照收（和 M3 一样）。被移除（end / rm）的会话在内存里记 10 分钟移除时间，更早的事件不会让它复活；更新的事件会。
+- 不再有 M3 的"3 小时没结束的 turn 自动清掉"：Claude Code 按 Esc 不发 Stop，会话会一直 Running，等 #16 的进程检测。
+- request：resume / stop / failure / interrupt / end 会关掉 `meta.session_id` 指向该会话的 request（done、不带回应）。PermissionRequest hook 的 request 没回应就结束（过期、被 done / rm、被这样关掉）一律补发"去终端"：同一轮并行的另一个工具跑完（PostToolUse）也会关掉它，这时终端提示确实在等人。刘海 Allow / Deny 后 hook 发一条 resume，会话回到 Running（Deny 后不会有 PostToolUse）。
+- 会话的 detail：白名单内是完整命令（Allow / Deny 在 request 上）；白名单外是"完整命令\nAnswer in the terminal: 原因"；超时是"完整命令\nAnswer in the terminal"；提问是 Notification 的 message（没有就 "Waiting for your answer"）。
+- 事件：每次变化推 `session.updated`，移除推 `session.ended`，新一轮开始额外先推 `session.started`（给老客户端）。刘海的 Live Activity 只数 Running，按 `turn_started_at` 计时。
+- daemon 的计时器按注入的时钟算延迟（`next - now()`），测试挪时钟后随便发个请求就能触发 Done → Idle。
+- 过渡期：Claude Code / Codex 仍并行发 waiting / notice item（#19 下线）；Hermes 不变（`session_start` = running，`session_end` = 移除）。
+- 已知限制：时间是整秒，同一秒内乱序到达的两个事件仍按到达顺序生效（和 M3 一样）；移除记忆只在内存里，perchd 重启后迟到的旧事件可能让已移除的会话复活（等 #16 的进程检测清掉）；并行工具时一个工具的 PostToolUse 会把会话从 waiting 拉回 running，直到那个 PermissionRequest 超时交给终端。
 
 ### M2 协议扩展：`update`（已实现）
 
