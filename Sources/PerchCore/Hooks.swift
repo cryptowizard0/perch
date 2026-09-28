@@ -1,6 +1,7 @@
 import Foundation
 
-/// What Claude Code (and Codex, same shape) sends a command hook on stdin. Only the fields Perch uses.
+/// What Claude Code (and Codex, same shape) sends a command hook on stdin. Only the fields Perch uses;
+/// Codex's extra fields (`turn_id`, `model`, …) and nulls are ignored.
 public struct HookInput: Decodable, Equatable, Sendable {
     public var sessionID: String
     public var event: String
@@ -48,9 +49,12 @@ public struct HookInput: Decodable, Equatable, Sendable {
 /// | UserPromptSubmit | session_start; resolve this session's waiting item and last "finished" notice (you are back) |
 /// | Notification (needs you) | add waiting, key `<agent>:<session>` |
 /// | Stop | session_end; resolve the waiting item; add a notice with the last message, key `<agent>:<session>:done` |
-/// | StopFailure / SessionEnd | session_end; resolve the waiting item |
+/// | StopFailure / SessionEnd / Interrupt | session_end; resolve the waiting item |
 /// | PostToolUse / PostToolUseFailure | resolve the waiting item (a tool ran, so the permission prompt is answered) |
 /// | PermissionRequest | see `permission(for:…)`: blocking, handled by `perch hook` itself |
+///
+/// Codex sends the same JSON for the events it has. It has no Notification, StopFailure or PostToolUseFailure
+/// (its waiting items come only from PermissionRequest), and adds Interrupt (Esc on a running turn, no Stop).
 public enum HookAdapter {
     /// Notification types that mean "an agent is blocked on the human". `idle_prompt` is left out on purpose:
     /// Stop already posts a notice, and every finished turn turning orange would dilute the signal.
@@ -98,7 +102,7 @@ public enum HookAdapter {
                     expiresAt: now.addingTimeInterval(noticeLifetime)
                 )),
             ]
-        case "StopFailure", "SessionEnd":
+        case "StopFailure", "SessionEnd", "Interrupt":
             return [Request(op: .sessionEnd, id: session, at: now), Request(op: .done, key: waiting)]
         case "PostToolUse", "PostToolUseFailure":
             return [Request(op: .done, key: waiting)]
@@ -150,6 +154,7 @@ public enum HookAdapter {
     }
 
     /// What the hook prints for an answer; nil (print nothing, the terminal asks) for anything but allow / deny.
+    /// Claude Code and Codex read the same shape, so `agent` does not change it (yet).
     public static func decision(agent: String, answer: String) -> String? {
         guard answer == "allow" || answer == "deny" else { return nil }
         var decision: [String: String] = ["behavior": answer]

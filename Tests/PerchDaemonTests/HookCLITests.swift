@@ -156,3 +156,62 @@ struct PermissionHookTests {
         #expect(log.contains("nothing can be approved from the notch"))
     }
 }
+
+/// `perch hook codex` fed Codex's stdin JSON (extra fields, nulls, no Notification), against a real perchd.
+@Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
+struct CodexHookTests {
+    let env = ["TERM_PROGRAM": "ghostty-not-scripted", "__CFBundleIdentifier": "com.mitchellh.ghostty"]
+
+    func event(_ name: String, _ extra: String = "") -> String {
+        #"{"session_id":"019a","turn_id":"t1","transcript_path":null,"cwd":"/w/perch","permission_mode":"default","model":"gpt-6","hook_event_name":"\#(name)"\#(extra)}"#
+    }
+
+    func hook(_ cli: CLI, _ json: String, wait: String? = nil) throws -> CLI.Result {
+        try cli.run(["hook", "codex"] + (wait.map { ["--wait", $0] } ?? []), stdin: json, env: env)
+    }
+
+    @Test func aTurnWithANotchApproval() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+
+        let prompt = try hook(cli, event("UserPromptSubmit", #","prompt":"run the tests""#))
+        #expect(prompt.status == 0 && prompt.stdout.isEmpty && prompt.stderr.isEmpty)
+        let session = try #require(try d.client.send(Request(op: .sessions)).sessions?.first)
+        #expect(session.id == "019a" && session.source == "codex" && session.title == "perch")
+
+        // Allowlisted: the notch answers and Codex gets the decision.
+        let bash = event("PermissionRequest", #","tool_name":"Bash","tool_input":{"command":"cargo test","description":null}"#)
+        let finish = try CLI(home: d.home).start(["hook", "codex", "--wait", "20"], stdin: bash, env: env)
+        var request: Item?
+        for _ in 0..<300 where request == nil {
+            request = try d.client.send(Request(op: .list, filter: .init(kind: .request))).items?.first
+            if request == nil { Thread.sleep(forTimeInterval: 0.01) }
+        }
+        let asked = try #require(request)
+        #expect(asked.title == "cargo test" && asked.source == "codex")
+        _ = try d.client.send(Request(op: .respond, id: asked.id, value: "allow"))
+        let answered = try finish()
+        #expect(answered.stdout == #"{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}"#)
+
+        // A patch is never approvable from the notch: straight to the terminal, orange until the tool runs.
+        let patch = event("PermissionRequest", #","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch"}"#)
+        let terminal = try hook(cli, patch, wait: "20")
+        #expect(terminal.status == 0 && terminal.stdout.isEmpty)
+        var items = try d.client.send(Request(op: .list)).items ?? []
+        #expect(items.map(\.title) == ["perch · apply_patch *** Begin Patch"])
+        #expect(items.first?.key == "codex:019a" && items.first?.status == .waiting)
+        try hook(cli, event("PostToolUse", #","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch"},"tool_response":{},"tool_use_id":"u1""#))
+        #expect(try d.client.send(Request(op: .list)).items == [])
+
+        // Esc: Codex sends Interrupt and no Stop; the Live Activity ends anyway.
+        try hook(cli, event("Interrupt"))
+        #expect(try d.client.send(Request(op: .sessions)).sessions == [])
+
+        // A finished turn leaves a notice; a null last message still reads.
+        try hook(cli, event("UserPromptSubmit", #","prompt":"again""#))
+        try hook(cli, event("Stop", #","stop_hook_active":false,"last_assistant_message":null"#))
+        items = try d.client.send(Request(op: .list)).items ?? []
+        #expect(items.map(\.title) == ["perch · finished"])
+        #expect(items.first?.kind == .notice && items.first?.key == "codex:019a:done")
+    }
+}

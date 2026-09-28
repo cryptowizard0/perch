@@ -72,7 +72,8 @@ import Testing
     }
 
     @Test func endingEvents() {
-        for event in ["StopFailure", "SessionEnd"] {
+        // Interrupt: Codex, Esc on a running turn (no Stop follows).
+        for event in ["StopFailure", "SessionEnd", "Interrupt"] {
             #expect(requests(HookInput(sessionID: "abc", event: event)).map(\.op) == [.sessionEnd, .done])
         }
         #expect(requests(HookInput(sessionID: "abc", event: "PreToolUse")).isEmpty)
@@ -152,6 +153,35 @@ import Testing
         #expect(HookAdapter.decision(agent: "claude-code", answer: "deny")
                 == #"{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"Denied by the user from the Perch notch."},"hookEventName":"PermissionRequest"}}"#)
         #expect(HookAdapter.decision(agent: "claude-code", answer: "maybe") == nil)
+    }
+
+    /// Codex documents the same `hookSpecificOutput.decision.behavior` shape (message optional, deny only here).
+    @Test func decisionJSONForCodex() {
+        for answer in ["allow", "deny", "maybe"] {
+            #expect(HookAdapter.decision(agent: "codex", answer: answer) == HookAdapter.decision(agent: "claude-code", answer: answer))
+        }
+    }
+
+    @Test func decodesCodexStdin() throws {
+        let json = #"{"session_id":"019a","turn_id":"t3","hook_event_name":"PermissionRequest","cwd":"/w/perch","transcript_path":null,"permission_mode":"default","model":"gpt-6","tool_name":"Bash","tool_input":{"command":"cargo test","description":null}}"#
+        let decoded = try JSONDecoder().decode(HookInput.self, from: Data(json.utf8))
+        #expect(decoded.sessionID == "019a" && decoded.event == "PermissionRequest")
+        #expect(decoded.toolStrings == ["command": "cargo test"])
+        let plan = HookAdapter.permission(for: decoded, agent: "codex", link: nil, allowlist: .defaults, now: now, home: "/Users/me")
+        guard case .ask(let request) = plan else { Issue.record("expected ask"); return }
+        #expect(request.title == "cargo test" && request.source == "codex")
+        #expect(request.meta?["description"] == nil)
+    }
+
+    /// Codex's own tools are not on the allowlist: a patch or an MCP call always goes to the terminal, shown in full.
+    @Test func codexPatchGoesToTheTerminal() {
+        let patch = "*** Begin Patch\n*** Update File: a.swift\n+x\n*** End Patch"
+        let input = HookInput(sessionID: "019a", event: "PermissionRequest", cwd: "/w/perch", toolName: "apply_patch",
+                              toolInput: ["command": .string(patch)])
+        guard case .terminal(let item) = HookAdapter.permission(for: input, agent: "codex", link: nil, allowlist: .defaults,
+                                                                 now: now, home: "/Users/me") else { Issue.record("terminal"); return }
+        #expect(item.title == "perch · apply_patch \(patch)")
+        #expect(item.key == "codex:019a")
     }
 
     @Test func latePermissionNotificationKeepsTheCommandText() {
