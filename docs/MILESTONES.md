@@ -1,6 +1,6 @@
 # 里程碑
 
-每一步都能独立验证再往下走；第 3 步完成时产品已经能日常使用。当前：**M4**。
+每一步都能独立验证再往下走；第 3 步完成时产品已经能日常使用。M1–M6 已完成；2026-09-28 方向调整为 agent 面板（见 `PRD.md`"v0.2 方向调整"），当前：**M7**。
 
 ## M1 — daemon + CLI + SQLite + watch（不带 UI）
 
@@ -52,3 +52,27 @@
 - [x] `perch hooks install hermes` 写 `~/.hermes/config.yaml` 的 `hooks:`（带标记的块），`uninstall` 干净移除；已有自己的 `hooks:` 时拒绝
 - [x] 刘海：gateway 的审批显示"Answer in Telegram"等
 - [x] 验收：Hermes 一轮 → Live Activity + notice；让它跑 `rm -rf <临时目录>` → 刘海变橙，在 Hermes 里回应后消失
+
+## M7 — 会话状态机（daemon + CLI + hook，不动 UI）
+
+- [ ] `sessions` 表（schema v2，`PRAGMA user_version` 迁移）：状态、source、title / cwd、link、prompt、last_message、detail、error、pid / pid_started_at、各时间戳
+- [ ] 状态机：Needs you / Failed / Running / Done / Idle；Done 10 分钟后自动变 Idle；任何 hook 事件都能创建或更新会话；推 `session.updated` 事件
+- [ ] 清理：pid 存活检测（每 30 秒，比对进程启动时间）+ 拿不到 pid 时 24 小时无事件兜底；`perch session rm <id>` 手动移除
+- [ ] `perch hook` 沿父进程链找到 agent 进程的 pid 并随事件上报；实测 Claude 桌面 App 会话能否找到
+- [ ] 重写 Claude Code / Codex 的 hook 映射：不再产生 waiting / notice，只保留白名单内 PermissionRequest 的 request（`meta.session_id` 挂会话）；Hermes 不改
+- [ ] `perch session ls [--json]` 显示状态；`perch session start|end` 保持兼容；标记已看（Done → Idle）的 op 供 M8 跳转用
+- [ ] 验收：真实 Claude Code 和 Codex 会话，`perch session ls` 状态流转正确；关掉终端 tab 后 30 秒内消失；`swift test` 通过
+
+## M8 — Agent 面板 UI
+
+- [ ] 收起态：总色点（Needs you 🟠 > Failed 🔴 > Running 🟢 呼吸 > Done 🔵 > Idle ⚪）+ 运行中会话数（0 不显示）；橙 / 红 / 蓝进入时脉冲
+- [ ] 展开态：按状态分组、组标题带数量、空组不显示；每行色点 + 像素图标 + 项目名 + 时长 + 跳转，第二行随状态变化；结构留出以后加 tab 的位置
+- [ ] 12×12 单色像素 agent 图标（Claude Code 小怪物、Codex `>_`、Hermes 翅膀、未知机器人），点阵数据在 PerchAppCore 可测
+- [ ] 交互：点整行跳转并标记已看；Allow / Deny（白名单内）；⌥⇧A / D / O 作用于队首 Needs you；右键行 "Remove from Panel"；右键刘海只剩 Quit
+- [ ] 刘海上的 todo UI 下线：task 行、快速录入（⌥⇧Space、New Task）、到期提醒与系统通知
+- [ ] 核实全屏 App 下刘海的表现
+- [ ] 验收：真实会话下颜色、数量、分组、跳转、审批都正确；CLI 到刘海 ≤ 200 ms
+
+## M9 — Hermes 迁到会话模型
+
+- [ ] 单独设计（每轮都有 `on_session_end`、gateway 会话没有关闭、进程常驻不能做 pid 检测），M8 验收后再定

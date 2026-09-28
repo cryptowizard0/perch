@@ -1,24 +1,33 @@
-# Perch · PRD v0.1
+# Perch · PRD v0.2
 
-2026-09-24 · Webber
+2026-09-24 · Webber（v0.1）· 2026-09-28 方向调整为 agent 面板（v0.2）
+
+## v0.2 方向调整（2026-09-28）
+
+v0.1 的定位是"agent 等待队列 + 我的待办"。M1–M6 做完后调整为：**刘海是 agent 的灵动岛面板**，只显示 agent 会话的状态。
+
+- **todo 暂时搁置**：刘海 UI 里拿掉 task、快速录入、到期提醒；daemon、SQLite、`perch add/ls/done`、`todo.md` / `inbox.md` 全部保留不动（CLI 契约不变）。以后作为展开态里一个**独立的 tab** 回来，不和 agent 面板混在一起。
+- **一行 = 一个 agent 会话**（按 `session_id`），从第一次发 prompt 到 SessionEnd，状态在五种之间流转（见下方"Agent 面板"）。
+- **先接 Claude Code 和 Codex**；Hermes 的会话生命周期不同（每轮都发 `on_session_end`、gateway 会话没有"关闭"、进程常驻），暂不显示，单独一个里程碑迁移。
+- 本文下方凡是和"Agent 面板"一节冲突的 v0.1 描述（收起态数字 = 待办数、notice、快速录入等），以"Agent 面板"为准。
 
 ## 定位与原则
 
-**Agent 的灵动岛**：住在 MacBook 刘海里的 agent 等待队列，顺带是我的待办。核心闭环只有一个：agent 在等你 → 刘海亮 → 你就地处理或跳回去。
+**Agent 的灵动岛**：住在 MacBook 刘海里的 agent 状态面板。一眼看到每个 agent 会话在跑、在等你、跑完了还是出错了。核心闭环：agent 在等你 → 刘海亮 → 你就地处理或跳回去。
 
 iPhone 灵动岛的三个原语直接映射到 agent：
 
 | 灵动岛原语 | 在本产品中的对象 | 刘海上的表现 |
 | --- | --- | --- |
-| Live Activity（正在进行的事） | 正在跑的 agent 会话 | 收起态显示 agent 数量和最长耗时 |
-| Alert（需要你处理） | agent 阻塞、等权限、等输入 | 橙色脉冲，展开后排在最前 |
+| Live Activity（正在进行的事） | 每个 agent 会话及其状态 | 收起态：总状态色点 + 运行中会话数；展开态：按状态分组的会话列表 |
+| Alert（需要你处理） | agent 等权限、等回答、出错 | 橙 / 红色脉冲，展开后排在最前 |
 | Control（就地操作） | 批准 / 拒绝权限请求、跳回终端 | 展开态的内联按钮和全局快捷键 |
 
-todo list 是这三层下面的持久化底座，不是卖点。音乐控制、系统 HUD、文件中转全部不做，这是和现有刘海应用的切割线。
+音乐控制、系统 HUD、文件中转全部不做，这是和现有刘海应用的切割线。
 
 四条设计原则：
 
-1. **Agent-first**：agent 产生的事件优先于人手写的待办，UI 排序和颜色都以此为准。
+1. **Agent-first**：刘海上只有 agent；人手写的待办以后放在独立 tab，不影响收起态的颜色和数字。
 2. **Local-first**：单机、单用户、无云端，daemon 和数据都在本地。
 3. **CLI 是唯一契约**：任何能跑 shell 的 agent 零学习成本接入，存储是实现细节。
 4. **第一版砍掉一切非核心**：先自用跑通，但 CLI 契约、数据模型、hook 适配器按可开源分发的形态设计。
@@ -99,6 +108,24 @@ v0.1 只做一个闭环：agent 在等你 → 刘海亮 → 就地处理或跳�
 
 `kind` 里区分 task 和 notice 是因为"agent 完成了"不是待办，混在一个列表里会稀释橙色信号的含义。
 
+**v0.2 新增 `sessions` 表**（M7，schema v2）。会话状态只放这里，不再用 item 表达：Claude Code / Codex 的 hook 不再产生 waiting / notice，item 表里只剩刘海可以回应的 request（hook 用 `--wait` 等它的回应值），request 通过 `meta.session_id` 挂到会话那一行。
+
+| 字段 | 说明 |
+| --- | --- |
+| id | agent 自己的 `session_id` |
+| source | `claude-code` / `codex` / …，决定像素图标 |
+| title / cwd | 项目名（cwd 的目录名）和目录 |
+| link | 跳回终端（`perch-terminal://…`） |
+| status | `waiting`（Needs you）/ `failed` / `running` / `done` / `idle` |
+| prompt | 本轮 prompt 的首行（运行中显示） |
+| last_message | 最后一条回复的首行（完成 / 空闲显示） |
+| detail | 等你时的详情：完整命令原文、原因、"去哪里回答" |
+| error | 出错时的错误类型 |
+| pid / pid_started_at | agent 进程和它的启动时间，用于存活检测（防 pid 复用） |
+| started_at / turn_started_at / status_at / updated_at | 首次出现、本轮开始、进入当前状态、最后一次事件 |
+
+清理：perchd 每 30 秒检查 pid，进程没了就移除；拿不到 pid 的会话 24 小时没有事件就移除；`perch session rm <id>` 和刘海右键可以手动移除（之后再来事件会重新出现）。
+
 ## 接口层
 
 CLI 是唯一契约，daemon 是唯一真相，刘海 UI、CLI、Hermes 全是 daemon 的客户端。
@@ -151,6 +178,8 @@ flowchart LR
 
 刘海只是快捷通道，不是唯一通道：适配器等刘海的时间设为 15–30 秒，超时就不返回决定，终端的原生提示照常弹出。在终端前的人最多多等几十秒，不会被卡死。
 
+**v0.2（M7）**：Claude Code / Codex 的事件改为驱动会话状态（见"Agent 面板"的状态表），不再产生 waiting / notice item；只有白名单内的 PermissionRequest 仍然发 request 等刘海。每个事件都带上 agent 进程的 pid（`perch hook` 沿父进程链找），供 perchd 做存活检测。Hermes 的映射 M9 再改。
+
 安装：`perch hooks install claude-code` 写 `~/.claude/settings.json`，`perch hooks install codex` 写 `~/.codex/hooks.json`。Codex 的 hook 要在 codex 里用 `/hooks` 确认信任后才会跑。
 
 ~~Hermes 不走 hook，直接调 daemon 的 HTTP 接口~~。M6 改：Hermes 实际跑在本机（不在 Docker 里），有自己的 shell hook（`pre_llm_call` / `post_llm_call` / `pre_approval_request` 等），所以和 Claude Code、Codex 一样走 `perch hook hermes`。Hermes 的审批 hook 只能观察，刘海只能提示去哪里回答，不能批准。HTTP 接口保留，给够不着 Unix socket 的容器客户端。
@@ -176,35 +205,69 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 
 白名单是一个本地配置文件，后续会是产品的一部分：每个团队对"什么可以盲批"的定义不同。
 
-## 刘海 UI
+## Agent 面板（v0.2，M7 / M8）
 
-收起态只有三样东西，展开态才有列表。
+### 会话与状态
 
-**收起态**
+一行 = 一个 agent 会话（按 `session_id`）。第一次发 prompt 时出现（不装 SessionStart，开了窗口没干活的会话不占位置），SessionEnd 或进程消失时移除。任何 hook 事件都能创建或更新会话。
 
-| 元素 | 含义 |
+| 状态（UI 文案） | 进入 | 离开 | 圆点 |
+| --- | --- | --- | --- |
+| **Needs you** | PermissionRequest / Notification（权限、提问） | PostToolUse(Failure)、UserPromptSubmit、Stop | 🟠 橙，进入时脉冲 |
+| **Failed** | StopFailure（API 报错、限流等） | 下一次 UserPromptSubmit | 🔴 红，进入时脉冲 |
+| **Running** | UserPromptSubmit；等你之后工具跑了 | Stop / StopFailure / 等你 | 🟢 绿，呼吸动画 |
+| **Done** | Stop | 10 分钟后，或从刘海跳回那个终端 → Idle；下一次 UserPromptSubmit → Running | 🔵 蓝，静止，进入时脉冲一次 |
+| **Idle** | Done 过期或已看过；Codex 的 Interrupt（Esc） | 下一次 UserPromptSubmit | ⚪ 灰 |
+
+"等审批"和"等回答"合成一种 Needs you，行内文字区分。优先级：**Needs you > Failed > Running > Done > Idle**。
+
+### 收起态
+
+- **一个总色点**：取所有会话里优先级最高的状态；没有会话是灰点；perchd 离线是离线图标。
+- **运行中会话数**：只数 Running，为 0 时不显示。
+- 不再显示耗时（"· 4m"挪进展开态每一行）。
+
+### 展开态（悬停触发）
+
+按状态分组，组标题带数量（`Needs you 1` / `Failed 1` / `Running 3` / `Done 2` / `Idle 1`），空组不显示。组内排序：Needs you 等得最久的在前；Running 按本轮开始时间；Done / Idle 最近的在前。展开态的结构要能在以后加 tab（todo 回来时用），这一版不画 tab 栏。
+
+每行两行字：
+
+```
+● [像素图标]  perch                              4m   ⤴
+             Refactor the session state machine…
+```
+
+| 状态 | 第二行 | 时间 |
+| --- | --- | --- |
+| Needs you（审批） | 完整命令原文 + Allow / Deny（白名单内）或"去终端"（安全规则不变） | 等了多久 |
+| Needs you（提问） | "Waiting for your answer" | 等了多久 |
+| Failed | 错误类型 | 多久前 |
+| Running | 本轮 prompt 的首行 | 本轮已跑多久 |
+| Done | 最后一条回复的首行 | 多久前完成 |
+| Idle | 同 Done，整行变暗 | 多久前 |
+
+**agent 图标**：自己渲染的 12×12 像素点阵（代码里的字符串，SwiftUI `Canvas` 逐格画，不抗锯齿），单色白，Idle 时随整行变暗。颜色只给状态圆点。只取意象，不照描任何 logo，不打包任何商标文件：Claude Code = 像素小怪物，Codex = `>_`，Hermes = 翅膀，未知 agent = 小机器人。新 agent 加一张点阵即可。
+
+文案一律英文。
+
+### 交互
+
+| 操作 | 效果 |
 | --- | --- |
-| 数字 | open + waiting 的总数 |
-| 颜色点 | 灰 空 / 蓝 有待办 / 橙 有 agent 在等 / 红 有逾期；新 waiting 或 request 到达时脉冲一次 |
-| Live Activity | 正在跑的 agent 数和最长耗时，如 "2 agents · 4m"；没有 agent 在跑时隐藏 |
+| 点整行 | 跳回那个会话的终端（Ghostty 定位到 tab，其他终端激活 App）；Done 顺带变 Idle |
+| Allow / Deny | 只在白名单内的审批上出现 |
+| ⌥⇧A / ⌥⇧D / ⌥⇧O | 批准 / 拒绝 / 跳转队首（排序最前的 Needs you 会话） |
+| 右键某一行 | "Remove from Panel"：手动移除（进程检测失效时的逃生口） |
+| 右键刘海 | Quit Perch |
 
-**展开态**（悬停触发）
+todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task、⌥⇧Space 快速录入、到期提醒）随 todo 一起从 UI 下线。
 
-排序固定：request → waiting → 逾期 → 今日到期 → 其余 open → notice。每行：来源图标、标题、相对时间、跳转按钮。request 行多一组内联按钮：Allow / Deny / 终端（白名单外只有"终端"），并展示完整命令原文。
+### 提醒
 
-交互：点标题即完成；按住 ⌥ 点是推迟 30 分钟；notice 到 `expires_at` 自动消失，点一下转成 task。
+只靠刘海脉冲（见状态表）。不发系统通知，不加提示音。全屏 App 下刘海可能不可见，M8 核实。
 
-**快捷键**
-
-| 键 | 作用 |
-| --- | --- |
-| ⌥⇧Space（可改） | 弹出快速录入，只支持 `@15:00` 和 `+30m` 两种时间语法 |
-| ⌥⇧A / ⌥⇧D | 批准 / 拒绝队首的 request，手不离键盘 |
-| ⌥⇧O | 跳到队首项的 link |
-
-**提醒**：`due_at` 到时 macOS 系统通知 + 刘海脉冲；waiting / request 到达时刘海脉冲，可选提示音。
-
-**实时性指标**：CLI 调用到刘海更新 ≤ 200 ms，靠 daemon 推事件，不轮询。
+**实时性指标**：CLI / hook 调用到刘海更新 ≤ 200 ms，靠 daemon 推事件，不轮询。
 
 ## 技术路线
 
@@ -216,7 +279,7 @@ Swift 全栈，一种语言：SwiftUI 做刘海 UI，daemon 和 CLI 用 Swift Ar
 
 ## 构建顺序
 
-六个里程碑，每一步都能独立验证再往下走；第三步完成时产品已经能日常使用。详见 `MILESTONES.md`。
+v0.1 六个里程碑 + v0.2 三个，每一步都能独立验证再往下走；第三步完成时产品已经能日常使用。详见 `MILESTONES.md`。
 
 | # | 里程碑 | 验证方式 |
 | --- | --- | --- |
@@ -226,6 +289,9 @@ Swift 全栈，一种语言：SwiftUI 做刘海 UI，daemon 和 CLI 用 Swift Ar
 | 4 | `PermissionRequest` + 白名单 | 刘海里 Allow 一次 `npm test`，终端不弹提示；`rm` 只显示"去终端"；超时后终端提示正常弹出 |
 | 5 | Codex 复用同一套脚本 | 同步骤 3、4，只改返回 JSON 的分支 |
 | 6 | Hermes 接入（M6 改为 shell hook） | Hermes 一轮 → Live Activity + notice；危险命令等审批时刘海变橙，回应后消失 |
+| 7 | 会话状态机：`sessions` 表、pid 存活检测、Claude Code / Codex 的 hook 映射重写（不动 UI） | 真实 Claude Code 和 Codex 会话，`perch session ls` 状态流转正确；关掉终端 tab 30 秒内消失 |
+| 8 | Agent 面板 UI；刘海上的 todo UI 下线 | 真实会话下颜色、数量、分组、跳转、审批都正确；CLI 到刘海 ≤ 200 ms |
+| 9 | Hermes 迁到会话模型（单独设计） | 待定 |
 
 `todo.md` 镜像和 `inbox.md` 收件箱放在第 1 步和第 2 步之间，工作量小，不单列。
 

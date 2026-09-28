@@ -1,8 +1,10 @@
 # Perch — CLAUDE.md
 
-Perch（栖）：住在 MacBook 刘海里的 agent 等待队列，顺带是我的待办。
-核心闭环只有一个：**agent 在等你 → 刘海亮 → 你就地处理或跳回去。**
+Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼看到每个 agent 会话在跑、在等你、跑完了还是出错了。
+核心闭环：**agent 在等你 → 刘海亮 → 你就地处理或跳回去。**
 产品需求见 `docs/PRD.md`，里程碑与验收标准见 `docs/MILESTONES.md`，**当前进度、下一步计划和交接说明见 `project.md`（新 session 先读它）**。先自用，但按可开源分发的形态设计。
+
+**2026-09-28 方向调整（v0.2）**：todo 暂时从刘海 UI 拿掉（底层和 CLI 不动，以后作为独立 tab 回来）；刘海只显示 agent 会话，一行一个会话，五种状态 Needs you 🟠 / Failed 🔴 / Running 🟢（呼吸）/ Done 🔵 / Idle ⚪。会话从 M7 起进 SQLite（`sessions` 表）。完整设计见 `docs/PRD.md` 的"v0.2 方向调整"和"Agent 面板"。下面凡标"（M7 前）"的描述是现状，M7 / M8 会改。
 
 ## 仓库结构
 
@@ -53,10 +55,14 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 `id`（4 位可手打，如 `t7k2`）、`title`、`kind`（task / notice / request）、`status`（open / waiting / done / dismissed）、`source`（自由字符串）、`due_at`、`link`、`meta`、`key`、request 专用的 `options` / `response` / `expires_at`、`created_at` / `updated_at`。
 `kind` 区分 task 和 notice 是刻意的："agent 完成了"不是待办，混在一起会稀释橙色信号。
 
+M7 起新增 `sessions` 表（schema v2，字段见 `docs/PRD.md` 数据模型）：会话状态只放这里。Claude Code / Codex 的 hook 不再产生 waiting / notice item，item 表里只剩刘海可回应的 request（经 `meta.session_id` 挂到会话）。清理：pid 存活检测（30 秒，比对进程启动时间防复用）为主，拿不到 pid 的 24 小时无事件兜底，`perch session rm` 手动移除。
+
 ## Hook 适配（M3 / M4 / M5）
 
 两家的 stdin JSON 结构、返回格式和 600 秒默认超时一致，共用一个适配器：`perch hook <agent>`（Swift，不写 shell 脚本；映射逻辑在 `PerchCore/Hooks.swift` 的 `HookAdapter`）。事件集合不同（M5 核对）：Codex 没有 `Notification` / `StopFailure` / `PostToolUseFailure`（waiting 只来自 PermissionRequest），多一个 `Interrupt`（Esc 打断一轮，不会再有 Stop）；`SessionEnd` 在 Codex 里总是同步跑、最多 3 秒。`perch hooks install <agent>` 按各家的事件表写。
 不阻塞的 hook 一律 `"async": true`（例外：Codex 的 `SessionEnd` 总是同步跑，装成同步、timeout 3；Codex 的 `Interrupt` 即使 async 也最多 3 秒）；适配器**不往 stdout 打任何东西**（SessionStart / UserPromptSubmit 的 stdout 会进模型上下文）、永远 exit 0，失败写 `~/.perch/hook.log`。
+
+下表是 M7 前的映射（Claude Code / Codex）。M7 改为：每个事件都更新会话状态（状态表见 `docs/PRD.md`"Agent 面板"），不再发 waiting / notice，只有白名单内的 PermissionRequest 仍发 request；阻塞、不打 stdout、exit 0、超时交给终端这些规则不变。
 
 | 事件 | 适配器行为 | 阻塞 agent |
 | --- | --- | --- |
@@ -81,7 +87,7 @@ Hermes Agent（M6 定：它跑在本机，不在 Docker 里，所以走 shell ho
 
 Hermes 的审批 hook 只能观察，不能代答，所以刘海**永远不能批准 Hermes 的命令**，只能提示去哪里回答。审批 hook 带的是 gateway 的 `session_key`（CLI 里是 `default`，gateway 是 `agent:main:<platform>:…`），不是 session_id。
 
-session（Live Activity）只在 perchd 内存里，不进 SQLite：`perch session start|end|ls`，事件 `session.started|ended`。
+session（Live Activity）只在 perchd 内存里，不进 SQLite：`perch session start|end|ls`，事件 `session.started|ended`。（M7 前；M7 起会话进 `sessions` 表，这条作废，`perch session start|end|ls` 保持兼容。）
 
 `perch add --kind request --wait` 的约定：有人回应 → stdout 打印回应值、exit 0；过期（`--expires`）/ 被 done / 被 rm → exit 3、不打印回应。适配器只在 exit 0 时返回决定，其余一律不返回，让终端原生提示接管。
 
@@ -115,6 +121,8 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 ## 未决问题（定了就更新这里）
 
 - ~~`link` 跳回终端的机制~~ 已定（M3）：`perch-terminal://<app>?id=&cwd=&bundle=`。Ghostty（≥ 1.3，AppleScript）在 UserPromptSubmit 时记下聚焦的 terminal id，跳转时 `focus` 那个 terminal，找不到按目录找，再不行激活 App；其他终端只激活 App（按 `__CFBundleIdentifier`）。
-- ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。
+- ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。M8 起快速录入随 todo UI 下线，⌥⇧A / D / O 保留（队首 = 排序最前的 Needs you 会话）。
+- Claude 桌面 App 里的会话能否沿父进程链找到 agent 的 pid：M7 实测，找不到就对这类会话用 24 小时超时。
+- 全屏 App 下刘海面板是否可见：M8 核实。
 - hook 等刘海的超时：先用 20 秒（M4 定，`perch hooks install claude-code --wait N` 可改），用一周后再看。
 - 开源许可证。
