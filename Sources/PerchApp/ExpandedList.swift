@@ -21,7 +21,15 @@ struct ExpandedList: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
                         ForEach(items) { item in
-                            ItemRow(item: item, now: queue.now) { option in queue.click(item, option: option) }
+                            if item.kind == .request {
+                                RequestRow(item: item, now: queue.now, isHead: item.id == queue.headRequest?.id) { value in
+                                    queue.respond(item, value)
+                                }
+                            } else {
+                                ItemRow(item: item, now: queue.now) { option in
+                                    Click.on(item, option: option) == .jump ? Jumper.jump(item.link) : queue.click(item, option: option)
+                                }
+                            }
                         }
                     }
                 }
@@ -61,8 +69,17 @@ struct ItemRow: View {
                 .foregroundStyle(accent)
                 .frame(width: 16)
                 .help(item.source)
-            title
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 3) {
+                title
+                if Click.on(item, option: false) == .jump {
+                    // Not approvable here: say so, and why.
+                    Text("Answer in the terminal" + (item.meta?["terminal_reason"].map { " · \($0)" } ?? ""))
+                        .font(.system(size: 11))
+                        .foregroundStyle(Signal.waiting.color.opacity(0.85))
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Text(RowFormat.time(item, now: now))
                 .font(.system(size: 11))
                 .monospacedDigit()
@@ -78,10 +95,10 @@ struct ItemRow: View {
         let text = Text(item.title)
             .font(.system(size: 13, weight: item.kind == .notice ? .regular : .medium))
             .foregroundStyle(.white.opacity(item.kind == .notice ? 0.6 : 0.95))
-            // Requests always show their full text: never approve something you cannot read.
-            .lineLimit(item.kind == .request ? nil : 1)
+            // Permission prompts always show their full command: never act on something you cannot read.
+            .lineLimit(showsEverything ? nil : 1)
             .truncationMode(.tail)
-            .fixedSize(horizontal: false, vertical: item.kind == .request)
+            .fixedSize(horizontal: false, vertical: showsEverything)
         if Click.on(item, option: false) == .none {
             text.help(item.title)
         } else {
@@ -90,7 +107,17 @@ struct ItemRow: View {
             }
             .buttonStyle(.plain)
             .onHover { hovering = $0 }
-            .help(item.kind == .notice ? "Click to keep as a task" : "Click: done · ⌥-click: snooze 30 min")
+            .help(help)
+        }
+    }
+
+    private var showsEverything: Bool { item.meta?["tool"] != nil }
+
+    private var help: String {
+        switch Click.on(item, option: false) {
+        case .keep: return "Click to keep as a task"
+        case .jump: return "Waiting in the terminal: click to go there\(item.meta?["terminal_reason"].map { " (\($0))" } ?? "")"
+        default: return "Click: done · ⌥-click: snooze 30 min"
         }
     }
 
@@ -104,6 +131,83 @@ struct ItemRow: View {
 
     private var timeColor: Color {
         isOverdue ? Signal.overdue.color : .white.opacity(0.45)
+    }
+}
+
+/// A request an agent is blocked on: the full text, what it is for, and its answers.
+/// Only requests that passed the allowlist get here with Allow; everything else is a "go to terminal" row.
+struct RequestRow: View {
+    var item: Item
+    var now: Date
+    /// First in the queue: ⌥⇧A / ⌥⇧D answer this one.
+    var isHead: Bool
+    var answer: (String) -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: RowFormat.symbol(source: item.source))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Signal.waiting.color)
+                .frame(width: 16)
+                .help(item.source)
+            VStack(alignment: .leading, spacing: 6) {
+                // Full text, never truncated or summarised: never approve something you cannot read.
+                Text(item.title)
+                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.95))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                if let context {
+                    Text(context).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).lineLimit(2)
+                }
+                HStack(spacing: 8) {
+                    ForEach(item.options ?? [], id: \.self) { option in
+                        Button { answer(option) } label: {
+                            Text(label(option)).font(.system(size: 11.5, weight: .semibold))
+                                .padding(.horizontal, 10).padding(.vertical, 3)
+                                .background(RoundedRectangle(cornerRadius: 6).fill(fill(option)))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                    }
+                    if item.link != nil {
+                        Button { Jumper.jump(item.link) } label: {
+                            Label("Terminal", systemImage: "terminal").font(.system(size: 11.5))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white.opacity(0.7))
+                    }
+                    Spacer()
+                    if isHead {
+                        Text("⌥⇧A · ⌥⇧D").font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.35))
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(RowFormat.time(item, now: now))
+                .font(.system(size: 11)).monospacedDigit()
+                .foregroundStyle(.white.opacity(0.45))
+                .fixedSize()
+        }
+        .padding(.vertical, 9)
+    }
+
+    private var context: String? {
+        let parts = [item.meta?["tool"].flatMap { $0 == "Bash" ? nil : $0 }, item.meta?["description"], item.meta?["project"]]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func label(_ option: String) -> String {
+        option.prefix(1).uppercased() + option.dropFirst()
+    }
+
+    private func fill(_ option: String) -> Color {
+        switch option {
+        case "allow": return Color(red: 0.2, green: 0.55, blue: 0.3)
+        case "deny": return Color(red: 0.55, green: 0.2, blue: 0.2)
+        default: return .white.opacity(0.15)
+        }
     }
 }
 

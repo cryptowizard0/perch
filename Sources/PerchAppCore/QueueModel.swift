@@ -35,6 +35,8 @@ public final class QueueModel: ObservableObject {
     public init() {}
 
     public var ordered: [Item] { state.ordered(now: now) }
+    /// The request ⌥⇧A / ⌥⇧D answer: the first one in queue order.
+    public var headRequest: Item? { ordered.first { $0.kind == .request } }
     /// nil when no agent is running.
     public var liveActivity: LiveActivity? {
         sessions.isEmpty ? nil : LiveActivity(sessionStarts: sessions.values.map(\.startedAt))
@@ -91,6 +93,11 @@ public final class QueueModel: ObservableObject {
     public func click(_ item: Item, option: Bool) {
         guard let request = Click.on(item, option: option).request(for: item) else { return }
         send(request)
+    }
+
+    /// Allow / Deny (or any of the request's options). The waiting hook prints the decision.
+    public func respond(_ item: Item, _ value: String) {
+        send(Request(op: .respond, id: item.id, value: value))
     }
 
     /// Quick entry: "回复 X 的邮件 @15:00" becomes a task due at 15:00 (see `QuickEntry`).

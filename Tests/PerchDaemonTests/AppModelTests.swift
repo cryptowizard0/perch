@@ -125,3 +125,26 @@ extension AppModelTests {
         #expect(model.liveActivity == nil)
     }
 }
+
+extension AppModelTests {
+    @Test func headRequestAndRespond() async throws {
+        let d = try TestDaemon()
+        let model = QueueModel()
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        try await until { model.online }
+        #expect(model.headRequest == nil)
+        _ = try d.client.send(Request(op: .add, item: Item(title: "a task")))
+        let a = try #require(try d.client.send(Request(op: .add, item: Item(title: "npm test", kind: .request))).item)
+        let b = try #require(try d.client.send(Request(op: .add, item: Item(title: "pytest", kind: .request))).item)
+        try await until { model.state.items.count == 3 }
+        // Same second: queue order breaks the tie, and the head follows it.
+        let ordered = [a, b].queueOrdered()
+        #expect(model.headRequest?.id == ordered[0].id)
+
+        model.respond(ordered[0], "allow")
+        try await until { model.state.items[ordered[0].id] == nil }
+        #expect(try d.client.send(Request(op: .get, id: ordered[0].id)).item?.response == "allow")
+        #expect(model.headRequest?.id == ordered[1].id)
+    }
+}

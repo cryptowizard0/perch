@@ -30,6 +30,15 @@ import Testing
         #expect(Click.keep.request(for: notice)?.patch == .init(kind: .task))
     }
 
+    @Test func permissionWaitingJumpsToTheTerminal() {
+        let permission = Item(title: "perch · rm -rf build", status: .waiting, link: "perch-terminal://ghostty?id=T",
+                              meta: ["tool": "Bash"])
+        #expect(Click.on(permission, option: false) == .jump)
+        #expect(Click.jump.request(for: permission) == nil)
+        // A waiting item without a tool (Notification) is still completed by a click.
+        #expect(Click.on(waiting, option: false) == .complete)
+    }
+
     @Test func requestsIgnoreClicks() {
         #expect(Click.on(request, option: false) == Click.none)
         #expect(Click.on(request, option: true) == Click.none)

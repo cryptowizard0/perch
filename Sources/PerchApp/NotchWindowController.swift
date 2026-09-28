@@ -89,8 +89,11 @@ final class NotchWindowController {
         let items = queue.ordered
         guard queue.online, !items.isEmpty else { return band + ExpandedList.messageHeight + 16 }
         let rows = items.reduce(CGFloat(0)) { total, item in
-            let lines = item.kind == .request ? CGFloat(min(8, item.title.count / 52 + 1)) : 1
-            return total + ExpandedList.rowHeight + (lines - 1) * 16
+            let full = item.kind == .request || item.meta?["tool"] != nil
+            let lines = full ? CGFloat(min(8, item.title.count / 48 + 1)) : 1
+            // Requests add a context line and a row of buttons.
+            let extra: CGFloat = item.kind == .request ? 44 : (item.meta?["tool"] != nil && item.status == .waiting ? 18 : 0)
+            return total + ExpandedList.rowHeight + (lines - 1) * 16 + extra
         }
         return band + min(rows, 420) + 16
     }

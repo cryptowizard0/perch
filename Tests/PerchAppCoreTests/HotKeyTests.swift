@@ -7,6 +7,12 @@ import Testing
         #expect(HotKey.quickEntryDefault.description == "⌥⇧Space")
     }
 
+    @Test func queueShortcuts() {
+        #expect(HotKey.approve == HotKey("⌥⇧A"))
+        #expect(HotKey.deny == HotKey("⌥⇧D"))
+        #expect(HotKey.jump == HotKey("⌥⇧O"))
+    }
+
     @Test func parsesWordsAndSymbols() {
         #expect(HotKey("opt+shift+space") == .quickEntryDefault)
         #expect(HotKey("⌥⇧Space") == .quickEntryDefault)

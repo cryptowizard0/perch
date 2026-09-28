@@ -9,6 +9,8 @@ public enum Click: Equatable, Sendable {
     case snooze
     /// A notice: keep it as a task (it stops expiring).
     case keep
+    /// A permission prompt waiting in the terminal: go there (that is the only way to answer it).
+    case jump
     /// Requests are answered with their own buttons (M4), never by clicking the text.
     case none
 
@@ -18,7 +20,9 @@ public enum Click: Equatable, Sendable {
         switch item.kind {
         case .request: return .none
         case .notice: return .keep
-        case .task: return option ? .snooze : .complete
+        case .task:
+            if item.status == .waiting && item.meta?["tool"] != nil && item.link != nil { return .jump }
+            return option ? .snooze : .complete
         }
     }
 
@@ -28,7 +32,7 @@ public enum Click: Equatable, Sendable {
         case .complete: return Request(op: .done, id: item.id)
         case .snooze: return Request(op: .update, id: item.id, patch: .init(dueAt: now.addingTimeInterval(Self.snoozeInterval)))
         case .keep: return Request(op: .update, id: item.id, patch: .init(kind: .task))
-        case .none: return nil
+        case .jump, .none: return nil
         }
     }
 }
