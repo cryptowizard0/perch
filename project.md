@@ -214,6 +214,9 @@ scripts/install.sh      # 升级二进制，并把 Codex hook 写进 ~/.codex/ho
 - [ ] 让它改文件（apply_patch）或跑 `rm -rf <临时目录>`：Codex 立刻弹原生审批，刘海只有一条"去终端"，批准后橙色消失
 - [ ] 一轮跑完 → 灰色 notice，Live Activity 消失；跑到一半按 Esc → Live Activity 也消失（Interrupt）
 - [ ] `~/.perch/hook.log` 没有异常
+- 已用 `codex exec --dangerously-bypass-hook-trust` 实测（2026-09-28）：UserPromptSubmit → session.started，Stop → session.ended + notice（"perch-m5 · ok"），Codex 没报任何 hook 错误（Stop 的空 stdout 没问题），`hook.log` 为空；hook 子进程继承了 `__CFBundleIdentifier`（从 Claude 桌面 App 启动时是 `com.anthropic.claudefordesktop`）。
+- `codex exec` 是非交互的，不会发审批（"does not allow requests for escalated permissions"），所以 PermissionRequest、Interrupt 只能在交互式 codex 里验收。
+- 测试时不要 `pkill -f "perch watch"`：会把别的会话的 watch 一起杀掉，只按 PID 杀自己起的进程。
 - 风险：Codex 的 hook 子进程是否继承 `TERM_PROGRAM` / `__CFBundleIdentifier`（决定跳转按钮），以实测为准；`async` hook 在 Codex 里是否真的不阻塞，也以实测为准。
 
 ### M2 协议扩展：`update`（已实现）
