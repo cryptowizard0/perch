@@ -37,12 +37,12 @@
 - [x] `PermissionRequest` 适配：白名单内发 request 等刘海（默认 20 秒），超时 / 白名单外不返回决定，改发"去终端"的 waiting
 - [x] 白名单配置文件 + 默认值（`~/.perch/allowlist.json`，`perch allowlist`）；白名单外只显示"去终端"
 - [x] 展开态 request 行：完整命令原文 + Allow / Deny / 终端；⌥⇧A / ⌥⇧D 处理队首（只在有 request 时注册），⌥⇧O 跳队首
-- [ ] 验收：刘海里 Allow 一次 `npm test`，终端不弹提示；`rm` 只显示"去终端"；超时后终端提示正常弹出
+- [x] 验收：刘海里 Allow 一次 `npm test`，终端不弹提示；`rm` 只显示"去终端"；超时后终端提示正常弹出
 
 ## M5 — Codex 复用
 
 - [x] 同一套适配器 `perch hook codex`（核对后返回 JSON 与 Claude Code 相同，不用分支；新增 `Interrupt` 结束一轮）；`perch hooks install codex` 写 `~/.codex/hooks.json`，`uninstall` 干净移除
-- [ ] 验收：同 M3、M4（Codex 没有 Notification：白名单外的命令靠 PermissionRequest 的"去终端"变橙）
+- [x] 验收：同 M3、M4（Codex 没有 Notification：白名单外的命令靠 PermissionRequest 的"去终端"变橙）
 
 ## M6 — Hermes 接入
 
@@ -51,4 +51,4 @@
 - [x] `perch hook hermes`：`pre_llm_call` / `post_llm_call` / `on_session_end` 维护 Live Activity 和 notice；`pre_approval_request` 生成"去回答"的 waiting（完整命令），`post_approval_response` resolve
 - [x] `perch hooks install hermes` 写 `~/.hermes/config.yaml` 的 `hooks:`（带标记的块），`uninstall` 干净移除；已有自己的 `hooks:` 时拒绝
 - [x] 刘海：gateway 的审批显示"Answer in Telegram"等
-- [ ] 验收：Hermes 一轮 → Live Activity + notice；让它跑 `rm -rf <临时目录>` → 刘海变橙，在 Hermes 里回应后消失
+- [x] 验收：Hermes 一轮 → Live Activity + notice；让它跑 `rm -rf <临时目录>` → 刘海变橙，在 Hermes 里回应后消失

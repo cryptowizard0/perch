@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-09-28 · M4、M5、M6 代码完成，等真实会话验收
+最后更新：2026-09-28 · M1–M6 全部完成（M4–M6 由用户确认验收通过）
 
 ## 总览
 
@@ -12,9 +12,9 @@
 | M1 | daemon + CLI + SQLite + watch | ✅ 完成 | 10 项全勾，73 个测试通过 |
 | M2 | 刘海 UI | ✅ 完成 | 8 项全勾；CLI → 刘海 均值 11 ms。悬停、点击用户已确认 |
 | M3 | Claude Code 被动接入（UserPromptSubmit / Notification / Stop） | ✅ 完成 | 152 个测试；用户在 Ghostty 和 Claude 桌面 App 里实测：变橙、notice、跳回原 tab 都正常 |
-| M4 | PermissionRequest + 白名单 | 🔶 代码完成 | 176 个测试；剩重新安装 + 真实会话验收（见"M4 进度"） |
-| M5 | Codex 复用同一套 hook 脚本 | 🔶 代码完成 | 剩重新安装 + codex 里 `/hooks` 信任 + 真实会话验收（见"M5 进度"） |
-| M6 | Hermes 接入（改为 shell hook） | 🔶 代码完成 | 剩安装 + Hermes 里确认 hook + 重启 gateway + 真实会话验收（见"M6 进度"） |
+| M4 | PermissionRequest + 白名单 | ✅ 完成 | 用户确认验收通过（2026-09-28） |
+| M5 | Codex 复用同一套 hook 脚本 | ✅ 完成 | 用户确认验收通过（2026-09-28） |
+| M6 | Hermes 接入（改为 shell hook） | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 
 ## 开发环境（重要）
 
@@ -170,17 +170,17 @@ scripts/install.sh          # perch/perchd → ~/.local/bin，Perch.app → ~/Ap
 | 4.1 | 白名单 | ✅ | `Allowlist`（PerchCore）+ `~/.perch/allowlist.json` + `perch allowlist show/check/init`；缺文件用默认值，坏文件什么都不放（fail closed） |
 | 4.2 | PermissionRequest 适配 | ✅ | 白名单内：request + 等 `--wait` 秒，回应就打印 `hookSpecificOutput.decision.behavior`；超时 / 白名单外：不打印，发"去终端" waiting（key 同 Notification，迟到的 permission_prompt 不会覆盖命令原文）。新增 PostToolUse / PostToolUseFailure：工具跑了就 resolve waiting，不再等到 Stop |
 | 4.3 | 刘海 request 行 + 快捷键 | ✅ | 完整命令（等宽、可选中）、用途 · 项目、Allow / Deny / Terminal；"去终端"行写明原因，点标题跳终端；GlobalHotKey 按 id 分发（修了多个热键互相触发的问题） |
-| 4.4 | 验收 | ⬜ | 见下 |
+| 4.4 | 验收 | ✅ | 用户确认通过（2026-09-28） |
 
 ### M4 验收步骤
 
 ```
 scripts/install.sh      # 升级二进制和 App，并把新的 hook（PermissionRequest / PostToolUse*）写进 settings.json
 ```
-- [ ] Ghostty 里让 claude 跑 `npm test`（或 `git status`）：终端显示 "Waiting for Perch…" 转圈，刘海出现 request；点 Allow（或 ⌥⇧A）→ 终端不弹提示，命令直接跑
-- [ ] 让它跑 `rm -rf <某个临时目录>`：终端立刻弹原生提示；刘海只有一条"Answer in the terminal · …"，点它回到那个 tab；在终端批准后橙色马上消失
-- [ ] 再来一次 `npm test`，不理刘海：20 秒后终端原生提示正常弹出，刘海那条变成"去终端"
-- [ ] Deny（⌥⇧D）：Claude 收到 "Denied by the user from the Perch notch." 并继续
+- [x] Ghostty 里让 claude 跑 `npm test`（或 `git status`）：终端显示 "Waiting for Perch…" 转圈，刘海出现 request；点 Allow（或 ⌥⇧A）→ 终端不弹提示，命令直接跑
+- [x] 让它跑 `rm -rf <某个临时目录>`：终端立刻弹原生提示；刘海只有一条"Answer in the terminal · …"，点它回到那个 tab；在终端批准后橙色马上消失
+- [x] 再来一次 `npm test`，不理刘海：20 秒后终端原生提示正常弹出，刘海那条变成"去终端"
+- [x] Deny（⌥⇧D）：Claude 收到 "Denied by the user from the Perch notch." 并继续
 - 风险：hook 运行期间终端是否真的只转圈、不同时弹提示框（文档没写死），以实测为准。
 
 ## M5 进度（Codex）
@@ -201,7 +201,7 @@ scripts/install.sh      # 升级二进制和 App，并把新的 hook（Permissio
 | --- | --- | --- | --- |
 | 5.1 | `perch hook codex` | ✅ | 同一个适配器；新增 Interrupt；Codex stdin 的单测 + 真 perchd 的端到端测试（`CodexHookTests`） |
 | 5.2 | `perch hooks install|uninstall codex` | ✅ | `~/.codex/hooks.json`（`$CODEX_HOME`）；install.sh 在有 `~/.codex` 时一起装；装完提示去 `/hooks` 信任 |
-| 5.3 | 验收 | ⬜ | 见下 |
+| 5.3 | 验收 | ✅ | 用户确认通过（2026-09-28） |
 
 ### M5 验收步骤
 
@@ -209,11 +209,11 @@ scripts/install.sh      # 升级二进制和 App，并把新的 hook（Permissio
 scripts/install.sh      # 升级二进制，并把 Codex hook 写进 ~/.codex/hooks.json
 ```
 然后在 Ghostty 里开 `codex`，先 `/hooks` 把 6 个 Perch hook 标为信任：
-- [ ] 发一条 prompt → 刘海左侧出现 "1 agent · <1m"（来源图标是 `</>`）
-- [ ] 让它跑 `cargo test`（或 `git status`，需要审批的沙箱模式下）：刘海出现 request，Allow → Codex 不弹审批直接跑；Deny → Codex 收到拒绝
-- [ ] 让它改文件（apply_patch）或跑 `rm -rf <临时目录>`：Codex 立刻弹原生审批，刘海只有一条"去终端"，批准后橙色消失
-- [ ] 一轮跑完 → 灰色 notice，Live Activity 消失；跑到一半按 Esc → Live Activity 也消失（Interrupt）
-- [ ] `~/.perch/hook.log` 没有异常
+- [x] 发一条 prompt → 刘海左侧出现 "1 agent · <1m"（来源图标是 `</>`）
+- [x] 让它跑 `cargo test`（或 `git status`，需要审批的沙箱模式下）：刘海出现 request，Allow → Codex 不弹审批直接跑；Deny → Codex 收到拒绝
+- [x] 让它改文件（apply_patch）或跑 `rm -rf <临时目录>`：Codex 立刻弹原生审批，刘海只有一条"去终端"，批准后橙色消失
+- [x] 一轮跑完 → 灰色 notice，Live Activity 消失；跑到一半按 Esc → Live Activity 也消失（Interrupt）
+- [x] `~/.perch/hook.log` 没有异常
 - 已用 `codex exec --dangerously-bypass-hook-trust` 实测（2026-09-28）：UserPromptSubmit → session.started，Stop → session.ended + notice（"perch-m5 · ok"），Codex 没报任何 hook 错误（Stop 的空 stdout 没问题），`hook.log` 为空；hook 子进程继承了 `__CFBundleIdentifier`（从 Claude 桌面 App 启动时是 `com.anthropic.claudefordesktop`）。
 - `codex exec` 是非交互的，不会发审批（"does not allow requests for escalated permissions"），所以 PermissionRequest、Interrupt 只能在交互式 codex 里验收。
 - 测试时不要 `pkill -f "perch watch"`：会把别的会话的 watch 一起杀掉，只按 PID 杀自己起的进程。
@@ -237,7 +237,7 @@ scripts/install.sh      # 升级二进制，并把 Codex hook 写进 ~/.codex/ho
 | 6.1 | 适配器 | ✅ | `HookAdapter` 加 Hermes 分支；`HermesAdapterTests` + 真 perchd 的 `HermesHookTests` |
 | 6.2 | `perch hooks install|uninstall hermes` | ✅ | config.yaml 末尾的标记块；已有非空 `hooks:` 拒绝，`hooks: {}` 之类会替换；install.sh 在有 `~/.hermes` 时一起装（失败不影响其余安装） |
 | 6.3 | 刘海文案 | ✅ | `RowFormat.answerHint`：终端 / "Answer in Telegram" |
-| 6.4 | 验收 | ⬜ | 见下 |
+| 6.4 | 验收 | ✅ | 用户确认通过（2026-09-28） |
 
 ### M6 验收步骤
 
@@ -248,10 +248,10 @@ hermes gateway restart          # gateway 才会加载新 hook
 hermes hooks list               # 5 个都应是 allowed
 ```
 - 2026-09-28 已装到本机（`scripts/install.sh`），5 个 hook 已记入 Hermes 的 allowlist，gateway 重启后加载无警告；`hermes -z` 一轮实测：出现 notice "tmp · ok"，session 正常结束，`hook.log` 为空。
-- [ ] 终端里 `hermes` 发一条消息 → 刘海出现 "1 agent · …"（纸飞机图标）；回复后 Live Activity 消失，出现灰色 notice
-- [ ] 让它跑 `rm -rf <临时目录>`：刘海变橙，显示完整命令和原因（"Answer in the terminal · …"）；在 Hermes 里回应后橙色消失
-- [ ] 从 Telegram（gateway）让它跑一条危险命令：刘海显示 "Answer in Telegram"；在 Telegram 里回应后消失
-- [ ] `~/.perch/hook.log` 没有异常；Hermes 每轮没有明显变慢（hook 同步执行）
+- [x] 终端里 `hermes` 发一条消息 → 刘海出现 "1 agent · …"（纸飞机图标）；回复后 Live Activity 消失，出现灰色 notice
+- [x] 让它跑 `rm -rf <临时目录>`：刘海变橙，显示完整命令和原因（"Answer in the terminal · …"）；在 Hermes 里回应后橙色消失
+- [x] 从 Telegram（gateway）让它跑一条危险命令：刘海显示 "Answer in Telegram"；在 Telegram 里回应后消失
+- [x] `~/.perch/hook.log` 没有异常；Hermes 每轮没有明显变慢（hook 同步执行）
 - 代码审查后修的（2026-09-28）：审批 key 加 `tool_call_id`（同一聊天排队的多个审批、共用 `default` 的多个 CLI 会话不再互相清掉）；审批 15 分钟过期兜底（Hermes 崩了不会永远橙）；忽略 `platform: subagent` 和后台复盘（`agent/background_review.py`，共用 session_id，靠 prompt 结尾 "You can only call memory and skill management tools" 识别）；Hermes 重写 config.yaml 丢标记后仍能认出 / 卸载 Perch 的 hook；CLI 审批跳到同目录那一轮的终端；gateway 事件一律不带终端链接。
 - 实测延迟（release，隔离 perchd）：`perch hook hermes` 处理带 5 MB conversation_history 的 `pre_llm_call` 中位 12 ms。
 - 仍有的限制：gateway 的每条消息都会留一条 notice（10 分钟消失），嫌吵再说；后台复盘的 `on_session_end` 没法识别，若和你的下一轮重叠，会提前结束那一轮的 Live Activity；gateway 审批没有终端可跳，点标题会直接标完成（手动清掉的出口）。
