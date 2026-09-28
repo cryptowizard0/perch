@@ -11,9 +11,12 @@ final class TestDaemon {
     let server: Server
     var client: PerchClient { PerchClient(socketPath: daemon.config.socketPath) }
     var httpPort: UInt16 { server.httpPort! }
+    /// False to keep the home for a second perchd (restart tests).
+    let removeHome: Bool
 
-    init(home: URL = TestDaemon.freshHome(), now: @escaping () -> Date = Date.init) throws {
+    init(home: URL = TestDaemon.freshHome(), removeHome: Bool = true, now: @escaping () -> Date = Date.init) throws {
         self.home = home
+        self.removeHome = removeHome
         daemon = try Daemon(config: DaemonConfig(home: home), now: now)
         server = Server(daemon: daemon)
         try server.listenUnix(path: daemon.config.socketPath)
@@ -26,7 +29,7 @@ final class TestDaemon {
 
     deinit {
         server.stop()
-        try? FileManager.default.removeItem(at: home)
+        if removeHome { try? FileManager.default.removeItem(at: home) }
     }
 
     /// Raw HTTP/1.1 exchange over a TCP socket; returns (status, body).

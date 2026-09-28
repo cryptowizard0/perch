@@ -1,7 +1,7 @@
 import Foundation
 
-/// "2 agents · 4m": how many agent sessions are running and how long the oldest has been going.
-/// Fed by perchd's sessions (hooks: UserPromptSubmit starts a turn, Stop ends it); hidden when none run.
+/// "2 agents · 4m": how many agent sessions are running and how long the oldest turn has been going.
+/// Fed by perchd's running sessions (hooks: UserPromptSubmit starts a turn, Stop ends it); hidden when none run.
 /// Minute resolution, like the notch's tick: under a minute reads "<1m".
 public struct LiveActivity: Equatable, Sendable {
     public var sessionStarts: [Date]

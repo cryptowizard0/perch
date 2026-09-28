@@ -7,10 +7,15 @@ public struct SQLiteError: Error, CustomStringConvertible {
 
 enum SQLValue {
     case text(String)
+    case int(Int64)
     case null
 
     init(_ string: String?) {
         self = string.map(SQLValue.text) ?? .null
+    }
+
+    init(_ int: Int32?) {
+        self = int.map { .int(Int64($0)) } ?? .null
     }
 }
 
@@ -52,6 +57,7 @@ final class SQLiteDatabase {
             let index = Int32(i + 1)
             switch arg {
             case .text(let s): csqlite_bind_text(stmt, index, s)
+            case .int(let n): sqlite3_bind_int64(stmt, index, n)
             case .null: sqlite3_bind_null(stmt, index)
             }
         }
@@ -91,6 +97,10 @@ final class SQLiteDatabase {
 
         func int(_ column: Int32) -> Int {
             Int(sqlite3_column_int64(stmt, column))
+        }
+
+        func optionalInt(_ column: Int32) -> Int? {
+            sqlite3_column_type(stmt, column) == SQLITE_NULL ? nil : int(column)
         }
     }
 }

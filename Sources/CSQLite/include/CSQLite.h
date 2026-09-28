@@ -25,6 +25,7 @@ int sqlite3_prepare_v2(sqlite3 *db, const char *sql, int nbyte, sqlite3_stmt **s
 int sqlite3_finalize(sqlite3_stmt *stmt);
 int sqlite3_bind_text(sqlite3_stmt *stmt, int index, const char *text, int nbyte, void (*destructor)(void *));
 int sqlite3_bind_null(sqlite3_stmt *stmt, int index);
+int sqlite3_bind_int64(sqlite3_stmt *stmt, int index, long long value);
 int sqlite3_step(sqlite3_stmt *stmt);
 int sqlite3_changes(sqlite3 *db);
 int sqlite3_column_type(sqlite3_stmt *stmt, int column);

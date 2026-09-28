@@ -15,7 +15,7 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var now = Date()
     /// Bumped whenever the notch should pulse once.
     @Published public private(set) var pulse = 0
-    /// Agent turns in progress, by session id (Live Activity).
+    /// Agent sessions by id, in any state; the Live Activity counts the running ones.
     @Published public private(set) var sessions: [String: Session] = [:]
     /// The last failed action, shown briefly in the expanded notch.
     @Published public private(set) var flash: String?
@@ -39,7 +39,8 @@ public final class QueueModel: ObservableObject {
     public var headRequest: Item? { ordered.first { $0.kind == .request } }
     /// nil when no agent is running.
     public var liveActivity: LiveActivity? {
-        sessions.isEmpty ? nil : LiveActivity(sessionStarts: sessions.values.map(\.startedAt))
+        let running = sessions.values.filter { $0.status == .running }
+        return running.isEmpty ? nil : LiveActivity(sessionStarts: running.map(\.turnStartedAt))
     }
     public var summary: Summary { state.summary(now: now) }
 
@@ -61,15 +62,15 @@ public final class QueueModel: ObservableObject {
 
     public func handle(_ update: QueueConnection.Update) {
         switch update {
-        case .snapshot(let items, let running):
+        case .snapshot(let items, let all):
             state.replace(with: items)
-            sessions = Dictionary(running.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+            sessions = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
             online = true
             offlineReason = nil
         case .event(let event):
             if state.apply(event) { pulse += 1 }
         case .session(let event):
-            sessions[event.session.id] = event.type == .started ? event.session : nil
+            sessions[event.session.id] = event.type == .ended ? nil : event.session
         case .offline(let reason):
             online = false
             offlineReason = reason

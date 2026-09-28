@@ -20,6 +20,30 @@ import Testing
         #expect(try Store(path: path).count() == 0)
     }
 
+    /// A v1 database (items only, from before sessions were stored) gains the sessions table and keeps its items.
+    @Test func migratesAV1Database() throws {
+        let path = "/tmp/perch-test-v1-\(UUID().uuidString.prefix(8)).db"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            let v1 = try SQLiteDatabase(path: path)
+            try v1.execute("""
+            CREATE TABLE items (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL,
+                source TEXT NOT NULL, due_at TEXT, link TEXT, meta TEXT, key TEXT UNIQUE, options TEXT, response TEXT,
+                expires_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            INSERT INTO items VALUES ('t7k2', 'kept', 'task', 'open', 'human', NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z');
+            PRAGMA user_version = 1;
+            """)
+        }
+        let store = try Store(path: path)
+        #expect(try store.get(id: "t7k2")?.title == "kept")
+        try store.save(Session(id: "s1", source: "codex", title: "perch", startedAt: Date(timeIntervalSince1970: 1_800_000_000)))
+        #expect(try store.sessions().map(\.id) == ["s1"])
+        var version = 0
+        try store.db.run("PRAGMA user_version") { version = $0.int(0) }
+        #expect(version == Store.schemaVersion && version == 2)
+    }
+
     @Test func pingOverUnixSocket() throws {
         let d = try TestDaemon()
         let response = try d.client.send(Request(op: .ping))

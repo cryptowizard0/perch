@@ -35,7 +35,7 @@ public final class Daemon {
         try FileManager.default.createDirectory(at: config.home, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         service = Service(store: try Store(path: config.databasePath), now: now)
-        sessions = SessionRegistry(now: now)
+        sessions = SessionRegistry(store: service.store, now: now)
         mirror = MirrorWriter(path: config.mirrorPath)
         if !FileManager.default.fileExists(atPath: config.inboxPath) {
             FileManager.default.createFile(atPath: config.inboxPath, contents: nil)
@@ -60,10 +60,10 @@ public final class Daemon {
     public func perform(_ request: Request) -> Response {
         queue.sync {
             if request.op.isSession {
-                let (response, events) = sessions.handle(request)
-                publish(sessionEvents: events)
-                scheduleExpiry()
-                return response
+                let outcome = sessions.handle(request)
+                publish(sessionEvents: outcome.events)
+                afterChange(outcome.resolveRequestsOf.map(service.resolveRequests(session:)) ?? [])
+                return outcome.response
             }
             let (response, events) = service.handle(request)
             afterChange(events)
@@ -125,13 +125,14 @@ public final class Daemon {
         return []
     }
 
-    /// One timer for the earliest `expires_at` or stale session; it sweeps, broadcasts and re-arms itself.
+    /// One timer for the earliest `expires_at` or done session to idle; it sweeps, broadcasts and re-arms itself.
+    /// Measured on the daemon's clock, so tests that move it get the timer they expect.
     private func scheduleExpiry() {
         expiryTimer?.cancel()
         expiryTimer = nil
         guard let next = [service.nextExpiry(), sessions.nextExpiry()].compactMap({ $0 }).min() else { return }
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + max(0, next.timeIntervalSinceNow), leeway: .milliseconds(50))
+        timer.schedule(deadline: .now() + max(0, next.timeIntervalSince(service.now())), leeway: .milliseconds(50))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             self.publish(sessionEvents: self.sessions.sweep())

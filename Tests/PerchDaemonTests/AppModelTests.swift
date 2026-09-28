@@ -119,6 +119,11 @@ extension AppModelTests {
         try await until { model.sessions.count == 2 }
         #expect(model.liveActivity?.text(now: Date()) == "2 agents · 4m")
 
+        // Only running sessions count: a finished turn leaves the Live Activity but stays a session.
+        _ = try d.client.send(Request(op: .sessionReport, report: SessionReport(id: "a", kind: .stop, at: Date())))
+        try await until { model.sessions["a"]?.status == .done }
+        #expect(model.liveActivity?.text(now: Date()) == "1 agent · <1m")
+
         _ = try d.client.send(Request(op: .sessionEnd, id: "a"))
         _ = try d.client.send(Request(op: .sessionEnd, id: "b"))
         try await until { model.sessions.isEmpty }

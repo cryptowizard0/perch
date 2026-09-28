@@ -1,10 +1,10 @@
 import Foundation
 import PerchCore
 
-/// The `items` table. Columns map 1:1 to `Item`; dates are ISO-8601 UTC text, `meta` / `options` are JSON text.
-/// Only perchd opens this database.
+/// The `items` and `sessions` tables. Columns map 1:1 to `Item` / `Session`; dates are ISO-8601 UTC text,
+/// `meta` / `options` are JSON text. Only perchd opens this database.
 public final class Store {
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
 
     let db: SQLiteDatabase
 
@@ -135,7 +135,7 @@ public final class Store {
         )
     }
 
-    private static let dateFormatter = ISO8601DateFormatter()
+    static let dateFormatter = ISO8601DateFormatter()
 
     static func formatDate(_ date: Date) -> String {
         dateFormatter.string(from: date)
@@ -175,5 +175,109 @@ public final class Store {
             PRAGMA user_version = 1;
             """)
         }
+        if version < 2 {
+            try db.execute("""
+            CREATE TABLE sessions (
+                id              TEXT PRIMARY KEY,
+                source          TEXT NOT NULL,
+                title           TEXT NOT NULL,
+                cwd             TEXT,
+                link            TEXT,
+                status          TEXT NOT NULL CHECK (status IN ('waiting', 'failed', 'running', 'done', 'idle')),
+                prompt          TEXT,
+                last_message    TEXT,
+                detail          TEXT,
+                error           TEXT,
+                pid             INTEGER,
+                pid_started_at  TEXT,
+                started_at      TEXT NOT NULL,
+                turn_started_at TEXT NOT NULL,
+                status_at       TEXT NOT NULL,
+                updated_at      TEXT NOT NULL
+            );
+            PRAGMA user_version = 2;
+            """)
+        }
+    }
+}
+
+// MARK: - Sessions
+
+extension Store {
+    static let sessionColumns = """
+    id, source, title, cwd, link, status, prompt, last_message, detail, error, pid, pid_started_at, \
+    started_at, turn_started_at, status_at, updated_at
+    """
+
+    /// Inserts or overwrites the row with `session.id`.
+    public func save(_ s: Session) throws {
+        let values: [SQLValue] = [
+            .text(s.id), .text(s.source), .text(s.title), SQLValue(s.cwd), SQLValue(s.link), .text(s.status.rawValue),
+            SQLValue(s.prompt), SQLValue(s.lastMessage), SQLValue(s.detail), SQLValue(s.error),
+            SQLValue(s.pid), SQLValue(s.pidStartedAt.map(Self.formatDate)),
+            .text(Self.formatDate(s.startedAt)), .text(Self.formatDate(s.turnStartedAt)),
+            .text(Self.formatDate(s.statusAt)), .text(Self.formatDate(s.updatedAt)),
+        ]
+        let marks = Array(repeating: "?", count: values.count).joined(separator: ", ")
+        try db.run("INSERT OR REPLACE INTO sessions (\(Self.sessionColumns)) VALUES (\(marks))", values)
+    }
+
+    @discardableResult
+    public func deleteSession(id: String) throws -> Bool {
+        try db.run("DELETE FROM sessions WHERE id = ?", [.text(id)])
+        return db.changes > 0
+    }
+
+    public func session(id: String) throws -> Session? {
+        try selectSessions("WHERE id = ?", [.text(id)]).first
+    }
+
+    /// Oldest first.
+    public func sessions() throws -> [Session] {
+        try selectSessions("", [])
+    }
+
+    /// Done sessions whose `status_at` is at or before `date`.
+    public func sessions(doneBefore date: Date) throws -> [Session] {
+        try selectSessions("WHERE status = 'done' AND status_at <= ?", [.text(Self.formatDate(date))])
+    }
+
+    /// The earliest `status_at` among done sessions.
+    public func earliestDone() throws -> Date? {
+        var earliest: String?
+        try db.run("SELECT MIN(status_at) FROM sessions WHERE status = 'done'") { earliest = $0.text(0) }
+        return earliest.flatMap { Self.dateFormatter.date(from: $0) }
+    }
+
+    private func selectSessions(_ tail: String, _ args: [SQLValue]) throws -> [Session] {
+        var sessions: [Session] = []
+        try db.run("SELECT \(Self.sessionColumns) FROM sessions \(tail) ORDER BY started_at, id", args) { row in
+            sessions.append(try Self.session(from: row))
+        }
+        return sessions
+    }
+
+    private static func session(from row: SQLiteDatabase.Row) throws -> Session {
+        func date(_ column: Int32) throws -> Date {
+            guard let text = row.text(column), let date = dateFormatter.date(from: text) else {
+                throw SQLiteError(description: "bad date in session \(row.text(0) ?? "?") column \(column)")
+            }
+            return date
+        }
+        guard let id = row.text(0), let status = row.text(5).flatMap(SessionStatus.init(rawValue:)) else {
+            throw SQLiteError(description: "bad id/status in session \(row.text(0) ?? "?")")
+        }
+        var s = Session(id: id, source: row.text(1) ?? "unknown", title: row.text(2), link: row.text(4),
+                        startedAt: try date(12), status: status, cwd: row.text(3))
+        s.prompt = row.text(6)
+        s.lastMessage = row.text(7)
+        s.detail = row.text(8)
+        s.error = row.text(9)
+        s.pid = row.optionalInt(10).map { Int32(truncatingIfNeeded: $0) }
+        s.pidStartedAt = row.text(11).flatMap { dateFormatter.date(from: $0) }
+        s.turnStartedAt = try date(13)
+        s.statusAt = try date(14)
+        s.updatedAt = try date(15)
+        return s
     }
 }

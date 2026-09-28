@@ -14,10 +14,13 @@ import Foundation
 /// - `get` / `done` / `remove` + `id` → `item` (`remove` returns the deleted item); `done` also takes `key` instead of `id`
 /// - `respond` + `id` + `value` → `item`; the request is closed with `status: done`
 /// - `update` + `id` + `patch` → `item`. Only the fields set in `patch` change; see `Request.Patch`
-/// - `session_start` + `session` → a running agent turn (Live Activity); again with the same id restarts the clock
-/// - `session_end` + `id` (+ `at`) → the turn is over. Both ignore messages older than the last one for that id,
-///   because async hooks can arrive out of order
-/// - `sessions` → `sessions`, the running turns
+/// - `session_report` + `report` → `sessions` (the session after the report, or the removed one for `end`; empty when
+///   the report was older than the last one for that id — async hooks arrive out of order). See `SessionReport`
+/// - `session_start` + `session` → like a `prompt` report: the session is running a new turn
+/// - `session_end` + `id` (+ `at`) → like an `end` report: the session is removed (and returned)
+/// - `session_seen` + `id` → `sessions`; a done session becomes idle (someone looked at the result)
+/// - `session_remove` + `id` → `sessions`, the removed one; a later report brings it back
+/// - `sessions` → `sessions`, all of them
 /// - `watch` → stream of events (item events in `event`, session events in `session_event`)
 public struct Request: Codable, Sendable {
     public enum Op: String, Codable, Sendable {
@@ -25,6 +28,9 @@ public struct Request: Codable, Sendable {
         case sessionStart = "session_start"
         case sessionEnd = "session_end"
         case sessions
+        case sessionReport = "session_report"
+        case sessionSeen = "session_seen"
+        case sessionRemove = "session_remove"
     }
     public var op: Op
     public var item: Item?
@@ -33,13 +39,14 @@ public struct Request: Codable, Sendable {
     public var filter: Filter?
     public var patch: Patch?
     public var session: Session?
+    public var report: SessionReport?
     /// `done` by idempotency key instead of id (hook adapters know their key, not the id).
     public var key: String?
     /// When the client observed what it reports (`session_end`); perchd uses its own clock if absent.
     public var at: Date?
 
     public init(op: Op, item: Item? = nil, id: String? = nil, value: String? = nil, filter: Filter? = nil,
-                patch: Patch? = nil, session: Session? = nil, key: String? = nil, at: Date? = nil) {
+                patch: Patch? = nil, session: Session? = nil, report: SessionReport? = nil, key: String? = nil, at: Date? = nil) {
         self.op = op
         self.item = item
         self.id = id
@@ -47,6 +54,7 @@ public struct Request: Codable, Sendable {
         self.filter = filter
         self.patch = patch
         self.session = session
+        self.report = report
         self.key = key
         self.at = at
     }

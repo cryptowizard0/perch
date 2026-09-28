@@ -40,7 +40,7 @@ public final class Service {
                 return try update(request.id, request.patch)
             case .watch:
                 return (.failure("watch streams events; it is handled by the connection, not as a single call"), [])
-            case .sessionStart, .sessionEnd, .sessions:
+            case .sessionStart, .sessionEnd, .sessions, .sessionReport, .sessionSeen, .sessionRemove:
                 return (.failure("session ops are handled by SessionRegistry"), [])
             }
         } catch let error as ServiceError {
@@ -184,6 +184,22 @@ public final class Service {
 
     public func nextExpiry() -> Date? {
         try? store.nextExpiry()
+    }
+
+    /// Closes the session's open requests without an answer (`meta.session_id`): the agent moved on, so nobody is
+    /// asking any more. A hook still waiting on one gets no decision.
+    public func resolveRequests(session: String) -> [Event] {
+        do {
+            return try store.transaction {
+                try store.list(Request.Filter(kind: .request)).filter { $0.meta?["session_id"] == session }.map { open in
+                    var item = open
+                    item.status = .done
+                    return try save(item).1[0]
+                }
+            }
+        } catch {
+            return []
+        }
     }
 
     // MARK: - Helpers

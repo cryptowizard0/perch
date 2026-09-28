@@ -1,80 +1,188 @@
 import Foundation
 import PerchCore
 
-/// Running agent turns, in memory only (a restart forgets them; the next prompt brings them back).
-/// Not thread-safe: `Daemon` calls it from its serial queue.
+/// Agent sessions and their state machine (see `SessionReport`), stored in the `sessions` table so a restart
+/// keeps them. Not thread-safe: `Daemon` calls it from its serial queue.
 ///
-/// Hooks run asynchronously, so a turn's `session_end` can arrive before its `session_start`, or the previous
-/// turn's end after the next turn's start. Every message carries the time it was observed; anything older
-/// than the last message seen for that id is ignored (ties go to the start).
+/// Hooks run asynchronously, so events can arrive out of order. Every report carries the time it was observed;
+/// one older than the last event seen for that session is ignored (ties are applied: times travel as whole
+/// seconds, and events of one second usually arrive in order). A removed session remembers its removal time for
+/// a while, so a straggler from before does not bring it back.
 public final class SessionRegistry {
-    /// A turn that never reports its end (interrupted, terminal closed) drops out after this long.
-    public static let maxTurn: TimeInterval = 3 * 3600
-    /// How long an ended id remembers its end time, to reject a start that arrives late.
+    /// Done turns to idle after this long without anyone looking.
+    public static let doneLifetime: TimeInterval = 10 * 60
+    /// How long a removed id remembers when it was removed.
     static let tombstoneLifetime: TimeInterval = 10 * 60
 
-    private var running: [String: Session] = [:]
-    private var endedAt: [String: Date] = [:]
+    public struct Outcome {
+        public var response: Response
+        public var events: [SessionEvent] = []
+        /// This session's requests should be resolved (the agent moved on, nobody is asking any more).
+        public var resolveRequestsOf: String?
+    }
+
+    let store: Store
+    private var removedAt: [String: Date] = [:]
     var now: () -> Date
 
-    public init(now: @escaping () -> Date = Date.init) {
+    public init(store: Store, now: @escaping () -> Date = Date.init) {
+        self.store = store
         self.now = now
     }
 
-    public func handle(_ request: Request) -> (Response, [SessionEvent]) {
-        switch request.op {
-        case .sessionStart: return start(request.session)
-        case .sessionEnd: return end(request.id, at: request.at ?? now())
-        case .sessions: return (Response(ok: true, sessions: list()), [])
-        default: return (.failure("not a session op: \(request.op.rawValue)"), [])
+    public func handle(_ request: Request) -> Outcome {
+        do {
+            switch request.op {
+            case .sessionReport:
+                guard let report = request.report else { throw ServiceError("session_report needs a report") }
+                return try apply(report)
+            case .sessionStart:
+                guard let s = request.session else { throw ServiceError("session_start needs a session") }
+                return try apply(SessionReport(id: s.id, kind: .prompt, at: s.turnStartedAt, source: s.source, title: s.title,
+                                               cwd: s.cwd, link: s.link, prompt: s.prompt))
+            case .sessionEnd:
+                return try apply(SessionReport(id: request.id ?? "", kind: .end, at: request.at ?? now()))
+            case .sessionSeen:
+                return try seen(request.id)
+            case .sessionRemove:
+                return try remove(request.id)
+            case .sessions:
+                return Outcome(response: Response(ok: true, sessions: try store.sessions()))
+            default:
+                throw ServiceError("not a session op: \(request.op.rawValue)")
+            }
+        } catch let error as ServiceError {
+            return Outcome(response: .failure(error.message))
+        } catch {
+            return Outcome(response: .failure("internal error: \(error)"))
         }
     }
 
-    public func list() -> [Session] {
-        running.values.sorted { ($0.startedAt, $0.id) < ($1.startedAt, $1.id) }
-    }
-
-    private func start(_ incoming: Session?) -> (Response, [SessionEvent]) {
-        guard var session = incoming else { return (.failure("session_start needs a session"), []) }
-        session.id = session.id.trimmingCharacters(in: .whitespaces)
-        guard !session.id.isEmpty else { return (.failure("session id must not be empty"), []) }
-        session.startedAt = min(session.startedAt, now())
+    private func apply(_ report: SessionReport) throws -> Outcome {
+        let id = report.id.trimmingCharacters(in: .whitespaces)
+        guard !id.isEmpty else { throw ServiceError("session id must not be empty") }
+        let at = Service.wholeSeconds(min(report.at, now()))
+        let ignored = Outcome(response: Response(ok: true, sessions: []))
         pruneTombstones()
-        // Times travel as whole seconds; on a tie the start wins (a whole turn inside one second does not happen).
-        if let ended = endedAt[session.id], session.startedAt < ended { return (Response(ok: true), []) }
-        if let current = running[session.id], session.startedAt < current.startedAt { return (Response(ok: true), []) }
-        endedAt[session.id] = nil
-        running[session.id] = session
-        return (Response(ok: true, sessions: [session]), [SessionEvent(type: .started, session: session, at: now())])
+        if let removed = removedAt[id], at < removed { return ignored }
+        let existing = try store.session(id: id)
+        if let existing, at < existing.updatedAt { return ignored }
+
+        if report.kind == .end {
+            removedAt[id] = max(removedAt[id] ?? .distantPast, at)
+            var outcome = Outcome(response: Response(ok: true, sessions: []), resolveRequestsOf: id)
+            if let existing {
+                try store.deleteSession(id: id)
+                outcome.response.sessions = [existing]
+                outcome.events = [SessionEvent(type: .ended, session: existing, at: at)]
+            }
+            return outcome
+        }
+
+        var s = existing ?? Session(id: id, startedAt: at)
+        s.source = report.source ?? s.source
+        s.title = report.title ?? s.title
+        s.cwd = report.cwd ?? s.cwd
+        s.link = report.link ?? s.link
+        s.pid = report.pid ?? s.pid
+        s.pidStartedAt = report.pidStartedAt ?? s.pidStartedAt
+        s.updatedAt = at
+        func enter(_ status: SessionStatus) {
+            if s.status != status { s.statusAt = at }
+            s.status = status
+        }
+        var resolves = true
+        switch report.kind {
+        case .prompt:
+            enter(.running)
+            s.turnStartedAt = at
+            s.prompt = report.prompt
+            s.detail = nil
+            s.error = nil
+            resolves = false
+        case .waiting:
+            // A late "needs your permission" notification must not replace the command it is about.
+            let keep = report.keepDetail == true && existing?.status == .waiting && existing?.detail != nil
+            if !keep { s.detail = report.detail }
+            enter(.waiting)
+            resolves = false
+        case .resume:
+            if s.status == .waiting {
+                enter(.running)
+                s.detail = nil
+            }
+        case .stop:
+            enter(.done)
+            s.lastMessage = report.lastMessage
+            s.detail = nil
+        case .failure:
+            enter(.failed)
+            s.error = report.error ?? "unknown"
+            s.detail = nil
+        case .interrupt:
+            enter(.idle)
+            s.detail = nil
+        case .end:
+            break
+        }
+        var outcome = Outcome(response: Response(ok: true, sessions: [s]), resolveRequestsOf: resolves ? id : nil)
+        guard s != existing else { return outcome }
+        try store.save(s)
+        removedAt[id] = nil
+        if report.kind == .prompt { outcome.events.append(SessionEvent(type: .started, session: s, at: at)) }
+        outcome.events.append(SessionEvent(type: .updated, session: s, at: at))
+        return outcome
     }
 
-    private func end(_ rawID: String?, at: Date) -> (Response, [SessionEvent]) {
-        guard let id = rawID?.trimmingCharacters(in: .whitespaces), !id.isEmpty else { return (.failure("missing id"), []) }
-        endedAt[id] = max(endedAt[id] ?? .distantPast, at)
-        guard let session = running[id], session.startedAt <= at else { return (Response(ok: true), []) }
-        running[id] = nil
-        return (Response(ok: true, sessions: [session]), [SessionEvent(type: .ended, session: session, at: now())])
+    /// Someone looked at the result: done → idle. Other states stay.
+    private func seen(_ rawID: String?) throws -> Outcome {
+        var s = try existing(rawID)
+        guard s.status == .done else { return Outcome(response: Response(ok: true, sessions: [s])) }
+        s.status = .idle
+        try store.save(s)
+        return Outcome(response: Response(ok: true, sessions: [s]), events: [SessionEvent(type: .updated, session: s, at: now())])
     }
 
-    /// Drops turns older than `maxTurn`.
+    /// Manual removal (a session whose end never arrived). The next event for it brings it back.
+    private func remove(_ rawID: String?) throws -> Outcome {
+        let s = try existing(rawID)
+        try store.deleteSession(id: s.id)
+        removedAt[s.id] = Service.wholeSeconds(now())
+        return Outcome(response: Response(ok: true, sessions: [s]), events: [SessionEvent(type: .ended, session: s, at: now())])
+    }
+
+    /// Done sessions nobody looked at for `doneLifetime` go idle.
     public func sweep() -> [SessionEvent] {
-        let cutoff = now().addingTimeInterval(-Self.maxTurn)
-        return running.values.filter { $0.startedAt <= cutoff }.sorted { $0.id < $1.id }.map { session in
-            running[session.id] = nil
-            return SessionEvent(type: .ended, session: session, at: now())
+        guard let stale = try? store.sessions(doneBefore: now().addingTimeInterval(-Self.doneLifetime)) else { return [] }
+        return stale.compactMap { done in
+            var s = done
+            s.status = .idle
+            guard (try? store.save(s)) != nil else { return nil }
+            return SessionEvent(type: .updated, session: s, at: now())
         }
     }
 
     public func nextExpiry() -> Date? {
-        running.values.map(\.startedAt).min()?.addingTimeInterval(Self.maxTurn)
+        (try? store.earliestDone())?.addingTimeInterval(Self.doneLifetime)
+    }
+
+    private func existing(_ rawID: String?) throws -> Session {
+        guard let id = rawID?.trimmingCharacters(in: .whitespaces), !id.isEmpty else { throw ServiceError("missing id") }
+        guard let s = try store.session(id: id) else { throw ServiceError("no session with id '\(id)'") }
+        return s
     }
 
     private func pruneTombstones() {
         let cutoff = now().addingTimeInterval(-Self.tombstoneLifetime)
-        endedAt = endedAt.filter { $0.value > cutoff }
+        removedAt = removedAt.filter { $0.value > cutoff }
     }
 }
 
 extension Request.Op {
-    var isSession: Bool { self == .sessionStart || self == .sessionEnd || self == .sessions }
+    var isSession: Bool {
+        switch self {
+        case .sessionStart, .sessionEnd, .sessions, .sessionReport, .sessionSeen, .sessionRemove: return true
+        default: return false
+        }
+    }
 }
