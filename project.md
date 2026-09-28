@@ -247,6 +247,7 @@ hermes                          # 终端里跑一次，确认 Perch 的 5 个 ho
 hermes gateway restart          # gateway 才会加载新 hook
 hermes hooks list               # 5 个都应是 allowed
 ```
+- 2026-09-28 已装到本机（`scripts/install.sh`），5 个 hook 已记入 Hermes 的 allowlist，gateway 重启后加载无警告；`hermes -z` 一轮实测：出现 notice "tmp · ok"，session 正常结束，`hook.log` 为空。
 - [ ] 终端里 `hermes` 发一条消息 → 刘海出现 "1 agent · …"（纸飞机图标）；回复后 Live Activity 消失，出现灰色 notice
 - [ ] 让它跑 `rm -rf <临时目录>`：刘海变橙，显示完整命令和原因（"Answer in the terminal · …"）；在 Hermes 里回应后橙色消失
 - [ ] 从 Telegram（gateway）让它跑一条危险命令：刘海显示 "Answer in Telegram"；在 Telegram 里回应后消失
