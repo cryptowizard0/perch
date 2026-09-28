@@ -95,9 +95,54 @@ struct HooksInstallTests {
         #expect(try String(contentsOf: settings, encoding: .utf8) == "{ not json")
     }
 
-    @Test func codexIsNotThereYet() throws {
-        let result = try cli.run("hooks", "install", "codex", "--settings", settings.path)
-        #expect(result.status == 1)
-        #expect(result.stderr == "perch: codex hooks arrive in milestone M5")
+    @Test func codexHooksJSON() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let hooksFile = dir.appendingPathComponent("hooks.json")
+        let other = #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"SUPERSET_AGENT_ID=codex \"/x/notify.sh\""}]}]}}"#
+        try other.write(to: hooksFile, atomically: true, encoding: .utf8)
+        func read() throws -> [String: Any] { try JSONSerialization.jsonObject(with: Data(contentsOf: hooksFile)) as! [String: Any] }
+        func hook(_ json: [String: Any], _ event: String) -> [String: Any]? {
+            (((json["hooks"] as? [String: Any])?[event] as? [[String: Any]])?.last?["hooks"] as? [[String: Any]])?.first
+        }
+
+        let result = try cli.run("hooks", "install", "codex", "--settings", hooksFile.path, "--binary", "/opt/perch/bin/perch")
+        #expect(result.status == 0, "\(result.stderr)")
+        #expect(result.stdout.contains("UserPromptSubmit, PermissionRequest, PostToolUse, Stop, Interrupt, SessionEnd"))
+        #expect(result.stdout.contains("/hooks"))  // Codex skips hooks until they are trusted
+        let json = try read()
+        let ours = "/opt/perch/bin/perch hook codex"
+        #expect(commands(json, "Stop") == [#"SUPERSET_AGENT_ID=codex "/x/notify.sh""#, ours])
+        // Codex has no Notification / StopFailure / PostToolUseFailure.
+        let events = Set((json["hooks"] as? [String: Any] ?? [:]).keys)
+        #expect(events == ["UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop", "Interrupt", "SessionEnd"])
+        for event in ["UserPromptSubmit", "PostToolUse", "Interrupt"] {
+            #expect(commands(json, event) == [ours], "\(event)")
+            #expect(hook(json, event)?["async"] as? Bool == true, "\(event)")
+        }
+        #expect(commands(json, "PermissionRequest") == [ours + " --wait 20"])
+        #expect(hook(json, "PermissionRequest")?["async"] == nil)
+        #expect(hook(json, "PermissionRequest")?["timeout"] as? Int == 30)
+        // Codex always runs SessionEnd synchronously, for at most 3 s.
+        #expect(commands(json, "SessionEnd") == [ours])
+        #expect(hook(json, "SessionEnd")?["async"] == nil)
+        #expect(hook(json, "SessionEnd")?["timeout"] as? Int == 3)
+
+        // Codex and Claude Code hooks never touch each other.
+        try cli.run("hooks", "install", "claude-code", "--settings", settings.path, "--binary", "/opt/perch/bin/perch")
+        let wrong = try cli.run("hooks", "uninstall", "claude-code", "--settings", hooksFile.path)
+        #expect(wrong.stdout.contains("no Perch hooks"))
+
+        let removed = try cli.run("hooks", "uninstall", "codex", "--settings", hooksFile.path)
+        #expect(removed.stdout.contains("removed 6 Perch hooks"))
+        #expect(commands(try read(), "Stop") == [#"SUPERSET_AGENT_ID=codex "/x/notify.sh""#])
+        #expect(Set((try read()["hooks"] as? [String: Any] ?? [:]).keys) == ["Stop"])
+        #expect(commands(try self.read(), "Stop") == ["/opt/perch/bin/perch hook claude-code"])
+    }
+
+    @Test func unknownAgent() throws {
+        let result = try cli.run("hooks", "install", "cursor", "--settings", settings.path)
+        #expect(result.status == 64)
+        #expect(result.stderr == "perch: unknown agent 'cursor'; use claude-code or codex")
     }
 }

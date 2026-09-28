@@ -1,8 +1,9 @@
 #!/bin/sh
 # Installs Perch for daily use from this checkout:
 #   perch + perchd → $PREFIX (default ~/.local/bin), Perch.app → $APPDIR (default ~/Applications),
-#   perchd as a launchd agent, Claude Code hooks in ~/.claude/settings.json (skip with --no-hooks).
-# Re-run after pulling to upgrade. Undo: perch hooks uninstall claude-code; perchd uninstall;
+#   perchd as a launchd agent, Claude Code hooks in ~/.claude/settings.json and, if Codex is set up
+#   (~/.codex or $CODEX_HOME exists), Codex hooks in hooks.json there (skip both with --no-hooks).
+# Re-run after pulling to upgrade. Undo: perch hooks uninstall claude-code; perch hooks uninstall codex; perchd uninstall;
 #   rm $PREFIX/perch $PREFIX/perchd; rm -rf $APPDIR/Perch.app
 set -eu
 cd "$(dirname "$0")/.."
@@ -27,5 +28,8 @@ echo "installed Perch.app → $APPDIR"
 
 if [ -n "$HOOKS" ]; then
     "$PREFIX/perch" hooks install claude-code --binary "$PREFIX/perch"
+    if [ -d "${CODEX_HOME:-$HOME/.codex}" ]; then
+        "$PREFIX/perch" hooks install codex --binary "$PREFIX/perch"
+    fi
 fi
 open "$APPDIR/Perch.app"

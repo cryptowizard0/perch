@@ -13,7 +13,11 @@ struct HooksInstall: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "install",
         abstract: "Add Perch's hooks to an agent's settings (other hooks are kept).",
-        discussion: "claude-code: ~/.claude/settings.json ($CLAUDE_CONFIG_DIR/settings.json if set). A backup is written next to it."
+        discussion: """
+        claude-code: ~/.claude/settings.json ($CLAUDE_CONFIG_DIR/settings.json if set).
+        codex: ~/.codex/hooks.json ($CODEX_HOME/hooks.json if set); Codex runs them only after you trust them in /hooks.
+        A backup is written next to the file.
+        """
     )
     @Argument(help: "claude-code | codex") var agent: String
     @Option(help: "Settings file to edit (default: the agent's user settings).") var settings: String?
@@ -24,20 +28,21 @@ struct HooksInstall: ParsableCommand {
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
-        try requireClaudeCode(agent)
-        let path = settings ?? ClaudeSettings.defaultPath
-        let perch = try binary ?? ClaudeSettings.currentBinary()
-        var root = try ClaudeSettings.read(path)
-        ClaudeSettings.remove(from: &root)
+        let target = try HookSettings.for(agent)
+        let path = settings ?? target.defaultPath
+        let perch = try binary ?? HookSettings.currentBinary()
+        var root = try HookSettings.read(path)
+        target.remove(from: &root)
         guard (5...300).contains(wait) else { throw CLIError("--wait must be between 5 and 300 seconds", code: 64) }
-        ClaudeSettings.add(to: &root, perch: ClaudeSettings.shellQuote(perch), wait: wait)
-        if dryRun { return print(try ClaudeSettings.render(root)) }
+        target.add(to: &root, perch: HookSettings.shellQuote(perch), wait: wait)
+        if dryRun { return print(try HookSettings.render(root)) }
         if perch.contains("/.build/") {
             FileHandle.standardError.write(Data("perch: warning: hooks run \(perch); `swift package clean` would break them. Copy perch somewhere stable and install with --binary.\n".utf8))
         }
-        try ClaudeSettings.write(root, to: path)
+        try HookSettings.write(root, to: path)
         if json { return printJSON(Response(ok: true)) }
-        print("installed Perch hooks for claude-code in \(path): \(ClaudeSettings.events.map(\.name).joined(separator: ", "))")
+        print("installed Perch hooks for \(agent) in \(path): \(target.events.map(\.name).joined(separator: ", "))")
+        if let note = target.installNote { print(note) }
     }
 }
 
@@ -48,57 +53,85 @@ struct HooksUninstall: ParsableCommand {
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
-        try requireClaudeCode(agent)
-        let path = settings ?? ClaudeSettings.defaultPath
+        let target = try HookSettings.for(agent)
+        let path = settings ?? target.defaultPath
         guard FileManager.default.fileExists(atPath: path) else {
             return json ? printJSON(Response(ok: true)) : print("no \(path); nothing to remove")
         }
-        var root = try ClaudeSettings.read(path)
-        let removed = ClaudeSettings.remove(from: &root)
-        if removed > 0 { try ClaudeSettings.write(root, to: path) }
+        var root = try HookSettings.read(path)
+        let removed = target.remove(from: &root)
+        if removed > 0 { try HookSettings.write(root, to: path) }
         if json { return printJSON(Response(ok: true)) }
         print(removed > 0 ? "removed \(removed) Perch hook\(removed == 1 ? "" : "s") from \(path)" : "no Perch hooks in \(path)")
     }
 }
 
-private func requireClaudeCode(_ agent: String) throws {
-    switch agent {
-    case "claude-code": return
-    case "codex": throw CLIError("codex hooks arrive in milestone M5")
-    default: throw CLIError("unknown agent '\(agent)'; use claude-code or codex", code: 64)
-    }
-}
-
-/// Edits Claude Code's settings.json as plain JSON: only entries whose command runs `perch … hook claude-code`
+/// An agent's hook file, edited as plain JSON. Claude Code's settings.json and Codex's hooks.json share the
+/// `hooks → event → [{matcher, hooks: [handler]}]` shape. Only handlers whose command runs `perch … hook <agent>`
 /// are Perch's; everything else is left as it was (key order may change: the file is rewritten sorted).
-enum ClaudeSettings {
+struct HookSettings {
     struct HookEvent {
+        enum Mode {
+            /// The agent never waits for it.
+            case async
+            /// PermissionRequest: may return a decision, so the agent waits up to `--wait`.
+            case blocking
+            /// Runs inline with a short cap (Codex's SessionEnd is always synchronous, at most 3 s).
+            case sync(timeout: Int)
+        }
         let name: String
-        let matcher: String?
-        /// Only PermissionRequest blocks (it may return a decision); everything else is async, so the agent never waits.
-        var blocking = false
+        var matcher: String?
+        var mode: Mode = .async
     }
 
-    static let events = [
-        HookEvent(name: "UserPromptSubmit", matcher: nil),
-        HookEvent(name: "Notification", matcher: HookAdapter.waitingNotifications.sorted { order($0) < order($1) }.joined(separator: "|")),
-        HookEvent(name: "PermissionRequest", matcher: nil, blocking: true),
-        HookEvent(name: "PostToolUse", matcher: nil),
-        HookEvent(name: "PostToolUseFailure", matcher: nil),
-        HookEvent(name: "Stop", matcher: nil),
-        HookEvent(name: "StopFailure", matcher: nil),
-        HookEvent(name: "SessionEnd", matcher: nil),
-    ]
+    let agent: String
+    let events: [HookEvent]
+    let defaultPath: String
+    /// Printed after a successful install.
+    var installNote: String?
+
+    static func `for`(_ agent: String) throws -> HookSettings {
+        switch agent {
+        case "claude-code": return claudeCode
+        case "codex": return codex
+        default: throw CLIError("unknown agent '\(agent)'; use claude-code or codex", code: 64)
+        }
+    }
+
+    static var claudeCode: HookSettings {
+        HookSettings(agent: "claude-code", events: [
+            HookEvent(name: "UserPromptSubmit"),
+            HookEvent(name: "Notification", matcher: HookAdapter.waitingNotifications.sorted { order($0) < order($1) }.joined(separator: "|")),
+            HookEvent(name: "PermissionRequest", mode: .blocking),
+            HookEvent(name: "PostToolUse"),
+            HookEvent(name: "PostToolUseFailure"),
+            HookEvent(name: "Stop"),
+            HookEvent(name: "StopFailure"),
+            HookEvent(name: "SessionEnd"),
+        ], defaultPath: configFile(env: "CLAUDE_CONFIG_DIR", fallback: ".claude", name: "settings.json"))
+    }
+
+    /// Codex has no Notification / StopFailure / PostToolUseFailure; Interrupt covers Esc (no Stop follows).
+    static var codex: HookSettings {
+        HookSettings(agent: "codex", events: [
+            HookEvent(name: "UserPromptSubmit"),
+            HookEvent(name: "PermissionRequest", mode: .blocking),
+            HookEvent(name: "PostToolUse"),
+            HookEvent(name: "Stop"),
+            HookEvent(name: "Interrupt"),
+            HookEvent(name: "SessionEnd", mode: .sync(timeout: 3)),
+        ], defaultPath: configFile(env: "CODEX_HOME", fallback: ".codex", name: "hooks.json"),
+        installNote: "Codex skips new or changed hooks until you trust them: start codex and review them with /hooks.")
+    }
 
     private static func order(_ type: String) -> Int {
         ["permission_prompt", "elicitation_dialog", "agent_needs_input"].firstIndex(of: type) ?? 99
     }
 
-    static var defaultPath: String {
-        let env = ProcessInfo.processInfo.environment
-        let dir = env["CLAUDE_CONFIG_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude").path
-        return URL(fileURLWithPath: dir).appendingPathComponent("settings.json").path
+    private static func configFile(env name: String, fallback: String, name file: String) -> String {
+        let dir = ProcessInfo.processInfo.environment[name].flatMap { $0.isEmpty ? nil : $0 }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(fallback).path
+        return URL(fileURLWithPath: dir).appendingPathComponent(file).path
     }
 
     static func currentBinary() throws -> String {
@@ -108,9 +141,9 @@ enum ClaudeSettings {
         return path
     }
 
-    static func isPerch(_ hook: [String: Any]) -> Bool {
+    func isPerch(_ hook: [String: Any]) -> Bool {
         guard let command = hook["command"] as? String else { return false }
-        return command.contains(" hook claude-code") && command.contains("perch")
+        return command.contains(" hook \(agent)") && command.contains("perch")
     }
 
     static func read(_ path: String) throws -> [String: Any] {
@@ -125,7 +158,7 @@ enum ClaudeSettings {
 
     /// Removes Perch's hooks, then any groups / events / `hooks` left empty by that. Returns how many were removed.
     @discardableResult
-    static func remove(from root: inout [String: Any]) -> Int {
+    func remove(from root: inout [String: Any]) -> Int {
         guard var hooks = root["hooks"] as? [String: Any] else { return 0 }
         var removed = 0
         for (event, value) in hooks {
@@ -145,13 +178,20 @@ enum ClaudeSettings {
         return removed
     }
 
-    static func add(to root: inout [String: Any], perch: String, wait: Int) {
+    func add(to root: inout [String: Any], perch: String, wait: Int) {
         var hooks = root["hooks"] as? [String: Any] ?? [:]
+        let command = "\(perch) hook \(agent)"
         for event in events {
-            let hook: [String: Any] = event.blocking
-                ? ["type": "command", "command": "\(perch) hook claude-code --wait \(wait)", "timeout": wait + 10,
-                   "statusMessage": "Waiting for Perch (⌥⇧A allow · ⌥⇧D deny)…"]
-                : ["type": "command", "command": "\(perch) hook claude-code", "async": true, "timeout": 10]
+            let hook: [String: Any]
+            switch event.mode {
+            case .async:
+                hook = ["type": "command", "command": command, "async": true, "timeout": 10]
+            case .blocking:
+                hook = ["type": "command", "command": "\(command) --wait \(wait)", "timeout": wait + 10,
+                        "statusMessage": "Waiting for Perch (⌥⇧A allow · ⌥⇧D deny)…"]
+            case .sync(let timeout):
+                hook = ["type": "command", "command": command, "timeout": timeout]
+            }
             var group: [String: Any] = ["hooks": [hook]]
             if let matcher = event.matcher { group["matcher"] = matcher }
             hooks[event.name] = (hooks[event.name] as? [[String: Any]] ?? []) + [group]
