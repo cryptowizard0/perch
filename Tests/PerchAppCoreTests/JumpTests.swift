@@ -12,7 +12,16 @@ import Testing
         #expect(JumpTarget(link: "tmux:main") == nil)
         #expect(JumpTarget(link: nil) == nil)
         // NSWorkspace cannot open our own scheme; only JumpTarget handles it.
-        #expect(RowFormat.linkURL(terminal) == nil)
+        #expect(JumpTarget.url(terminal) == nil)
+    }
+
+    @Test func openableLinks() {
+        #expect(JumpTarget.url("https://github.com/x/pull/42")?.absoluteString == "https://github.com/x/pull/42")
+        #expect(JumpTarget.url("zed://file/tmp/a.swift")?.scheme == "zed")
+        #expect(JumpTarget.url("/Users/me/project")?.isFileURL == true)
+        #expect(JumpTarget.url("~/project")?.path == NSHomeDirectory() + "/project")
+        #expect(JumpTarget.url("tmux:main:2") == nil)
+        #expect(JumpTarget.url("  ") == nil)
     }
 
     @Test func ghosttyScriptEscapes() {

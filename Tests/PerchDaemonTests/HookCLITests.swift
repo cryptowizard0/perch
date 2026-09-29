@@ -10,6 +10,7 @@ struct HookCLITests {
     /// A plain terminal (no Ghostty probing), like hooks in CI.
     let env = ["TERM_PROGRAM": "Apple_Terminal", "__CFBundleIdentifier": "com.apple.Terminal"]
 
+    @discardableResult
     func hook(_ cli: CLI, _ json: String) throws -> CLI.Result {
         try cli.run(["hook", "claude-code"], stdin: json, env: env)
     }

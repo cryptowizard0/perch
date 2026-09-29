@@ -7,33 +7,20 @@ import PerchCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let queue = QueueModel()
     private var notchWindow: NotchWindowController?
-    private var quickEntry: QuickEntryController?
-    private var quickEntryHotKey: GlobalHotKey?
     /// ⌥⇧A / ⌥⇧D exist only while the panel shows a request, ⌥⇧O while a session needs you,
     /// so the rest of the time those keys type Å / Î / Ø as usual.
     private var approveHotKey: GlobalHotKey?
     private var denyHotKey: GlobalHotKey?
     private var jumpHotKey: GlobalHotKey?
     private var queueWatch: AnyCancellable?
-    private let notifier = Notifier()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let quickEntry = QuickEntryController(queue: queue)
-        self.quickEntry = quickEntry
-        let hotKey = Self.quickEntryHotKey()
-        quickEntryHotKey = GlobalHotKey(hotKey) { [weak quickEntry] in
-            DispatchQueue.main.async { MainActor.assumeIsolated { quickEntry?.toggle() } }
-        }
-        if quickEntryHotKey == nil { NSLog("Perch: could not register quick entry shortcut \(hotKey); is it taken?") }
-
+        queue.jump = { Jumper.jump($0) }
         let controller = NotchWindowController(notch: NotchModel(), queue: queue, menu: NotchMenu(
-            quickEntryShortcut: hotKey.description,
-            quickEntry: { [weak quickEntry] in quickEntry?.open() },
             quit: { NSApp.terminate(nil) }
         ))
         controller.show()
         notchWindow = controller
-        queue.onDue = { [notifier] item in notifier.due(item) }
         if ProcessInfo.processInfo.environment["PERCH_LATENCY_LOG"] == "1" { logLatency() }
         queueWatch = queue.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.updateQueueHotKeys() } }
@@ -44,28 +31,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateQueueHotKeys() {
         let pending = queue.headRequest != nil
         if pending && approveHotKey == nil {
-            approveHotKey = GlobalHotKey(.approve) { [weak self] in self?.answerHead("allow") }
-            denyHotKey = GlobalHotKey(.deny) { [weak self] in self?.answerHead("deny") }
+            approveHotKey = GlobalHotKey(.approve) { [weak self] in self?.onMain { $0.answerHead("allow") } }
+            denyHotKey = GlobalHotKey(.deny) { [weak self] in self?.onMain { $0.answerHead("deny") } }
         } else if !pending && approveHotKey != nil {
             approveHotKey = nil
             denyHotKey = nil
         }
         let any = queue.headSession != nil
         if any && jumpHotKey == nil {
-            jumpHotKey = GlobalHotKey(.jump) { [weak self] in
-                DispatchQueue.main.async { MainActor.assumeIsolated { Jumper.jump(self?.queue.headSession?.link) } }
-            }
+            jumpHotKey = GlobalHotKey(.jump) { [weak self] in self?.onMain { $0.openHead() } }
         } else if !any {
             jumpHotKey = nil
         }
     }
 
-    private func answerHead(_ value: String) {
+    /// Hot keys fire from Carbon's handler; act on the model on the next main-queue pass.
+    private func onMain(_ action: @escaping @MainActor (QueueModel) -> Void) {
         DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                guard let head = self.queue.headRequest, head.options?.contains(value) ?? false else { return }
-                self.queue.respond(head, value)
-            }
+            MainActor.assumeIsolated { action(self.queue) }
         }
     }
 
@@ -84,15 +67,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 FileHandle.standardError.write(Data("perch-latency \(id) \(ms)\n".utf8))
             }
         }
-    }
-
-    /// ⌥⇧Space unless overridden: `defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"`.
-    static func quickEntryHotKey() -> HotKey {
-        guard let text = UserDefaults.standard.string(forKey: "QuickEntryHotKey") else { return .quickEntryDefault }
-        guard let hotKey = HotKey(text) else {
-            NSLog("Perch: ignoring QuickEntryHotKey '\(text)'; use e.g. opt+shift+space")
-            return .quickEntryDefault
-        }
-        return hotKey
     }
 }

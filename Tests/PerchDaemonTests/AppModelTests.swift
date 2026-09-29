@@ -17,38 +17,13 @@ import Testing
         }
     }
 
-    @Test func clicksReachPerchdAndComeBackAsEvents() async throws {
-        let d = try TestDaemon()
-        let task = try #require(try d.client.send(Request(op: .add, item: Item(title: "write docs"))).item)
-        let notice = try #require(try d.client.send(Request(op: .add, item: Item(
-            title: "codex finished", kind: .notice, source: "codex", expiresAt: Date().addingTimeInterval(300)))).item)
-        let model = QueueModel()
-        model.connect(client: d.client)
-        defer { model.disconnect() }
-        try await until { model.online && model.state.items.count == 2 }
-
-        let before = Date()
-        model.click(task, option: true)
-        try await until { model.state.items[task.id]?.dueAt != nil }
-        let due = try #require(model.state.items[task.id]?.dueAt)
-        #expect(abs(due.timeIntervalSince(before) - 1800) < 5)
-
-        model.click(notice, option: false)
-        try await until { model.state.items[notice.id]?.kind == .task }
-        #expect(model.state.items[notice.id]?.expiresAt == nil)
-
-        model.click(task, option: false)
-        try await until { model.state.items[task.id] == nil }
-        #expect(try d.client.send(Request(op: .get, id: task.id)).item?.status == .done)
-    }
-
     @Test func failuresFlash() async throws {
         let d = try TestDaemon()
         let model = QueueModel()
         model.connect(client: d.client)
         defer { model.disconnect() }
         try await until { model.online }
-        model.click(Item(id: "zzzz", title: "ghost"), option: false)
+        model.respond(Item(id: "zzzz", title: "ghost", kind: .request), "allow")
         try await until { model.flash != nil }
         #expect(model.flash == "no item with id 'zzzz'")
     }
@@ -66,48 +41,10 @@ import Testing
 }
 
 extension AppModelTests {
-    @Test func quickAddParsesTheDueTime() async throws {
-        let d = try TestDaemon()
-        let model = QueueModel()
-        model.connect(client: d.client)
-        defer { model.disconnect() }
-        try await until { model.online }
-        #expect(!model.quickAdd("   "))
-        #expect(model.quickAdd("回复 X 的邮件 @15:00"))
-        try await until { model.state.items.count == 1 }
-        let item = try #require(model.state.items.values.first)
-        #expect(item.title == "回复 X 的邮件")
-        #expect(item.source == "human")
-        #expect(Calendar.current.component(.hour, from: try #require(item.dueAt)) == 15)
-    }
-}
-
-extension AppModelTests {
-    @Test func dueTimeFiresReminderAndPulse() async throws {
-        let d = try TestDaemon()
-        let model = QueueModel()
-        var reminded: [String] = []
-        model.onDue = { reminded.append($0.title) }
-        model.connect(client: d.client)
-        defer { model.disconnect() }
-        try await until { model.online }
-        let pulses = model.pulse
-        // perchd stores whole seconds; +1.5 s lands 1–2 s from now.
-        _ = try d.client.send(Request(op: .add, item: Item(title: "stand up", dueAt: Date().addingTimeInterval(1.5))))
-        try await until { model.state.items.count == 1 }
-        #expect(reminded.isEmpty)
-        #expect(model.summary.signal == .todo)
-        try await until(timeout: 4) { !reminded.isEmpty }
-        #expect(reminded == ["stand up"])
-        #expect(model.pulse == pulses + 1)
-        #expect(model.summary.signal == .overdue)
-    }
-}
-
-extension AppModelTests {
     func report(_ d: TestDaemon, _ id: String, _ kind: SessionReport.Kind, source: String = "claude-code", detail: String? = nil) throws {
         let r = try d.client.send(Request(op: .sessionReport, report: SessionReport(
-            id: id, kind: kind, at: Date(), source: source, title: id, prompt: kind == .prompt ? "go" : nil, detail: detail)))
+            id: id, kind: kind, at: Date(), source: source, title: id, link: "perch-terminal://ghostty?id=\(id)",
+            prompt: kind == .prompt ? "go" : nil, detail: detail)))
         #expect(r.ok)
     }
 
@@ -211,9 +148,57 @@ extension AppModelTests {
         #expect(model.headSession?.id == "a")
         #expect(model.headRequest?.id == request.id)
 
-        model.respond(request, "allow")
+        // ⌥⇧O jumps to the session that has waited longest; ⌥⇧A answers the first request the panel shows.
+        var jumps: [String?] = []
+        model.jump = { jumps.append($0) }
+        model.openHead()
+        #expect(jumps == ["perch-terminal://ghostty?id=a"])
+        model.answerHead("allow")
         try await until { model.headRequest == nil }
         #expect(try d.client.send(Request(op: .get, id: request.id)).item?.response == "allow")
+        // Nothing left to answer: the keys do nothing.
+        model.answerHead("deny")
+        #expect(try d.client.send(Request(op: .get, id: request.id)).item?.response == "allow")
+    }
+
+    @Test func clickingARowJumpsAndMarksDoneSeen() async throws {
+        let d = try TestDaemon()
+        try report(d, "a", .prompt)
+        try report(d, "a", .stop)
+        try report(d, "b", .prompt)
+        let model = QueueModel()
+        var jumps: [String?] = []
+        model.jump = { jumps.append($0) }
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        try await until { model.online && model.panel.sessions.count == 2 }
+
+        // A running row only jumps.
+        model.open(try #require(model.sessions["b"]))
+        #expect(jumps == ["perch-terminal://ghostty?id=b"])
+        // A done row jumps and turns idle: you have seen it.
+        model.open(try #require(model.sessions["a"]))
+        #expect(jumps.last == "perch-terminal://ghostty?id=a")
+        try await until { model.sessions["a"]?.status == .idle }
+        #expect(try d.client.send(Request(op: .sessions)).sessions?.first { $0.id == "a" }?.status == .idle)
+        #expect(model.sessions["b"]?.status == .running)
+    }
+
+    @Test func removingARowRemovesTheSession() async throws {
+        let d = try TestDaemon()
+        try report(d, "a", .prompt)
+        try report(d, "b", .prompt)
+        let model = QueueModel()
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        try await until { model.online && model.panel.sessions.count == 2 }
+
+        model.remove(try #require(model.sessions["a"]))
+        try await until { model.sessions["a"] == nil }
+        #expect(try d.client.send(Request(op: .sessions)).sessions?.map(\.id) == ["b"])
+        // A later event brings it back.
+        try report(d, "a", .prompt)
+        try await until { model.sessions["a"]?.status == .running }
     }
 
     @Test func thePulseRingsInTheColourOfWhatHappened() async throws {

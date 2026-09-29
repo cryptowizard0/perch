@@ -12,12 +12,10 @@ public struct HotKey: Equatable, Sendable, CustomStringConvertible {
     public static let option: UInt32 = 0x800
     public static let control: UInt32 = 0x1000
 
-    /// Quick entry. ⌥⇧ is the Perch family.
-    public static let quickEntryDefault = HotKey(keyCode: 49, modifiers: option | shift)
-    /// Allow / deny the first request in the queue; registered only while one is pending.
+    /// ⌥⇧ is the Perch family. Allow / deny the first request the panel shows; registered only while there is one.
     public static let approve = HotKey(keyCode: 0, modifiers: option | shift)
     public static let deny = HotKey(keyCode: 2, modifiers: option | shift)
-    /// Jump to the first item's link; registered only while the queue is not empty.
+    /// Jump to the first Needs-you session; registered only while a session needs you.
     public static let jump = HotKey(keyCode: 31, modifiers: option | shift)
 
     public init(keyCode: UInt32, modifiers: UInt32) {

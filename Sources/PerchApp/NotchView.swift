@@ -2,10 +2,8 @@ import PerchAppCore
 import PerchCore
 import SwiftUI
 
-/// Right-click menu on the notch.
+/// Right-click menu on the notch (a row has its own).
 struct NotchMenu {
-    var quickEntryShortcut: String
-    var quickEntry: () -> Void
     var quit: () -> Void
 }
 
@@ -28,8 +26,6 @@ struct NotchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contextMenu {
-            Button("New Task…  \(menu.quickEntryShortcut)", action: menu.quickEntry)
-            Divider()
             Button("Quit Perch", action: menu.quit)
         }
     }

@@ -3,21 +3,19 @@ import Foundation
 import PerchClient
 import PerchCore
 
-/// What the notch shows, fed by `QueueConnection`. Main thread only.
-/// The notch renders `panel` (agent sessions); items are kept for the requests Allow / Deny answer.
+/// What the notch shows, fed by `QueueConnection`, and what its rows and hotkeys do. Main thread only.
+/// The notch renders `panel` (agent sessions); items are kept only for the requests Allow / Deny answer.
 @MainActor
 public final class QueueModel: ObservableObject {
     @Published public private(set) var state = QueueState()
     /// False until the first snapshot, and whenever perchd is unreachable.
     @Published public private(set) var online = false
     @Published public private(set) var offlineReason: String?
-    /// "Now" for ordering and colours. Ticks every minute and exactly when the next item falls due;
-    /// it only re-sorts — changes themselves always arrive as events.
+    /// "Now" for the rows' times. Ticks every minute; changes themselves always arrive as events.
     @Published public private(set) var now = Date()
-    /// Bumped whenever the notch should pulse once: a session starts needing you, fails or finishes
-    /// (`Panel.pulses`), or a due reminder fires.
+    /// Bumped whenever the notch should pulse once: a session starts needing you, fails or finishes (`Panel.pulses`).
     @Published public private(set) var pulse = 0
-    /// The state whose arrival caused the last pulse (its colour rings); nil for a due reminder.
+    /// The state whose arrival caused the last pulse (its colour rings).
     @Published public private(set) var pulseStatus: SessionStatus?
     /// Agent sessions by id, in any state (Hermes too; `panel` leaves those out).
     @Published public private(set) var sessions: [String: Session] = [:]
@@ -26,9 +24,8 @@ public final class QueueModel: ObservableObject {
 
     /// Called after every applied update; used to measure CLI → notch latency.
     public var onApply: ((QueueConnection.Update) -> Void)?
-    /// Called when an item's due time arrives (the notch pulses too). The app posts a system notification.
-    public var onDue: ((Item) -> Void)?
-    private var reminders = DueReminders()
+    /// Goes to a session's link (its terminal). The app sets it; AppKit stays out of this module.
+    public var jump: (String?) -> Void = { _ in }
 
     private var connection: QueueConnection?
     private var client = PerchClient()
@@ -38,12 +35,10 @@ public final class QueueModel: ObservableObject {
 
     public init() {}
 
-    public var ordered: [Item] { state.ordered(now: now) }
     /// What ⌥⇧A / ⌥⇧D answer and ⌥⇧O jumps to (see `Panel`).
     public var headRequest: Item? { panel.headRequest }
     public var headSession: Session? { panel.headSession }
     public var panel: Panel { Panel(sessions: sessions.values, requests: state.items.values) }
-    public var summary: Summary { state.summary(now: now) }
 
     public func connect(client: PerchClient = PerchClient()) {
         self.client = client
@@ -87,23 +82,23 @@ public final class QueueModel: ObservableObject {
         onApply?(update)
     }
 
-    /// Advances `now`, fires due reminders, re-arms the tick.
+    /// Advances `now` and re-arms the tick.
     private func refresh() {
         now = Date()
-        let due = reminders.take(from: state.items.values, now: now)
-        if !due.isEmpty {
-            pulseStatus = nil
-            pulse += 1
-        }
-        for item in due { onDue?(item) }
         scheduleTick()
     }
 
-    /// Clicking a row's title (see `Click`). The result comes back as an event like any other change;
-    /// only failures are reported here.
-    public func click(_ item: Item, option: Bool) {
-        guard let request = Click.on(item, option: option).request(for: item) else { return }
-        send(request)
+    // Row and hotkey actions. Results come back as events like any other change; only failures are reported here.
+
+    /// Clicking a row: back to that session's terminal. A done session has now been seen, so it turns idle.
+    public func open(_ session: Session) {
+        jump(session.link)
+        if session.status == .done { send(Request(op: .sessionSeen, id: session.id)) }
+    }
+
+    /// "Remove from Panel": forgets the session until its next event.
+    public func remove(_ session: Session) {
+        send(Request(op: .sessionRemove, id: session.id))
     }
 
     /// Allow / Deny (or any of the request's options). The waiting hook prints the decision.
@@ -111,14 +106,15 @@ public final class QueueModel: ObservableObject {
         send(Request(op: .respond, id: item.id, value: value))
     }
 
-    /// Quick entry: "回复 X 的邮件 @15:00" becomes a task due at 15:00 (see `QuickEntry`).
-    /// Returns false, sending nothing, when the text is blank.
-    @discardableResult
-    public func quickAdd(_ text: String, now: Date = Date()) -> Bool {
-        let (title, due) = QuickEntry.parse(text, now: now)
-        guard !title.isEmpty else { return false }
-        send(Request(op: .add, item: Item(title: title, source: "human", dueAt: due)))
-        return true
+    /// ⌥⇧O: the session that has waited longest.
+    public func openHead() {
+        if let head = headSession { open(head) }
+    }
+
+    /// ⌥⇧A / ⌥⇧D: the first request the panel shows, if it offers that answer.
+    public func answerHead(_ value: String) {
+        guard let head = headRequest, head.options?.contains(value) ?? false else { return }
+        respond(head, value)
     }
 
     /// Sends one request off the main thread; failures go to `flash`.
@@ -145,17 +141,11 @@ public final class QueueModel: ObservableObject {
         }
     }
 
-    /// For the view layer to request a pulse (e.g. a reminder fired).
-    public func requestPulse() {
-        pulse += 1
-    }
-
     private func scheduleTick() {
         ticker?.invalidate()
         let current = Date()
         let nextMinute = (current.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60 + 60
-        var fire = Date(timeIntervalSinceReferenceDate: nextMinute)
-        if let due = state.nextDue(after: current), due < fire { fire = due }
+        let fire = Date(timeIntervalSinceReferenceDate: nextMinute)
         let timer = Timer(fire: fire.addingTimeInterval(0.05), interval: 0, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }

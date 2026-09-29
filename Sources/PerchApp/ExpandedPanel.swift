@@ -52,6 +52,11 @@ struct SessionList: View {
                             SessionRowView(session: session, request: panel.request(for: session), now: queue.now) { request, answer in
                                 queue.respond(request, answer)
                             }
+                            .contentShape(Rectangle())
+                            .onTapGesture { queue.open(session) }
+                            .contextMenu {
+                                Button("Remove from Panel") { queue.remove(session) }
+                            }
                         }
                     }
                 }
@@ -82,9 +87,9 @@ struct GroupHeader: View {
     }
 }
 
-/// One session: dot, agent icon, project, time, jump; the second line depends on the state.
-/// Needs you shows the full text, never truncated (never approve something you cannot read), with Allow / Deny
-/// only when the request passed the allowlist.
+/// One session: dot, agent icon, project, time, where a click goes; the second line depends on the state.
+/// Clicking anywhere on the row (but Allow / Deny) jumps there. Needs you shows the full text, never truncated
+/// (never approve something you cannot read), with Allow / Deny only when the request passed the allowlist.
 struct SessionRowView: View {
     var session: Session
     var request: Item?
@@ -109,7 +114,7 @@ struct SessionRowView: View {
                         .font(.system(size: 11)).monospacedDigit()
                         .foregroundStyle(.white.opacity(0.45))
                         .fixedSize()
-                    JumpButton(link: session.link)
+                    JumpIcon(link: session.link)
                 }
                 secondLine
             }
@@ -126,7 +131,6 @@ struct SessionRowView: View {
                 .font(.system(size: 12, weight: parts.isCommand ? .medium : .regular, design: parts.isCommand ? .monospaced : .default))
                 .foregroundStyle(.white.opacity(0.9))
                 .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
             if let hint = parts.hint {
                 Text(hint).font(.system(size: 11)).foregroundStyle(SessionStatus.color(.waiting).opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
@@ -182,21 +186,18 @@ struct PixelIconView: View {
     }
 }
 
-/// Jumps to the session's link: the agent's terminal (Ghostty: the exact tab), a URL or a path.
-struct JumpButton: View {
+/// Where clicking the row goes: the agent's terminal (Ghostty: the exact tab), a URL or a path.
+struct JumpIcon: View {
     var link: String?
     /// Same with or without a link, so times line up.
     static let width: CGFloat = 18
 
     var body: some View {
         if let target = JumpTarget(link: link) {
-            Button { Jumper.jump(link) } label: {
-                Image(systemName: target.isTerminal ? "terminal" : "arrow.up.forward.square").font(.system(size: 12))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white.opacity(0.7))
-            .frame(width: Self.width)
-            .help(target.help)
+            Image(systemName: target.isTerminal ? "terminal" : "arrow.up.forward.square").font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.7))
+                .frame(width: Self.width)
+                .help(target.help)
         } else {
             Color.clear.frame(width: Self.width, height: 1)
         }
