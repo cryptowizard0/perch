@@ -73,10 +73,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// (the next main-queue pass after the model changed, i.e. after SwiftUI's layout for that change).
     private func logLatency() {
         queue.onApply = { update in
-            guard case .event(let event) = update else { return }
+            let id: String
+            switch update {
+            case .event(let event): id = event.item.id
+            case .session(let event): id = event.session.id
+            default: return
+            }
             DispatchQueue.main.async {
                 let ms = Int((Date().timeIntervalSince1970 * 1000).rounded())
-                FileHandle.standardError.write(Data("perch-latency \(event.item.id) \(ms)\n".utf8))
+                FileHandle.standardError.write(Data("perch-latency \(id) \(ms)\n".utf8))
             }
         }
     }

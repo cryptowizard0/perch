@@ -1,5 +1,6 @@
 #!/bin/sh
-# M2 acceptance: time from invoking `perch add` to the notch app having applied it and laid out the UI.
+# M2 / M8 acceptance: time from invoking `perch session start` (what a hook does) to the notch app having applied
+# the session and laid out the UI.
 # Runs an isolated perchd + Perch.app (its own PERCH_HOME), so your real queue is untouched.
 #   scripts/measure-latency.sh [runs]     # default 10; needs .build/Perch.app (scripts/bundle-app.sh)
 set -eu
@@ -21,7 +22,8 @@ now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; }
 # Warm up: add until the app has started, connected and logs what it sees (up to ~10 s).
 ready=
 for _ in $(seq 20); do
-    if id=$("$BIN/perch" add "warm-up" 2>/dev/null); then
+    id="warm-up-$$"
+    if "$BIN/perch" session start "$id" --source claude-code >/dev/null 2>&1; then
         for _ in $(seq 10); do
             grep -q "perch-latency $id " "$PERCH_HOME/app.log" && { ready=1; break; }
             sleep 0.05
@@ -35,7 +37,8 @@ done
 worst=0; total=0
 for n in $(seq "$RUNS"); do
     start=$(now_ms)
-    id=$("$BIN/perch" add "latency probe $n")
+    id="probe-$n"
+    "$BIN/perch" session start "$id" --source claude-code --title "latency probe" >/dev/null
     for _ in $(seq 200); do
         line=$(grep "perch-latency $id " "$PERCH_HOME/app.log" || true)
         [ -n "$line" ] && break

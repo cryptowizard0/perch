@@ -88,3 +88,38 @@ struct NotchLatencyTests {
         #expect(worst < 0.2, "worst CLI → notch model latency \(Int(worst * 1000)) ms")
     }
 }
+
+/// M8: a hook event → the panel's model has the session, ≤ 200 ms end to end (process launch included).
+@MainActor
+@Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
+struct PanelLatencyTests {
+    @Test func hookToPanelModelUnder200ms() async throws {
+        let d = try TestDaemon()
+        let model = QueueModel()
+        var appliedAt: [String: Date] = [:]
+        model.onApply = { update in
+            if case .session(let event) = update, appliedAt[event.session.id] == nil { appliedAt[event.session.id] = Date() }
+        }
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        while !model.online { try await Task.sleep(nanoseconds: 5_000_000) }
+
+        let cli = CLI(home: d.home)
+        try CLI.warmUp()
+        let env = ["TERM_PROGRAM": "Apple_Terminal", "__CFBundleIdentifier": "com.apple.Terminal"]
+        var worst: TimeInterval = 0
+        for n in 1...5 {
+            let id = "latency-\(n)"
+            let started = Date()
+            let hook = #"{"session_id":"\#(id)","cwd":"/w/perch","hook_event_name":"UserPromptSubmit","prompt":"go"}"#
+            _ = try cli.start(["hook", "claude-code"], stdin: hook, env: env)
+            while appliedAt[id] == nil && Date().timeIntervalSince(started) < 2 {
+                try await Task.sleep(nanoseconds: 1_000_000)
+            }
+            let applied = try #require(appliedAt[id])
+            worst = max(worst, applied.timeIntervalSince(started))
+            #expect(model.panel.sessions.contains { $0.id == id })
+        }
+        #expect(worst < 0.2, "worst hook → panel model latency \(Int(worst * 1000)) ms")
+    }
+}

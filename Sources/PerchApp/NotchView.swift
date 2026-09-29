@@ -22,7 +22,7 @@ struct NotchView: View {
                 CollapsedBar(queue: queue, notchWidth: notch.geometry?.notch?.width ?? 0)
                     .frame(height: notch.geometry?.bandHeight ?? NotchGeometry.capsuleHeight)
                 if notch.expanded {
-                    ExpandedList(queue: queue)
+                    ExpandedPanel(queue: queue)
                 }
             }
         }
@@ -35,28 +35,23 @@ struct NotchView: View {
     }
 }
 
-/// The band beside the notch: dot (+ Live Activity) on the left, the count on the right.
+/// The band beside the notch: the dot on the left (the most urgent session's colour), the number of running
+/// sessions on the right (hidden at 0), or the offline icon.
 struct CollapsedBar: View {
     @ObservedObject var queue: QueueModel
     var notchWidth: CGFloat
 
     var body: some View {
-        let summary = queue.summary
+        let panel = queue.panel
         HStack(spacing: 0) {
-            HStack(spacing: 6) {
-                SignalDot(signal: summary.signal, online: queue.online, pulse: queue.pulse)
-                if let text = queue.liveActivity?.text(now: queue.now) {
-                    Text(text).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.8))
-                        .lineLimit(1).fixedSize()
-                }
-            }
-            .padding(.leading, 14)
+            StatusDot(status: panel.signal, online: queue.online, pulse: queue.pulse, size: 8)
+                .padding(.leading, 14)
             Spacer(minLength: notchWidth)
             Group {
                 if !queue.online {
                     Image(systemName: "bolt.horizontal.circle").help(queue.offlineReason ?? "perchd is not running")
-                } else if summary.count > 0 {
-                    Text("\(summary.count)").monospacedDigit()
+                } else if panel.runningCount > 0 {
+                    Text("\(panel.runningCount)").monospacedDigit().help("\(panel.runningCount) running")
                 }
             }
             .font(.system(size: 12, weight: .semibold))
@@ -66,22 +61,31 @@ struct CollapsedBar: View {
     }
 }
 
-struct SignalDot: View {
-    var signal: Signal
-    var online: Bool
-    var pulse: Int
+/// A session state's colour. Running breathes; `pulse` changes ring once (entering Needs you / Failed / Done).
+struct StatusDot: View {
+    var status: SessionStatus?
+    var online = true
+    var pulse = 0
+    var size: CGFloat = 7
     @State private var ring = false
+    @State private var breathing = false
 
     var body: some View {
+        let color = online ? SessionStatus.color(status) : Color.gray.opacity(0.5)
         Circle()
-            .fill(online ? signal.color : Color.gray.opacity(0.5))
-            .frame(width: 8, height: 8)
+            .fill(color)
+            .frame(width: size, height: size)
+            .opacity(status == .running && online ? (breathing ? 0.35 : 1) : 1)
+            .animation(status == .running ? .easeInOut(duration: 1.4).repeatForever(autoreverses: true) : .default, value: breathing)
             .overlay(
-                Circle().stroke(signal.color, lineWidth: 2)
+                Circle().stroke(color, lineWidth: 2)
                     .scaleEffect(ring ? 3 : 1)
                     .opacity(ring ? 0 : 0.9)
                     .animation(ring ? .easeOut(duration: 0.9).repeatCount(2, autoreverses: false) : nil, value: ring)
+                    .opacity(ring ? 1 : 0)
             )
+            .onAppear { breathing = status == .running }
+            .onChange(of: status) { breathing = status == .running }
             .onChange(of: pulse) {
                 ring = false
                 DispatchQueue.main.async { ring = true }
@@ -90,13 +94,16 @@ struct SignalDot: View {
     }
 }
 
-extension Signal {
-    var color: Color {
-        switch self {
-        case .idle: return Color(white: 0.55)
-        case .todo: return Color(red: 0.25, green: 0.55, blue: 1)
+extension SessionStatus {
+    /// Needs you orange, Failed red, Running green, Done blue, Idle grey; no sessions a darker grey.
+    static func color(_ status: SessionStatus?) -> Color {
+        switch status {
         case .waiting: return Color(red: 1, green: 0.58, blue: 0.1)
-        case .overdue: return Color(red: 1, green: 0.27, blue: 0.23)
+        case .failed: return Color(red: 1, green: 0.27, blue: 0.23)
+        case .running: return Color(red: 0.2, green: 0.82, blue: 0.4)
+        case .done: return Color(red: 0.25, green: 0.55, blue: 1)
+        case .idle: return Color(white: 0.55)
+        case nil: return Color(white: 0.35)
         }
     }
 }

@@ -40,7 +40,6 @@ final class NotchWindowController {
     private var cancellables: Set<AnyCancellable> = []
 
     static let collapsedWing: CGFloat = 40
-    static let liveActivityWing: CGFloat = 120
     static let expandedWidth: CGFloat = 460
 
     init(notch: NotchModel, queue: QueueModel, menu: NotchMenu) {
@@ -55,8 +54,7 @@ final class NotchWindowController {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.layout() }
         })
-        // Resize when the state flips, when the Live Activity appears / goes, and when rows come and go
-        // while expanded.
+        // Resize when the state flips, and when rows come and go while expanded.
         notch.$expanded.removeDuplicates().dropFirst().sink { [weak self] _ in
             DispatchQueue.main.async { self?.layout() }
         }.store(in: &cancellables)
@@ -77,25 +75,27 @@ final class NotchWindowController {
         if notch.geometry != geometry { notch.geometry = geometry }
         let frame = notch.expanded
             ? geometry.expandedFrame(size: CGSize(width: Self.expandedWidth, height: expandedHeight(band: geometry.bandHeight)))
-            : geometry.collapsedFrame(leftWing: queue.liveActivity == nil ? Self.collapsedWing : Self.liveActivityWing,
-                                      rightWing: Self.collapsedWing)
+            : geometry.collapsedFrame(leftWing: Self.collapsedWing, rightWing: Self.collapsedWing)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
-    /// Band + rows (a request shows its full text, so it may take several lines) + padding, capped;
-    /// the list scrolls beyond that.
+    /// Band + group headers + rows (Needs you shows its full text, so it may take several lines) + padding,
+    /// capped; the list scrolls beyond that.
     private func expandedHeight(band: CGFloat) -> CGFloat {
-        let items = queue.ordered
-        guard queue.online, !items.isEmpty else { return band + ExpandedList.messageHeight + 16 }
-        let rows = items.reduce(CGFloat(0)) { total, item in
-            let full = item.kind == .request || item.meta?["tool"] != nil
-            let lines = full ? CGFloat(min(8, item.title.count / 48 + 1)) : 1
-            // Requests add a context line and a row of buttons.
-            let extra: CGFloat = item.kind == .request ? 44 : (item.meta?["tool"] != nil && item.status == .waiting ? 18 : 0)
-            return total + ExpandedList.rowHeight + (lines - 1) * 16 + extra
+        let panel = queue.panel
+        guard queue.online, !panel.sessions.isEmpty else { return band + ExpandedPanel.messageHeight + 16 }
+        let rows = panel.groups.reduce(CGFloat(0)) { total, group in
+            total + SessionList.headerHeight + group.sessions.reduce(CGFloat(0)) { sum, session in
+                guard session.status == .waiting else { return sum + SessionList.rowHeight }
+                let parts = SessionRow.needsYou(SessionRow.detail(session) ?? "")
+                let lines = parts.text.split(separator: "\n", omittingEmptySubsequences: false)
+                    .reduce(0) { $0 + $1.count / 52 + 1 } + (parts.hint == nil ? 0 : 1)
+                let buttons = panel.request(for: session) == nil ? 0 : SessionList.buttonsHeight
+                return sum + SessionList.rowHeight + CGFloat(min(lines, 12) - 1) * SessionList.lineHeight + buttons
+            }
         }
-        return band + min(rows, 420) + 16
+        return band + min(rows, 460) + 16
     }
 }
 

@@ -1,0 +1,224 @@
+import AppKit
+import PerchAppCore
+import PerchCore
+import SwiftUI
+
+/// What the expanded notch can show. Only agents for now; todo comes back as a second tab later,
+/// which is when a tab bar appears.
+enum PanelTab {
+    case agents
+}
+
+/// The expanded notch: the current tab's content, then a failed action's message if any.
+struct ExpandedPanel: View {
+    @ObservedObject var queue: QueueModel
+    var tab: PanelTab = .agents
+
+    static let messageHeight: CGFloat = 44
+
+    var body: some View {
+        VStack(spacing: 0) {
+            switch tab {
+            case .agents: SessionList(queue: queue)
+            }
+            if let flash = queue.flash {
+                Text(flash)
+                    .font(.system(size: 11))
+                    .foregroundStyle(SessionStatus.color(.failed))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+}
+
+/// Sessions grouped by state, most urgent group first, with the count in each header.
+struct SessionList: View {
+    @ObservedObject var queue: QueueModel
+
+    static let headerHeight: CGFloat = 24
+    static let rowHeight: CGFloat = 46
+    static let lineHeight: CGFloat = 16
+    static let buttonsHeight: CGFloat = 28
+
+    var body: some View {
+        let panel = queue.panel
+        if !queue.online {
+            message("perchd is not running — start it with `perchd` or `perchd install`")
+        } else if panel.sessions.isEmpty {
+            message("No agent sessions.")
+        } else {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(panel.groups, id: \.status) { group in
+                        GroupHeader(group: group)
+                        ForEach(group.sessions) { session in
+                            SessionRowView(session: session, request: panel.request(for: session), now: queue.now) { request, answer in
+                                queue.respond(request, answer)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func message(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundStyle(.white.opacity(0.55))
+            .frame(maxWidth: .infinity, minHeight: ExpandedPanel.messageHeight)
+    }
+}
+
+struct GroupHeader: View {
+    var group: Panel.Group
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(group.title).font(.system(size: 11, weight: .semibold))
+            Text("\(group.sessions.count)").font(.system(size: 11, weight: .semibold)).monospacedDigit()
+                .foregroundStyle(SessionStatus.color(group.status))
+        }
+        .foregroundStyle(.white.opacity(0.5))
+        .frame(height: SessionList.headerHeight, alignment: .bottom)
+        .padding(.leading, 2)
+    }
+}
+
+/// One session: dot, agent icon, project, time, jump; the second line depends on the state.
+/// Needs you shows the full text, never truncated (never approve something you cannot read), with Allow / Deny
+/// only when the request passed the allowlist.
+struct SessionRowView: View {
+    var session: Session
+    var request: Item?
+    var now: Date
+    var answer: (Item, String) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            StatusDot(status: session.status)
+                .frame(height: 16)
+            PixelIconView(icon: .for(agent: session.source))
+                .frame(height: 16)
+                .help(session.source)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(session.title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.95))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(SessionRow.time(session, now: now))
+                        .font(.system(size: 11)).monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.45))
+                        .fixedSize()
+                    JumpButton(link: session.link)
+                }
+                secondLine
+            }
+        }
+        .padding(.vertical, 6)
+        .opacity(session.status == .idle ? 0.45 : 1)
+    }
+
+    @ViewBuilder private var secondLine: some View {
+        if session.status == .waiting {
+            let parts = SessionRow.needsYou(SessionRow.detail(session) ?? "")
+            let isCommand = request != nil || parts.hint != nil
+            Text(parts.text)
+                .font(.system(size: 12, weight: isCommand ? .medium : .regular, design: isCommand ? .monospaced : .default))
+                .foregroundStyle(.white.opacity(0.9))
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            if let hint = parts.hint {
+                Text(hint).font(.system(size: 11)).foregroundStyle(SessionStatus.color(.waiting).opacity(0.9)).lineLimit(2)
+            }
+            if let request {
+                HStack(spacing: 8) {
+                    ForEach(request.options ?? [], id: \.self) { option in
+                        Button { answer(request, option) } label: {
+                            Text(option.prefix(1).uppercased() + option.dropFirst())
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .padding(.horizontal, 10).padding(.vertical, 3)
+                                .background(RoundedRectangle(cornerRadius: 6).fill(fill(option)))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                    }
+                }
+                .padding(.top, 3)
+            }
+        } else if let line = SessionRow.detail(session)?.split(separator: "\n").first {
+            Text(String(line))
+                .font(.system(size: 11.5))
+                .foregroundStyle(session.status == .failed ? SessionStatus.color(.failed) : .white.opacity(0.55))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
+    private func fill(_ option: String) -> Color {
+        switch option {
+        case "allow": return Color(red: 0.2, green: 0.55, blue: 0.3)
+        case "deny": return Color(red: 0.55, green: 0.2, blue: 0.2)
+        default: return .white.opacity(0.15)
+        }
+    }
+}
+
+/// A `PixelIcon`, one point per cell, square cells, no antialiasing.
+struct PixelIconView: View {
+    var icon: PixelIcon
+    var color: Color = .white.opacity(0.85)
+
+    var body: some View {
+        Canvas { context, _ in
+            var path = Path()
+            for cell in icon.cells {
+                path.addRect(CGRect(x: cell.x, y: cell.y, width: 1, height: 1))
+            }
+            context.fill(path, with: .color(color))
+        }
+        .frame(width: CGFloat(PixelIcon.size), height: CGFloat(PixelIcon.size))
+        .drawingGroup(opaque: false, colorMode: .nonLinear)
+    }
+}
+
+/// Jumps to the session's link: the agent's terminal (Ghostty: the exact tab), a URL or a path.
+struct JumpButton: View {
+    var link: String?
+    /// Same with or without a link, so times line up.
+    static let width: CGFloat = 18
+
+    var body: some View {
+        if let target = JumpTarget(link: link) {
+            Button { Jumper.jump(link) } label: {
+                Image(systemName: target.isTerminal ? "terminal" : "arrow.up.forward.square").font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white.opacity(0.7))
+            .frame(width: Self.width)
+            .help(target.help)
+        } else {
+            Color.clear.frame(width: Self.width, height: 1)
+        }
+    }
+}
+
+extension JumpTarget {
+    var isTerminal: Bool {
+        if case .terminal = self { return true }
+        return false
+    }
+
+    var help: String {
+        switch self {
+        case .terminal(let t): return "Back to \(t.app == "ghostty" ? "Ghostty" : t.app)" + (t.cwd.map { " · \($0)" } ?? "")
+        case .open(let url): return url.isFileURL ? url.path : url.absoluteString
+        }
+    }
+}

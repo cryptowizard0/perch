@@ -85,7 +85,7 @@ struct QuickEntryField: View {
         let parsed = QuickEntry.parse(model.text)
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Image(systemName: "plus.circle.fill").foregroundStyle(Signal.todo.color)
+                Image(systemName: "plus.circle.fill").foregroundStyle(SessionStatus.color(.done))
                 TextField("New task — @15:00 or +30m sets a due time", text: $model.text)
                     .textFieldStyle(.plain)
                     .font(.system(size: 15))

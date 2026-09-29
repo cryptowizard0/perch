@@ -105,29 +105,90 @@ extension AppModelTests {
 }
 
 extension AppModelTests {
-    @Test func liveActivityFollowsSessions() async throws {
+    func report(_ d: TestDaemon, _ id: String, _ kind: SessionReport.Kind, source: String = "claude-code", detail: String? = nil) throws {
+        let r = try d.client.send(Request(op: .sessionReport, report: SessionReport(
+            id: id, kind: kind, at: Date(), source: source, title: id, prompt: kind == .prompt ? "go" : nil, detail: detail)))
+        #expect(r.ok)
+    }
+
+    @Test func thePanelFollowsSessions() async throws {
         let d = try TestDaemon()
-        _ = try d.client.send(Request(op: .sessionStart, session: Session(id: "a", source: "claude-code", title: "perch",
-                                                                          startedAt: Date().addingTimeInterval(-245))))
+        try report(d, "a", .prompt)
+        let model = QueueModel()
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        try await until { model.online && !model.panel.sessions.isEmpty }
+        #expect(model.panel.signal == .running && model.panel.runningCount == 1)
+        #expect(model.pulse == 0)
+
+        try report(d, "b", .prompt, source: "codex")
+        try await until { model.panel.runningCount == 2 }
+        // Hermes stays out of the panel (M9).
+        try report(d, "h", .prompt, source: "hermes")
+        try await until { model.sessions["h"] != nil }
+        #expect(model.panel.runningCount == 2 && model.pulse == 0)
+
+        try report(d, "a", .waiting, detail: "rm -rf build/")
+        try await until { model.panel.signal == .waiting }
+        #expect(model.pulse == 1)
+        #expect(model.panel.groups.map(\.title) == ["Needs you", "Running"])
+        #expect(model.panel.groups[0].sessions.map(\.detail) == ["rm -rf build/"])
+
+        try report(d, "a", .resume)
+        try await until { model.panel.runningCount == 2 }
+        try report(d, "b", .stop)
+        try await until { model.sessions["b"]?.status == .done }
+        #expect(model.pulse == 2)
+        try report(d, "a", .failure)
+        try await until { model.panel.signal == .failed }
+        #expect(model.pulse == 3 && model.panel.runningCount == 0)
+        // Leaving for idle or ending never pulses.
+        _ = try d.client.send(Request(op: .sessionSeen, id: "b"))
+        try await until { model.sessions["b"]?.status == .idle }
+        _ = try d.client.send(Request(op: .sessionRemove, id: "a"))
+        try await until { model.sessions["a"] == nil }
+        #expect(model.pulse == 3)
+        #expect(model.panel.signal == .idle)
+    }
+
+    @Test func itemsNoLongerPulse() async throws {
+        let d = try TestDaemon()
         let model = QueueModel()
         model.connect(client: d.client)
         defer { model.disconnect() }
         try await until { model.online }
-        #expect(model.liveActivity?.text(now: Date()) == "1 agent · 4m")
+        _ = try d.client.send(Request(op: .add, item: Item(title: "go to terminal", status: .waiting, source: "codex")))
+        try await until { model.state.items.count == 1 }
+        #expect(model.pulse == 0 && model.panel.signal == nil)
+    }
+}
 
-        _ = try d.client.send(Request(op: .sessionStart, session: Session(id: "b", source: "codex", title: "x")))
-        try await until { model.sessions.count == 2 }
-        #expect(model.liveActivity?.text(now: Date()) == "2 agents · 4m")
+/// Allow / Deny in the panel answer the PermissionRequest hook (the real binary), and the session runs on.
+@MainActor
+@Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
+struct PanelApprovalTests {
+    let env = ["TERM_PROGRAM": "Apple_Terminal", "__CFBundleIdentifier": "com.apple.Terminal"]
+    let permission = #"{"session_id":"s1","cwd":"/w/perch","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"npm test"}}"#
 
-        // Only running sessions count: a finished turn leaves the Live Activity but stays a session.
-        _ = try d.client.send(Request(op: .sessionReport, report: SessionReport(id: "a", kind: .stop, at: Date())))
-        try await until { model.sessions["a"]?.status == .done }
-        #expect(model.liveActivity?.text(now: Date()) == "1 agent · <1m")
+    @Test(arguments: ["allow", "deny"])
+    func answeringFromThePanel(_ answer: String) async throws {
+        let d = try TestDaemon()
+        let model = QueueModel()
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        try await AppModelTests().until { model.online }
 
-        _ = try d.client.send(Request(op: .sessionEnd, id: "a"))
-        _ = try d.client.send(Request(op: .sessionEnd, id: "b"))
-        try await until { model.sessions.isEmpty }
-        #expect(model.liveActivity == nil)
+        let finish = try CLI(home: d.home).start(["hook", "claude-code", "--wait", "20"], stdin: permission, env: env)
+        try await AppModelTests().until { model.panel.sessions.first.map(model.panel.request(for:)) != nil }
+        let session = try #require(model.panel.sessions.first)
+        #expect(session.status == .waiting && session.detail == "npm test")
+        let request = try #require(model.panel.request(for: session))
+        #expect(request.title.contains("npm test") && request.options == ["allow", "deny"])
+
+        model.respond(request, answer)
+        try await AppModelTests().until { model.sessions["s1"]?.status == .running }
+        #expect(model.panel.request(for: try #require(model.sessions["s1"])) == nil)
+        #expect(try finish().stdout.contains(#""behavior":"\#(answer)""#))
     }
 }
 

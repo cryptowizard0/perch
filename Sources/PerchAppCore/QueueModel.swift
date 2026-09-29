@@ -4,6 +4,7 @@ import PerchClient
 import PerchCore
 
 /// What the notch shows, fed by `QueueConnection`. Main thread only.
+/// The notch renders `panel` (agent sessions); items are kept for the requests Allow / Deny answer.
 @MainActor
 public final class QueueModel: ObservableObject {
     @Published public private(set) var state = QueueState()
@@ -13,9 +14,10 @@ public final class QueueModel: ObservableObject {
     /// "Now" for ordering and colours. Ticks every minute and exactly when the next item falls due;
     /// it only re-sorts — changes themselves always arrive as events.
     @Published public private(set) var now = Date()
-    /// Bumped whenever the notch should pulse once.
+    /// Bumped whenever the notch should pulse once: a session starts needing you, fails or finishes
+    /// (`Panel.pulses`), or a due reminder fires.
     @Published public private(set) var pulse = 0
-    /// Agent sessions by id, in any state; the Live Activity counts the running ones.
+    /// Agent sessions by id, in any state (Hermes too; `panel` leaves those out).
     @Published public private(set) var sessions: [String: Session] = [:]
     /// The last failed action, shown briefly in the expanded notch.
     @Published public private(set) var flash: String?
@@ -37,11 +39,7 @@ public final class QueueModel: ObservableObject {
     public var ordered: [Item] { state.ordered(now: now) }
     /// The request ⌥⇧A / ⌥⇧D answer: the first one in queue order.
     public var headRequest: Item? { ordered.first { $0.kind == .request } }
-    /// nil when no agent is running.
-    public var liveActivity: LiveActivity? {
-        let running = sessions.values.filter { $0.status == .running }
-        return running.isEmpty ? nil : LiveActivity(sessionStarts: running.map(\.turnStartedAt))
-    }
+    public var panel: Panel { Panel(sessions: sessions.values, requests: state.items.values) }
     public var summary: Summary { state.summary(now: now) }
 
     public func connect(client: PerchClient = PerchClient()) {
@@ -68,9 +66,14 @@ public final class QueueModel: ObservableObject {
             online = true
             offlineReason = nil
         case .event(let event):
-            if state.apply(event) { pulse += 1 }
+            state.apply(event)
         case .session(let event):
-            sessions[event.session.id] = event.type == .ended ? nil : event.session
+            let before = sessions[event.session.id]
+            let after = event.type == .ended ? nil : event.session
+            sessions[event.session.id] = after
+            if !Panel.hiddenSources.contains(event.session.source), Panel.pulses(from: before?.status, to: after?.status) {
+                pulse += 1
+            }
         case .offline(let reason):
             online = false
             offlineReason = reason
