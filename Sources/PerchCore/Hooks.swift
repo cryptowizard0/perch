@@ -147,7 +147,7 @@ public enum HookAdapter {
         switch input.event {
         case "UserPromptSubmit":
             return [
-                report(.prompt) { $0.prompt = oneLine(input.prompt ?? "") },
+                report(.prompt) { $0.prompt = promptLine(input.prompt ?? "") },
                 resolveWaiting,
                 Request(op: .done, key: noticeKey(agent: agent, session: session)),
             ]
@@ -350,6 +350,26 @@ public enum HookAdapter {
     }
 
     /// The first meaningful line of the agent's last message, without markdown decoration, capped.
+    /// A prompt's first line as the notch shows it. Claude Code hands shell-mode (`!cmd`) and slash-command prompts
+    /// over in tags; those read as what was typed: `$ cmd`, `/name args`.
+    static func promptLine(_ prompt: String) -> String? {
+        func tag(_ name: String) -> String? {
+            guard let open = prompt.range(of: "<\(name)>"),
+                  let close = prompt.range(of: "</\(name)>", range: open.upperBound..<prompt.endIndex) else { return nil }
+            return prompt[open.upperBound..<close.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let name = tag("command-name"), !name.isEmpty {
+            let command = name.hasPrefix("/") ? name : "/" + name
+            return oneLine([command, tag("command-args") ?? ""].filter { !$0.isEmpty }.joined(separator: " "))
+        }
+        if let command = tag("bash-input"), let line = command.split(whereSeparator: \.isNewline).first {
+            // Not `oneLine`: its markdown cleanup would change the command (backticks, `**`).
+            let line = "$ " + line.trimmingCharacters(in: .whitespaces)
+            return line.count > summaryLength ? String(line.prefix(summaryLength - 1)) + "…" : line
+        }
+        return oneLine(prompt)
+    }
+
     static func summary(_ message: String?) -> String {
         oneLine(message ?? "") ?? "finished"
     }

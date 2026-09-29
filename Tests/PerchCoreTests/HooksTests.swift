@@ -339,3 +339,30 @@ import Testing
         }
     }
 }
+
+/// The Running row shows the prompt's first line: Claude Code wraps shell-mode (`!cmd`) and slash-command prompts
+/// in tags, which read as the command itself.
+@Suite struct PromptLineTests {
+    @Test func shellModeReadsAsTheCommand() {
+        #expect(HookAdapter.promptLine("<bash-input>scripts/install.sh</bash-input><bash-stdout>[1/1] Planning build\nok</bash-stdout><bash-stderr></bash-stderr>")
+                == "$ scripts/install.sh")
+        #expect(HookAdapter.promptLine("<bash-input>git status\ngit log</bash-input>") == "$ git status")
+        #expect(HookAdapter.promptLine("<bash-input>ls `pwd`/**</bash-input>") == "$ ls `pwd`/**")
+        let long = HookAdapter.promptLine("<bash-input>" + String(repeating: "x", count: 300) + "</bash-input>")
+        #expect(long?.count == HookAdapter.summaryLength && long?.hasSuffix("…") == true)
+    }
+
+    @Test func slashCommandsReadAsTyped() {
+        #expect(HookAdapter.promptLine("<command-message>implement</command-message>\n<command-name>/implement</command-name>\n<command-args>#17</command-args>")
+                == "/implement #17")
+        #expect(HookAdapter.promptLine("<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>")
+                == "/clear")
+        #expect(HookAdapter.promptLine("<command-name>review</command-name><command-args>  since main </command-args>") == "/review since main")
+    }
+
+    @Test func plainPromptsAreUnchanged() {
+        #expect(HookAdapter.promptLine("\n  Fix the **flaky** test\nin CI") == "Fix the flaky test")
+        #expect(HookAdapter.promptLine("Why does <div> collapse?") == "Why does <div> collapse?")
+        #expect(HookAdapter.promptLine("  \n ") == nil)
+    }
+}

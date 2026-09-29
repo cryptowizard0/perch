@@ -331,6 +331,7 @@ hermes hooks list               # 5 个都应是 allowed
 - 截图（隔离 perchd + `PERCH_PIN_EXPANDED=1`，`screencapture -l <窗口号>` 只截这个 App）：收起态橙点 + 3、只剩 Done 蓝点无数字、只剩 Running 绿点呼吸 + 1；展开态分组、Allow / Deny、"Answer in the terminal"、红色 rate_limit、未知 agent 机器人图标都正常。
 - 延迟：`PanelLatencyTests`（hook → 面板模型，5 次最差 < 200 ms，实测整组 0.16 s）；`scripts/measure-latency.sh` 改成 `perch session start` 探针，真 App 均值 10 ms、最差 13 ms。
 - 代码审查后改的：有 request 的 Needs you 行显示 **request 自己的文本**（会话 detail 可能已被后来的提问覆盖，Allow 必须对应眼前的命令）；⌥⇧A / D 只回答面板上看得到的 request（`Panel.headRequest`：第一个 Needs you 会话里的 request；没挂会话的 request 永远不会被快捷键批准），⌥⇧O 跳到等得最久的 Needs you 会话；脉冲圈用触发它的状态的颜色（`pulseStatus`），不是总色点的颜色；"Answer in the terminal…" 不截断；高度估算挪到 `PanelLayout`（可测）。
+- Running 第二行的 prompt：Claude Code 把 `!cmd`（shell 模式）和 slash 命令包在标签里交给 UserPromptSubmit（`<bash-input>…</bash-input><bash-stdout>…`、`<command-name>/x</command-name><command-args>…`），`HookAdapter.promptLine` 还原成 `$ cmd` / `/x args`。
 - 刻意保留：提问类 Needs you 显示 agent 的原话（Notification 的 message），没有才显示 "Waiting for your answer"（PRD 表里只写了后者；原话信息更多，#15 时定的）。
 - 已知缺口（M9 前）：Hermes 的会话不进面板、审批 waiting item 也不再显示或脉冲，Hermes 的审批只能在终端 / Telegram 看到。
 - 过渡期（#19 做）：点整行跳转 / 标记已看、右键 "Remove from Panel"、快速录入和到期提醒下线（现在到期提醒仍会脉冲 + 系统通知，但面板里看不到 task）、hook 不再发 waiting / notice item。
