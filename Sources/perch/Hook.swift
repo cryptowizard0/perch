@@ -36,7 +36,7 @@ struct Hook: ParsableCommand {
         for request in HookAdapter.requests(for: input, agent: agent, link: link, now: now) {
             do {
                 let response = try client.send(request.reporting(process), timeout: 2)
-                // Resolving a waiting item that is not there is the normal case.
+                // Resolving a waiting item that is not there (Hermes) is the normal case.
                 if !response.ok, request.op != .done {
                     HookLog.write("\(input.event) \(request.op.rawValue): \(response.error ?? "failed")")
                 }

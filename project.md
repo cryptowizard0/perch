@@ -374,7 +374,7 @@ hermes hooks list               # 5 个都应是 allowed
 - `link` 只能打开 URL 和绝对 / `~` 路径；tmux 等终端会话引用没有跳转按钮，等 M3 定机制。
 - Esc 打断一轮时 Claude Code 不发 Stop（Codex 有 Interrupt，没这个问题）：Live Activity 会一直挂着，直到下一条 prompt 的 Stop、SessionEnd 或 3 小时超时。
 - 非 Ghostty 终端只能激活 App，定位不到 tab。Perch.app 还没有注册 `perch-terminal://` URL scheme（todo.md 里的这类链接点不开）。
-- 点击 / 快捷键的 UI 路径没有自动化测试（只测了 `Click` 映射和 `QueueModel`），改交互要人工回归上面的清单。
+- 点击 / 快捷键的 UI 路径没有自动化测试（只测了 `QueueModel` 的 open / remove / openHead / answerHead），改交互要人工回归上面的清单。
 
 ## 工作约定（来自用户和 CLAUDE.md）
 
