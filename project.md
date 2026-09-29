@@ -335,9 +335,9 @@ hermes hooks list               # 5 个都应是 allowed
 
 8.2 交互 + todo 下线（#19，2026-09-29）：
 - hook：Claude Code / Codex 每个事件只发 `session_report`，不再发 waiting / notice item，也不再 `done --key` 去关它们；Notification 不再先 `list` 查有没有 waiting（`keep_detail` 已经保证 `permission_prompt` 不覆盖命令）。PermissionRequest：白名单外 / 超时 / 没回应就被关掉，都只把会话写成"完整命令\nAnswer in the terminal[: 原因]"，不再补发"去终端" item；`PermissionPlan.terminal` 只带原因。唯一的 item 是白名单内的 request。Hermes 不变。
-- 升级前留下的 waiting / notice item：notice 10 分钟自己过期；"去终端" waiting 不会再被 hook 关掉，`perch ls` 里看到就 `perch done <id>`。
-- App：点整行（Allow / Deny 按钮除外）→ `QueueModel.open(session)`：跳到 `session.link`（`jump` 闭包由 AppDelegate 注入 `Jumper.jump`），Done 的顺带 `session_seen` → Idle；右键行 "Remove from Panel" → `session_remove`；⌥⇧O / A / D 走 `openHead()` / `answerHead(_:)`（和点行同一条路径，可测）。行尾的终端图标只是提示，不再是单独的按钮；命令文本去掉了 `textSelection`，否则点在命令上不会跳。右键刘海只剩 Quit Perch。
-- 删掉：`QuickEntry`（面板）、`Notifier`、`DueReminders`、`Click`、`RowFormat`（`linkURL` 挪进 `JumpTarget.url`）、`QueueState` 的 summary / signal / nextDue / ordered、`HotKey.quickEntryDefault` 和 `QuickEntryHotKey` 默认值。PerchCore 的 `QuickEntry.parse` 留着（inbox 在用）。
+- 升级前留下的 waiting / notice item（hook 不再关它们）：perchd 每次启动时 dismiss 掉（`Service.dismissLegacyHookItems`：source 是 claude-code / codex、不是 request、key 以 `<source>:` 开头）。request、Hermes 的 item、人手加的 item 不动（用户定，2026-09-29）。
+- App：点整行（Allow / Deny 按钮除外）→ `QueueModel.open(session)`：跳到 `session.link`（`jump` 闭包由 AppDelegate 注入 `Jumper.jump`），Done 的顺带 `session_seen` → Idle；右键行 "Remove from Panel" → `session_remove`；⌥⇧O / A / D 走 `openHead()` / `answerHead(_:)`（和点行同一条路径，可测）。行尾的终端图标只是提示，不再是单独的按钮；命令文本去掉了 `textSelection`，否则点在命令上不会跳（用户定：整行可点优先，不能再从面板复制命令）。右键刘海只剩 Quit Perch。
+- 删掉：`QuickEntry`（面板）、`Notifier`、`DueReminders`、`Click`、`RowFormat`（`linkURL` 挪进 `JumpTarget.url`）、`QueueState` 的 summary / signal / nextDue / ordered、`HotKey` 的文本解析 / `description`（只剩 ⌥⇧A / D / O 三个常量）和 `QuickEntryHotKey` 默认值。PerchCore 的 `QuickEntry.parse` 留着（inbox 在用）。
 - 测试：`AppModelTests`（真 perchd）点 Done 行 → Idle、点 Running 行只跳转、Remove 后会话消失且下一个事件带回来、⌥⇧O 跳等得最久的会话、⌥⇧A 回答第一个 request；`HookCLITests` / `CodexHookTests` 断言整轮下来除了 request 没有任何 item（`list --all`）。
 - 截图（隔离 perchd + `PERCH_PIN_EXPANDED=1`）：Needs you（Codex、`rm -rf dist/` + Answer in the terminal）+ Done 两组正常，`perch ls --all` 空。点击 / 右键 / 快捷键没法合成，留给 #20 人工验收。
 
