@@ -341,6 +341,13 @@ hermes hooks list               # 5 个都应是 allowed
 - 测试：`AppModelTests`（真 perchd）点 Done 行 → Idle、点 Running 行只跳转、Remove 后会话消失且下一个事件带回来、⌥⇧O 跳等得最久的会话、⌥⇧A 回答第一个 request；`HookCLITests` / `CodexHookTests` 断言整轮下来除了 request 没有任何 item（`list --all`）。
 - 截图（隔离 perchd + `PERCH_PIN_EXPANDED=1`）：Needs you（Codex、`rm -rf dist/` + Answer in the terminal）+ Done 两组正常，`perch ls --all` 空。点击 / 右键 / 快捷键没法合成，留给 #20 人工验收。
 
+8.3 验收（#20，进行中，2026-09-29）：
+- ✅ install.sh 装好（#19 之后）；新 perchd 启动时把上一轮旧 hook 留下的 notice dismiss 掉了（只剩 1 条），`todo.md` 显示 "Nothing waiting"。
+- ✅ 延迟：`scripts/measure-latency.sh 20`，均值 14 ms、最差 36 ms（预算 200 ms）。
+- ✅ 真实会话截图（本机刘海在 MacBook 内屏，5K 外接屏是主屏）：收起态绿点 + 1（这个会话 Running，另一个 Idle 不计数）；展开态另开一个 `PERCH_PIN_EXPANDED=1` 的实例连真实 perchd 截图：Running / Idle 两组、组标题数量、Claude Code 小怪物图标、prompt / 回复首行、Idle 整行变暗都对。
+- ✅ PRD 对齐实际实现：审批行 "Answer in the terminal: 原因"、提问行显示 agent 原话、⌥⇧A / D / O 的目标、SQLite 用系统 libsqlite3。
+- 待人工：Codex 真实会话、Allow / Deny / 去终端 / 超时、点行跳 Ghostty tab 并变灰、右键移除、⌥⇧A / D / O、全屏 App 下的表现。
+
 ### M2 协议扩展：`update`（已实现）
 
 - op `update` + `id` + `patch`（`title` / `kind` / `due_at` / `clear_due`，JSON snake_case），只改给了的字段；内容不变不发事件。

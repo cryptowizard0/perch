@@ -213,7 +213,7 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 
 | 状态（UI 文案） | 进入 | 离开 | 圆点 |
 | --- | --- | --- | --- |
-| **Needs you** | PermissionRequest / Notification（权限、提问） | PostToolUse(Failure)、UserPromptSubmit、Stop | 🟠 橙，进入时脉冲 |
+| **Needs you** | PermissionRequest / Notification（权限、提问） | PostToolUse(Failure)、刘海 Allow / Deny、UserPromptSubmit、Stop / StopFailure | 🟠 橙，进入时脉冲 |
 | **Failed** | StopFailure（API 报错、限流等） | 下一次 UserPromptSubmit | 🔴 红，进入时脉冲 |
 | **Running** | UserPromptSubmit；等你之后工具跑了 | Stop / StopFailure / 等你 | 🟢 绿，呼吸动画 |
 | **Done** | Stop | 10 分钟后，或从刘海跳回那个终端 → Idle；下一次 UserPromptSubmit → Running | 🔵 蓝，静止，进入时脉冲一次 |
@@ -240,8 +240,8 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 
 | 状态 | 第二行 | 时间 |
 | --- | --- | --- |
-| Needs you（审批） | 完整命令原文 + Allow / Deny（白名单内）或"去终端"（安全规则不变） | 等了多久 |
-| Needs you（提问） | "Waiting for your answer" | 等了多久 |
+| Needs you（审批） | 完整命令原文 + Allow / Deny（白名单内）或 "Answer in the terminal: 原因"（白名单外、超时；安全规则不变） | 等了多久 |
+| Needs you（提问） | agent 的原话（Notification 的 message），没有就 "Waiting for your answer" | 等了多久 |
 | Failed | 错误类型 | 多久前 |
 | Running | 本轮 prompt 的首行 | 本轮已跑多久 |
 | Done | 最后一条回复的首行 | 多久前完成 |
@@ -255,9 +255,10 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 
 | 操作 | 效果 |
 | --- | --- |
-| 点整行 | 跳回那个会话的终端（Ghostty 定位到 tab，其他终端激活 App）；Done 顺带变 Idle |
+| 点整行（Allow / Deny 按钮除外） | 跳回那个会话的终端（Ghostty 定位到 tab，其他终端激活 App）；Done 顺带变 Idle |
 | Allow / Deny | 只在白名单内的审批上出现 |
-| ⌥⇧A / ⌥⇧D / ⌥⇧O | 批准 / 拒绝 / 跳转队首（排序最前的 Needs you 会话） |
+| ⌥⇧A / ⌥⇧D | 批准 / 拒绝面板上第一个 Allow / Deny（排序最前、带 request 的 Needs you 会话）；没有就不注册，键照常打字 |
+| ⌥⇧O | 跳到等得最久的 Needs you 会话；没有就不注册 |
 | 右键某一行 | "Remove from Panel"：手动移除（进程检测失效时的逃生口） |
 | 右键刘海 | Quit Perch |
 
@@ -271,7 +272,7 @@ todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task、⌥⇧Sp
 
 ## 技术路线
 
-Swift 全栈，一种语言：SwiftUI 做刘海 UI，daemon 和 CLI 用 Swift ArgumentParser 打成单二进制，SQLite 用 GRDB 或直接 sqlite3。
+Swift 全栈，一种语言：SwiftUI 做刘海 UI，daemon 和 CLI 用 Swift ArgumentParser 打成单二进制，SQLite 直接用系统 libsqlite3（M1 定，不用 GRDB）。
 
 刘海窗口那套 NSPanel 技巧不自己写：[NotchDo](https://notchdo.app/) 是 MIT 协议，又正好是"刘海里的待办"，拿它的窗口层，换掉数据层。[Boring Notch](https://github.com/TheBoredTeam/boring.notch) 是 GPL-3.0，借它的代码会把整个项目锁成 GPL，产品化时是麻烦，不用。[luifon/notch-widget](https://github.com/luifon/notch-widget) 的 `CGSSpace.swift` 是 MPL-2.0，可以单文件引用。
 
