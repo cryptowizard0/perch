@@ -66,7 +66,7 @@ M7 起每个事件先发一条 `session_report` 更新会话状态（映射见 `
 
 | 事件 | 适配器行为 | 阻塞 agent |
 | --- | --- | --- |
-| `UserPromptSubmit` | session_start（Live Activity 按"轮"计时）；resolve 本会话的 waiting 和上一条完成 notice；Ghostty 下记下当前聚焦的 terminal id | 否 |
+| `UserPromptSubmit` | session_start（新一轮 Running）；resolve 本会话的 waiting 和上一条完成 notice；Ghostty 下记下当前聚焦的 terminal id | 否 |
 | `Notification`（matcher `permission_prompt` / `elicitation_dialog` / `agent_needs_input`；**不接 `idle_prompt`**） | add waiting，key `<agent>:<session_id>` | 否 |
 | `Stop` | session_end；`done --key` resolve waiting；发 notice（`last_assistant_message` 首行摘要，key `<agent>:<session_id>:done`，10 分钟后消失） | 否 |
 | `StopFailure` / `SessionEnd` / `Interrupt`（Codex） | session_end；resolve waiting | 否 |
@@ -87,7 +87,7 @@ Hermes Agent（M6 定：它跑在本机，不在 Docker 里，所以走 shell ho
 
 Hermes 的审批 hook 只能观察，不能代答，所以刘海**永远不能批准 Hermes 的命令**，只能提示去哪里回答。审批 hook 带的是 gateway 的 `session_key`（CLI 里是 `default`，gateway 是 `agent:main:<platform>:…`），不是 session_id。
 
-会话 CLI：`perch session ls [--json]`（状态和详情）、`perch session seen <id>`（done → idle）、`perch session rm <id>`（手动移除，之后再来事件会重新出现）；`perch session start|end` 保持旧含义（start = 新一轮 running，end = 移除），Hermes 还在用。`watch` 推 `session.updated`（每次变化）、`session.ended`（移除）和 `session.started`（新一轮开始，给老客户端）。刘海的 Live Activity 只数 Running 会话。
+会话 CLI：`perch session ls [--json]`（状态和详情）、`perch session seen <id>`（done → idle）、`perch session rm <id>`（手动移除，之后再来事件会重新出现）；`perch session start|end` 保持旧含义（start = 新一轮 running，end = 移除），Hermes 还在用。`watch` 推 `session.updated`（每次变化）、`session.ended`（移除）和 `session.started`（新一轮开始，给老客户端）。刘海（M8，#18）只显示会话（Hermes 除外，M9）：收起态 = 最紧急会话的颜色 + Running 数；展开态按状态分组，逻辑在 `PerchAppCore/Panel.swift`（`Panel` / `SessionRow`），像素图标在 `PixelIcon.swift`。Live Activity（"2 agents · 4m"）已去掉。
 
 `perch add --kind request --wait` 的约定：有人回应 → stdout 打印回应值、exit 0；过期（`--expires`）/ 被 done / 被 rm → exit 3、不打印回应。适配器只在 exit 0 时返回决定，其余一律不返回，让终端原生提示接管。
 

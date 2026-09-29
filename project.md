@@ -16,7 +16,7 @@
 | M5 | Codex 复用同一套 hook 脚本 | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M6 | Hermes 接入（改为 shell hook） | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ⏳ 进行中 | #15 状态机 ✅；#16 存活检测 ✅；#17 真实会话验收待做。不动 UI |
-| M8 | Agent 面板 UI；刘海 todo UI 下线 | 未开始 | |
+| M8 | Agent 面板 UI；刘海 todo UI 下线 | ⏳ 进行中 | #18 面板 ✅；#19 交互 + todo 下线、#20 验收待做 |
 | M9 | Hermes 迁到会话模型 | 未开始 | M8 验收后单独设计 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -319,6 +319,18 @@ hermes hooks list               # 5 个都应是 allowed
 - ✅ Done → Idle 10 分钟：本会话（桌面 App）实测 01:09:47 Done → 01:19:47 Idle。
 - ❌ **在终端里对权限提示选 No，Claude Code 不发任何 hook**（官方文档：`PermissionDenied` 只管 auto mode；Stop / PostToolUseFailure 都不触发）→ 会话停在 Needs you、刘海一直橙，直到下一条 prompt。和 Esc 打断（#8，会话停在 Running）同一个根因，记在 #8。候选修法：接 Notification 的 `idle_prompt`（waiting / running 时收到 → idle，done 不动），但文档没说它在拒绝 / Esc 后会不会触发，要先实测（`claude --settings /tmp/…` 挂一个只记 Notification 的 hook）。
 - 未测：Codex（Running → Needs you → Done、Esc → Idle）、Hermes 一轮。
+
+## M8 进度（Agent 面板）
+
+8.1 面板（#18，2026-09-29）：
+- 逻辑都在 PerchAppCore，可测：`Panel`（总色点 = 最紧急状态、Running 数、按状态分组排序、Needs you 会话对应的 request、哪些变化要脉冲）、`SessionRow`（右侧时间、第二行、Needs you 文本拆成"命令 + Answer in the terminal…"）、`PixelIcon`（12×12 点阵，`#` / `.` 字符串）。
+- `QueueModel.panel` 由 sessions + 仍在跟踪的 items（只为找 request）算出。脉冲改为会话驱动：进入 Needs you / Failed / Done 各一次，Running / Idle 不脉冲；item 事件不再脉冲（到期提醒仍脉冲，#19 随 todo 下线）。Hermes 会话不进面板（`Panel.hiddenSources`），也不脉冲。
+- 排序：Needs you 等得最久在前（`status_at` 升序）；Running 按 `turn_started_at` 升序（新会话排在后面，不跳动）；Failed / Done / Idle 最近的在前。
+- 时间：Running = 本轮已跑、Needs you = 等了多久（"<1m" / "4m"）；其余 "just now" / "4m ago"。
+- UI：`ExpandedPanel`（`PanelTab` 只有 `.agents`，以后 todo 当第二个 tab）→ `SessionList`（组标题 + 数量）→ `SessionRowView`；Needs you 显示完整文本（命令用等宽字），白名单内才有 Allow / Deny；Idle 整行 45% 透明。收起态左边 `StatusDot`（Running 呼吸、脉冲一圈），右边 Running 数（0 不显示）或离线图标。Live Activity 删掉了。
+- 截图（隔离 perchd + `PERCH_PIN_EXPANDED=1`，`screencapture -l <窗口号>` 只截这个 App）：收起态橙点 + 3、只剩 Done 蓝点无数字、只剩 Running 绿点呼吸 + 1；展开态分组、Allow / Deny、"Answer in the terminal"、红色 rate_limit、未知 agent 机器人图标都正常。
+- 延迟：`PanelLatencyTests`（hook → 面板模型，5 次最差 < 200 ms，实测整组 0.16 s）；`scripts/measure-latency.sh` 改成 `perch session start` 探针，真 App 均值 10 ms、最差 13 ms。
+- 过渡期（#19 做）：点整行跳转 / 标记已看、⌥⇧A / D / O 指向会话、右键 "Remove from Panel"、快速录入和到期提醒下线、hook 不再发 waiting / notice item。现在 ⌥⇧O 仍跳 item 队首，快速录入还在。
 
 ### M2 协议扩展：`update`（已实现）
 

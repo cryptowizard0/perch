@@ -65,9 +65,9 @@
 
 ## M8 — Agent 面板 UI
 
-- [ ] 收起态：总色点（Needs you 🟠 > Failed 🔴 > Running 🟢 呼吸 > Done 🔵 > Idle ⚪）+ 运行中会话数（0 不显示）；橙 / 红 / 蓝进入时脉冲
-- [ ] 展开态：按状态分组、组标题带数量、空组不显示；每行色点 + 像素图标 + 项目名 + 时长 + 跳转，第二行随状态变化；结构留出以后加 tab 的位置
-- [ ] 12×12 单色像素 agent 图标（Claude Code 小怪物、Codex `>_`、Hermes 翅膀、未知机器人），点阵数据在 PerchAppCore 可测
+- [x] 收起态：总色点（Needs you 🟠 > Failed 🔴 > Running 🟢 呼吸 > Done 🔵 > Idle ⚪）+ 运行中会话数（0 不显示）；橙 / 红 / 蓝进入时脉冲
+- [x] 展开态：按状态分组、组标题带数量、空组不显示；每行色点 + 像素图标 + 项目名 + 时长 + 跳转，第二行随状态变化；结构留出以后加 tab 的位置
+- [x] 12×12 单色像素 agent 图标（Claude Code 小怪物、Codex `>_`、Hermes 翅膀、未知机器人），点阵数据在 PerchAppCore 可测
 - [ ] 交互：点整行跳转并标记已看；Allow / Deny（白名单内）；⌥⇧A / D / O 作用于队首 Needs you；右键行 "Remove from Panel"；右键刘海只剩 Quit
 - [ ] 刘海上的 todo UI 下线：task 行、快速录入（⌥⇧Space、New Task）、到期提醒与系统通知
 - [ ] 核实全屏 App 下刘海的表现
