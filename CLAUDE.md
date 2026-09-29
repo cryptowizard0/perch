@@ -4,7 +4,7 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 核心闭环：**agent 在等你 → 刘海亮 → 你就地处理或跳回去。**
 产品需求见 `docs/PRD.md`，里程碑与验收标准见 `docs/MILESTONES.md`，**当前进度、下一步计划和交接说明见 `project.md`（新 session 先读它）**。先自用，但按可开源分发的形态设计。
 
-**2026-09-28 方向调整（v0.2）**：todo 暂时从刘海 UI 拿掉（底层和 CLI 不动，以后作为独立 tab 回来）；刘海只显示 agent 会话，一行一个会话，五种状态 Needs you 🟠 / Failed 🔴 / Running 🟢（呼吸）/ Done 🔵 / Idle ⚪。会话从 M7 起进 SQLite（`sessions` 表，状态机已实现，#15）。完整设计见 `docs/PRD.md` 的"v0.2 方向调整"和"Agent 面板"。下面凡标"（M8 前）"的描述是过渡期现状，M8 会改。
+**2026-09-28 方向调整（v0.2）**：todo 暂时从刘海 UI 拿掉（底层和 CLI 不动，以后作为独立 tab 回来）；刘海只显示 agent 会话，一行一个会话，五种状态 Needs you 🟠 / Failed 🔴 / Running 🟢（呼吸）/ Done 🔵 / Idle ⚪。会话从 M7 起进 SQLite（`sessions` 表，状态机已实现，#15）。完整设计见 `docs/PRD.md` 的"v0.2 方向调整"和"Agent 面板"。
 
 ## 仓库结构
 
@@ -121,7 +121,7 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 ## 未决问题（定了就更新这里）
 
 - ~~`link` 跳回终端的机制~~ 已定（M3）：`perch-terminal://<app>?id=&cwd=&bundle=`。Ghostty（≥ 1.3，AppleScript）在 UserPromptSubmit 时记下聚焦的 terminal id，跳转时 `focus` 那个 terminal，找不到按目录找，再不行激活 App；其他终端只激活 App（按 `__CFBundleIdentifier`）。
-- ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。M8 起快速录入随 todo UI 下线，⌥⇧A / D / O 保留（队首 = 排序最前的 Needs you 会话）。
+- ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。M8 起快速录入随 todo UI 下线（#19 已删），⌥⇧A / D 回答面板上第一个 request、⌥⇧O 跳到等得最久的 Needs you 会话。
 - ~~Claude 桌面 App 里的会话能否沿父进程链找到 agent 的 pid~~ 已定（M7 实测）：能。桌面 App 每个会话一个 `claude` 进程（`Claude` → `disclaimer` → `claude`），会话进程退出就移除。Codex 桌面 App（ChatGPT.app）所有会话共用一个 `codex app-server` 进程，只有退出 App 才会按 pid 清掉。
 - 全屏 App 下刘海面板是否可见：M8 核实。
 - hook 等刘海的超时：先用 20 秒（M4 定，`perch hooks install claude-code --wait N` 可改），用一周后再看。

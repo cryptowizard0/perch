@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-09-28 · M1–M6 全部完成（M4–M6 由用户确认验收通过）· 同日方向调整为 agent 面板；M7 进行中：会话状态机（#15）、pid 存活检测（#16）已完成，下一步真实会话验收（#17）
+最后更新：2026-09-29 · M1–M6 全部完成（M4–M6 由用户确认验收通过）· 2026-09-28 方向调整为 agent 面板；M7：#15、#16 完成，#17 真实会话验收暂停；M8：面板（#18）、交互 + todo 下线（#19）完成，下一步 M8 验收（#20）
 
 ## 总览
 
@@ -16,7 +16,7 @@
 | M5 | Codex 复用同一套 hook 脚本 | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M6 | Hermes 接入（改为 shell hook） | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ⏳ 进行中 | #15 状态机 ✅；#16 存活检测 ✅；#17 真实会话验收待做。不动 UI |
-| M8 | Agent 面板 UI；刘海 todo UI 下线 | ⏳ 进行中 | #18 面板 ✅；#19 交互 + todo 下线、#20 验收待做 |
+| M8 | Agent 面板 UI；刘海 todo UI 下线 | ⏳ 进行中 | #18 面板 ✅；#19 交互 + todo 下线 ✅；#20 验收待做 |
 | M9 | Hermes 迁到会话模型 | 未开始 | M8 验收后单独设计 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -41,7 +41,7 @@
 | 提醒 | 只有刘海脉冲；不发系统通知、不加提示音 | |
 | 文案 | 英文 | 和现有 UI、CLI 一致 |
 
-过渡期注意：M7 之后 Hermes 的 waiting / notice 仍会写进 item 表，但 M8 起刘海不再显示 item（request 除外），所以 Hermes 的审批提示在 M9 前只能在终端 / Telegram 看到。
+过渡期注意：Hermes 的 waiting / notice 仍会写进 item 表（#19 只停了 Claude Code / Codex 的），但 M8 起刘海不再显示 item（request 除外），所以 Hermes 的审批提示在 M9 前只能在终端 / Telegram 看到。
 
 ## 开发环境（重要）
 
@@ -94,14 +94,14 @@ Sources/perch/         CLI：add / ls / get / done / update / respond / rm / wat
 Sources/perchd/        入口：run（默认）/ install / uninstall
 Sources/PerchAppCore/  刘海 App 的可测逻辑（无 AppKit）：
   NotchGeometry          刘海矩形、收起 / 展开 frame、无刘海胶囊
-  QueueState             快照 + 事件合并、Summary（数字）、Signal（颜色，红 > 橙 > 蓝 > 灰）、是否脉冲
+  QueueState             item 快照 + 事件合并（只为找 request）
   QueueConnection        后台线程：watch → list → 事件；离线退避重连 0.5→5 s
-  QueueModel             @MainActor ObservableObject：状态、分钟 / 到期 tick、click / quickAdd、flash、onDue / onApply
-  Click / RowFormat      点击 → 请求映射；行内时间文本、来源图标、link → URL
+  QueueModel             @MainActor ObservableObject：sessions、panel、脉冲、分钟 tick、flash；行 / 快捷键动作 open / remove / respond / openHead / answerHead（jump 由 App 注入）
+  Panel / PixelIcon      面板模型（M8）：分组、总色点、Running 数、行文本、request 归属、脉冲；12×12 像素图标
   Jump                   JumpTarget（终端 / URL）、GhosttyScript（focus 的 AppleScript）
-  DueReminders / HotKey / LiveActivity / RelativeTime
-Sources/PerchApp/      AppKit + SwiftUI 壳：NotchPanel / NotchWindowController（悬停、布局、换屏）、NotchView / ExpandedList、
-                       QuickEntry（面板）、GlobalHotKey（Carbon）、Notifier（UNUserNotification）、Jumper（跳终端）、AppDelegate
+  HotKey / RelativeTime
+Sources/PerchApp/      AppKit + SwiftUI 壳：NotchPanel / NotchWindowController（悬停、布局、换屏）、NotchView / ExpandedPanel（SessionList / SessionRowView）、
+                       GlobalHotKey（Carbon）、Jumper（跳终端）、AppDelegate
 packaging/Info.plist · scripts/bundle-app.sh · scripts/measure-latency.sh · scripts/install.sh
 Tests/PerchCoreTests/    纯逻辑
 Tests/PerchAppCoreTests/ App 纯逻辑
@@ -159,9 +159,7 @@ swift build && scripts/bundle-app.sh && open .build/Perch.app     # perchd 要�
 ```
 - [x] 鼠标移到刘海：约 0.1 s 展开；移开约 0.3 s 收起；贴着菜单栏划过不误触
 - [x] 点任务标题 → 完成消失；⌥ 点 → 右侧时间变 "in 30m"；点 notice → 变成白色 task 且不再自动消失；点 request 标题无反应
-- [ ] ⌥⇧Space 弹出快速录入，输入"回复 X 的邮件 +1m"回车；不抢当前 App 焦点；Esc / 点别处关闭
-- [ ] 首次启动允许通知；1 分钟后弹系统通知、刘海脉冲、点变红
-- [ ] 右键刘海：New Task… / Quit Perch
+- ~~⌥⇧Space 弹出快速录入~~、~~到期系统通知~~、~~右键 New Task…~~：M8（#19）随 todo UI 下线
 - [ ] 接外接显示器 / 合盖：刘海或胶囊跟着换位置
 
 ## M3 进度（Claude Code 被动接入）
@@ -334,7 +332,14 @@ hermes hooks list               # 5 个都应是 allowed
 - Running 第二行的 prompt：Claude Code 把 `!cmd`（shell 模式）和 slash 命令包在标签里交给 UserPromptSubmit（`<bash-input>…</bash-input><bash-stdout>…`、`<command-name>/x</command-name><command-args>…`），`HookAdapter.promptLine` 还原成 `$ cmd` / `/x args`。
 - 刻意保留：提问类 Needs you 显示 agent 的原话（Notification 的 message），没有才显示 "Waiting for your answer"（PRD 表里只写了后者；原话信息更多，#15 时定的）。
 - 已知缺口（M9 前）：Hermes 的会话不进面板、审批 waiting item 也不再显示或脉冲，Hermes 的审批只能在终端 / Telegram 看到。
-- 过渡期（#19 做）：点整行跳转 / 标记已看、右键 "Remove from Panel"、快速录入和到期提醒下线（现在到期提醒仍会脉冲 + 系统通知，但面板里看不到 task）、hook 不再发 waiting / notice item。
+
+8.2 交互 + todo 下线（#19，2026-09-29）：
+- hook：Claude Code / Codex 每个事件只发 `session_report`，不再发 waiting / notice item，也不再 `done --key` 去关它们；Notification 不再先 `list` 查有没有 waiting（`keep_detail` 已经保证 `permission_prompt` 不覆盖命令）。PermissionRequest：白名单外 / 超时 / 没回应就被关掉，都只把会话写成"完整命令\nAnswer in the terminal[: 原因]"，不再补发"去终端" item；`PermissionPlan.terminal` 只带原因。唯一的 item 是白名单内的 request。Hermes 不变。
+- 升级前留下的 waiting / notice item：notice 10 分钟自己过期；"去终端" waiting 不会再被 hook 关掉，`perch ls` 里看到就 `perch done <id>`。
+- App：点整行（Allow / Deny 按钮除外）→ `QueueModel.open(session)`：跳到 `session.link`（`jump` 闭包由 AppDelegate 注入 `Jumper.jump`），Done 的顺带 `session_seen` → Idle；右键行 "Remove from Panel" → `session_remove`；⌥⇧O / A / D 走 `openHead()` / `answerHead(_:)`（和点行同一条路径，可测）。行尾的终端图标只是提示，不再是单独的按钮；命令文本去掉了 `textSelection`，否则点在命令上不会跳。右键刘海只剩 Quit Perch。
+- 删掉：`QuickEntry`（面板）、`Notifier`、`DueReminders`、`Click`、`RowFormat`（`linkURL` 挪进 `JumpTarget.url`）、`QueueState` 的 summary / signal / nextDue / ordered、`HotKey.quickEntryDefault` 和 `QuickEntryHotKey` 默认值。PerchCore 的 `QuickEntry.parse` 留着（inbox 在用）。
+- 测试：`AppModelTests`（真 perchd）点 Done 行 → Idle、点 Running 行只跳转、Remove 后会话消失且下一个事件带回来、⌥⇧O 跳等得最久的会话、⌥⇧A 回答第一个 request；`HookCLITests` / `CodexHookTests` 断言整轮下来除了 request 没有任何 item（`list --all`）。
+- 截图（隔离 perchd + `PERCH_PIN_EXPANDED=1`）：Needs you（Codex、`rm -rf dist/` + Answer in the terminal）+ Done 两组正常，`perch ls --all` 空。点击 / 右键 / 快捷键没法合成，留给 #20 人工验收。
 
 ### M2 协议扩展：`update`（已实现）
 
