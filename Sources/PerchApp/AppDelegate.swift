@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notchWindow: NotchWindowController?
     private var quickEntry: QuickEntryController?
     private var quickEntryHotKey: GlobalHotKey?
-    /// ⌥⇧A / ⌥⇧D exist only while a request is pending, ⌥⇧O while the queue is not empty,
+    /// ⌥⇧A / ⌥⇧D exist only while the panel shows a request, ⌥⇧O while a session needs you,
     /// so the rest of the time those keys type Å / Î / Ø as usual.
     private var approveHotKey: GlobalHotKey?
     private var denyHotKey: GlobalHotKey?
@@ -50,10 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             approveHotKey = nil
             denyHotKey = nil
         }
-        let any = !queue.ordered.isEmpty
+        let any = queue.headSession != nil
         if any && jumpHotKey == nil {
             jumpHotKey = GlobalHotKey(.jump) { [weak self] in
-                DispatchQueue.main.async { MainActor.assumeIsolated { Jumper.jump(self?.queue.ordered.first?.link) } }
+                DispatchQueue.main.async { MainActor.assumeIsolated { Jumper.jump(self?.queue.headSession?.link) } }
             }
         } else if !any {
             jumpHotKey = nil

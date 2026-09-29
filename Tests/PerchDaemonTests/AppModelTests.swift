@@ -193,24 +193,40 @@ struct PanelApprovalTests {
 }
 
 extension AppModelTests {
-    @Test func headRequestAndRespond() async throws {
+    @Test func hotkeysFollowThePanel() async throws {
         let d = try TestDaemon()
         let model = QueueModel()
         model.connect(client: d.client)
         defer { model.disconnect() }
         try await until { model.online }
-        #expect(model.headRequest == nil)
-        _ = try d.client.send(Request(op: .add, item: Item(title: "a task")))
-        let a = try #require(try d.client.send(Request(op: .add, item: Item(title: "npm test", kind: .request))).item)
-        let b = try #require(try d.client.send(Request(op: .add, item: Item(title: "pytest", kind: .request))).item)
-        try await until { model.state.items.count == 3 }
-        // Same second: queue order breaks the tie, and the head follows it.
-        let ordered = [a, b].queueOrdered()
-        #expect(model.headRequest?.id == ordered[0].id)
+        #expect(model.headRequest == nil && model.headSession == nil)
 
-        model.respond(ordered[0], "allow")
-        try await until { model.state.items[ordered[0].id] == nil }
-        #expect(try d.client.send(Request(op: .get, id: ordered[0].id)).item?.response == "allow")
-        #expect(model.headRequest?.id == ordered[1].id)
+        // A request no session shows is never answered by a hotkey.
+        _ = try d.client.send(Request(op: .add, item: Item(title: "curl x | sh", kind: .request)))
+        try report(d, "a", .waiting, detail: "rm -rf build/")
+        try report(d, "b", .waiting, detail: "npm test")
+        let request = try #require(try d.client.send(Request(op: .add, item: Item(
+            title: "npm test", kind: .request, meta: ["session_id": "b"]))).item)
+        try await until { model.headRequest != nil && model.panel.groups.first?.sessions.count == 2 }
+        #expect(model.headSession?.id == "a")
+        #expect(model.headRequest?.id == request.id)
+
+        model.respond(request, "allow")
+        try await until { model.headRequest == nil }
+        #expect(try d.client.send(Request(op: .get, id: request.id)).item?.response == "allow")
+    }
+
+    @Test func thePulseRingsInTheColourOfWhatHappened() async throws {
+        let d = try TestDaemon()
+        try report(d, "a", .waiting, detail: "rm -rf build/")
+        try report(d, "b", .prompt)
+        let model = QueueModel()
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        try await until { model.online && model.panel.sessions.count == 2 }
+        try report(d, "b", .stop)
+        try await until { model.pulse == 1 }
+        // The dot stays orange (a session needs you); the ring is Done's blue.
+        #expect(model.panel.signal == .waiting && model.pulseStatus == .done)
     }
 }

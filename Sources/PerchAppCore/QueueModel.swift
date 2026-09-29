@@ -17,6 +17,8 @@ public final class QueueModel: ObservableObject {
     /// Bumped whenever the notch should pulse once: a session starts needing you, fails or finishes
     /// (`Panel.pulses`), or a due reminder fires.
     @Published public private(set) var pulse = 0
+    /// The state whose arrival caused the last pulse (its colour rings); nil for a due reminder.
+    @Published public private(set) var pulseStatus: SessionStatus?
     /// Agent sessions by id, in any state (Hermes too; `panel` leaves those out).
     @Published public private(set) var sessions: [String: Session] = [:]
     /// The last failed action, shown briefly in the expanded notch.
@@ -37,8 +39,9 @@ public final class QueueModel: ObservableObject {
     public init() {}
 
     public var ordered: [Item] { state.ordered(now: now) }
-    /// The request ⌥⇧A / ⌥⇧D answer: the first one in queue order.
-    public var headRequest: Item? { ordered.first { $0.kind == .request } }
+    /// What ⌥⇧A / ⌥⇧D answer and ⌥⇧O jumps to (see `Panel`).
+    public var headRequest: Item? { panel.headRequest }
+    public var headSession: Session? { panel.headSession }
     public var panel: Panel { Panel(sessions: sessions.values, requests: state.items.values) }
     public var summary: Summary { state.summary(now: now) }
 
@@ -71,7 +74,8 @@ public final class QueueModel: ObservableObject {
             let before = sessions[event.session.id]
             let after = event.type == .ended ? nil : event.session
             sessions[event.session.id] = after
-            if !Panel.hiddenSources.contains(event.session.source), Panel.pulses(from: before?.status, to: after?.status) {
+            if Panel.pulses(from: before, to: after) {
+                pulseStatus = after?.status
                 pulse += 1
             }
         case .offline(let reason):
@@ -87,7 +91,10 @@ public final class QueueModel: ObservableObject {
     private func refresh() {
         now = Date()
         let due = reminders.take(from: state.items.values, now: now)
-        if !due.isEmpty { pulse += 1 }
+        if !due.isEmpty {
+            pulseStatus = nil
+            pulse += 1
+        }
         for item in due { onDue?(item) }
         scheduleTick()
     }

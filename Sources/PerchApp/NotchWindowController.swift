@@ -80,22 +80,9 @@ final class NotchWindowController {
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
-    /// Band + group headers + rows (Needs you shows its full text, so it may take several lines) + padding,
-    /// capped; the list scrolls beyond that.
+    /// Band + the list's estimated height (see `PanelLayout`; it scrolls past the cap) + padding.
     private func expandedHeight(band: CGFloat) -> CGFloat {
-        let panel = queue.panel
-        guard queue.online, !panel.sessions.isEmpty else { return band + ExpandedPanel.messageHeight + 16 }
-        let rows = panel.groups.reduce(CGFloat(0)) { total, group in
-            total + SessionList.headerHeight + group.sessions.reduce(CGFloat(0)) { sum, session in
-                guard session.status == .waiting else { return sum + SessionList.rowHeight }
-                let parts = SessionRow.needsYou(SessionRow.detail(session) ?? "")
-                let lines = parts.text.split(separator: "\n", omittingEmptySubsequences: false)
-                    .reduce(0) { $0 + $1.count / 52 + 1 } + (parts.hint == nil ? 0 : 1)
-                let buttons = panel.request(for: session) == nil ? 0 : SessionList.buttonsHeight
-                return sum + SessionList.rowHeight + CGFloat(min(lines, 12) - 1) * SessionList.lineHeight + buttons
-            }
-        }
-        return band + min(rows, 460) + 16
+        band + (queue.online ? PanelLayout.listHeight(queue.panel) : PanelLayout.messageHeight) + 16
     }
 }
 

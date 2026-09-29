@@ -44,7 +44,7 @@ struct CollapsedBar: View {
     var body: some View {
         let panel = queue.panel
         HStack(spacing: 0) {
-            StatusDot(status: panel.signal, online: queue.online, pulse: queue.pulse, size: 8)
+            StatusDot(status: panel.signal, online: queue.online, pulse: queue.pulse, pulseStatus: queue.pulseStatus, size: 8)
                 .padding(.leading, 14)
             Spacer(minLength: notchWidth)
             Group {
@@ -61,11 +61,13 @@ struct CollapsedBar: View {
     }
 }
 
-/// A session state's colour. Running breathes; `pulse` changes ring once (entering Needs you / Failed / Done).
+/// A session state's colour. Running breathes; `pulse` changes ring once (entering Needs you / Failed / Done),
+/// in the colour of what happened (`pulseStatus`), which may not be the dot's own.
 struct StatusDot: View {
     var status: SessionStatus?
     var online = true
     var pulse = 0
+    var pulseStatus: SessionStatus?
     var size: CGFloat = 7
     @State private var ring = false
     @State private var breathing = false
@@ -78,7 +80,7 @@ struct StatusDot: View {
             .opacity(status == .running && online ? (breathing ? 0.35 : 1) : 1)
             .animation(status == .running ? .easeInOut(duration: 1.4).repeatForever(autoreverses: true) : .default, value: breathing)
             .overlay(
-                Circle().stroke(color, lineWidth: 2)
+                Circle().stroke(pulseStatus.map { SessionStatus.color($0) } ?? color, lineWidth: 2)
                     .scaleEffect(ring ? 3 : 1)
                     .opacity(ring ? 0 : 0.9)
                     .animation(ring ? .easeOut(duration: 0.9).repeatCount(2, autoreverses: false) : nil, value: ring)

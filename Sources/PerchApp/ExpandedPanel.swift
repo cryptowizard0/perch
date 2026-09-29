@@ -14,8 +14,6 @@ struct ExpandedPanel: View {
     @ObservedObject var queue: QueueModel
     var tab: PanelTab = .agents
 
-    static let messageHeight: CGFloat = 44
-
     var body: some View {
         VStack(spacing: 0) {
             switch tab {
@@ -38,11 +36,6 @@ struct ExpandedPanel: View {
 /// Sessions grouped by state, most urgent group first, with the count in each header.
 struct SessionList: View {
     @ObservedObject var queue: QueueModel
-
-    static let headerHeight: CGFloat = 24
-    static let rowHeight: CGFloat = 46
-    static let lineHeight: CGFloat = 16
-    static let buttonsHeight: CGFloat = 28
 
     var body: some View {
         let panel = queue.panel
@@ -70,7 +63,7 @@ struct SessionList: View {
         Text(text)
             .font(.system(size: 12))
             .foregroundStyle(.white.opacity(0.55))
-            .frame(maxWidth: .infinity, minHeight: ExpandedPanel.messageHeight)
+            .frame(maxWidth: .infinity, minHeight: PanelLayout.messageHeight)
     }
 }
 
@@ -84,7 +77,7 @@ struct GroupHeader: View {
                 .foregroundStyle(SessionStatus.color(group.status))
         }
         .foregroundStyle(.white.opacity(0.5))
-        .frame(height: SessionList.headerHeight, alignment: .bottom)
+        .frame(height: PanelLayout.headerHeight, alignment: .bottom)
         .padding(.leading, 2)
     }
 }
@@ -127,15 +120,16 @@ struct SessionRowView: View {
 
     @ViewBuilder private var secondLine: some View {
         if session.status == .waiting {
-            let parts = SessionRow.needsYou(SessionRow.detail(session) ?? "")
-            let isCommand = request != nil || parts.hint != nil
+            // With a request, its own text: Allow / Deny answer exactly what is shown here.
+            let parts = SessionRow.needsYou(session, request: request)
             Text(parts.text)
-                .font(.system(size: 12, weight: isCommand ? .medium : .regular, design: isCommand ? .monospaced : .default))
+                .font(.system(size: 12, weight: parts.isCommand ? .medium : .regular, design: parts.isCommand ? .monospaced : .default))
                 .foregroundStyle(.white.opacity(0.9))
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
             if let hint = parts.hint {
-                Text(hint).font(.system(size: 11)).foregroundStyle(SessionStatus.color(.waiting).opacity(0.9)).lineLimit(2)
+                Text(hint).font(.system(size: 11)).foregroundStyle(SessionStatus.color(.waiting).opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if let request {
                 HStack(spacing: 8) {
