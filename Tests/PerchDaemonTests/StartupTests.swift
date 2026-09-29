@@ -89,3 +89,36 @@ import Testing
         }
     }
 }
+
+extension StartupTests {
+    /// Before #19 the Claude Code / Codex hooks also posted waiting and notice items, and only the hooks closed them.
+    /// perchd dismisses whatever an upgrade left behind; everything else stays.
+    @Test func dismissesItemsTheOldHooksLeftBehind() throws {
+        let home = TestDaemon.freshHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        var kept: [String] = []
+        var stale: [String] = []
+        do {
+            let d = try TestDaemon(home: home, removeHome: false)
+            func add(_ item: Item) throws -> String { try #require(try d.client.send(Request(op: .add, item: item)).item?.id) }
+            stale.append(try add(Item(title: "perch · rm -rf build/", status: .waiting, source: "claude-code",
+                                      meta: ["session_id": "s1", "tool": "Bash"], key: "claude-code:s1")))
+            stale.append(try add(Item(title: "site · apply_patch", status: .waiting, source: "codex", key: "codex:019a")))
+            stale.append(try add(Item(title: "perch · All tests pass.", kind: .notice, source: "claude-code",
+                                      key: "claude-code:s1:done", expiresAt: Date().addingTimeInterval(600))))
+            // Allowlisted requests are still how the hooks ask; Hermes still posts items; people add their own.
+            kept.append(try add(Item(title: "npm test", kind: .request, source: "claude-code", meta: ["session_id": "s2"])))
+            kept.append(try add(Item(title: "perch · rm -rf x", status: .waiting, source: "hermes", key: "hermes:default:c1")))
+            kept.append(try add(Item(title: "review the PR", source: "claude-code")))
+            kept.append(try add(Item(title: "write docs", key: "claude-code:mine")))
+            try? FileManager.default.removeItem(atPath: d.daemon.config.socketPath)  // perchd's startup does this
+        }
+        let restarted = try TestDaemon(home: home, removeHome: false)
+        #expect(Set(try restarted.client.send(Request(op: .list)).items?.map(\.id) ?? []) == Set(kept))
+        for id in stale {
+            #expect(try restarted.client.send(Request(op: .get, id: id)).item?.status == .dismissed)
+        }
+        let mirror = try String(contentsOfFile: restarted.daemon.config.mirrorPath, encoding: .utf8)
+        #expect(!mirror.contains("rm -rf build/") && mirror.contains("review the PR"))
+    }
+}

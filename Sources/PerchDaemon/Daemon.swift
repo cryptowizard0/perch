@@ -46,6 +46,7 @@ public final class Daemon {
         }
         queue.sync {
             mirror.write(activeItems())
+            afterChange(service.dismissLegacyHookItems())
             afterChange(ingestInbox())
             let watcher = InboxWatcher(path: config.inboxPath, queue: queue) { [weak self] in
                 guard let self else { return }

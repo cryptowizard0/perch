@@ -182,6 +182,31 @@ public final class Service {
         }
     }
 
+    /// Agents whose hooks, before #19, also posted waiting ("go to terminal") and notice items, keyed
+    /// `<agent>:<session>` / `<agent>:<session>:done`. Only those hooks ever closed them.
+    static let sessionOnlyAgents: Set<String> = ["claude-code", "codex"]
+
+    /// Dismisses the waiting / notice items those hooks left behind (perchd runs it at startup), so an upgrade does
+    /// not leave them in `perch ls` and todo.md for good. Their requests, and everyone else's items, stay.
+    public func dismissLegacyHookItems() -> [Event] {
+        do {
+            return try store.transaction {
+                try store.list(nil).filter(Self.isLegacyHookItem).map { stale in
+                    var item = stale
+                    item.status = .dismissed
+                    return try save(item).1[0]
+                }
+            }
+        } catch {
+            return []
+        }
+    }
+
+    static func isLegacyHookItem(_ item: Item) -> Bool {
+        guard sessionOnlyAgents.contains(item.source), item.kind != .request, let key = item.key else { return false }
+        return key.hasPrefix(item.source + ":")
+    }
+
     public func nextExpiry() -> Date? {
         try? store.nextExpiry()
     }
