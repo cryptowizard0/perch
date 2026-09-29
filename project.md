@@ -291,7 +291,7 @@ hermes hooks list               # 5 个都应是 allowed
 | --- | --- | --- | --- |
 | 7.1 | 会话状态机（#15） | ✅ | 见下 |
 | 7.2 | pid 存活检测 + 24 小时兜底（#16） | ✅ | 见下 |
-| 7.3 | 真实会话验收（#17） | 未开始 | |
+| 7.3 | 真实会话验收（#17） | ⏸ 部分完成 | 见下；用户暂停，先做 M8 |
 
 7.1 的做法（2026-09-28）：
 - 适配器把每个 hook 事件归一成 `SessionReport`（prompt / waiting / resume / stop / failure / interrupt / end），op `session_report`；状态机在 perchd 的 `SessionRegistry`，和 agent 无关。表见 `SessionReport` / `HookAdapter` 的文档注释。
@@ -312,6 +312,13 @@ hermes hooks list               # 5 个都应是 allowed
 - perchd：`Daemon(probe:livenessInterval:)`，probe 是 `(pid) -> 启动时间?`（默认 `SystemProcesses.startTime(of:)`，测试注入假的）。每 30 秒 `SessionRegistry.reap()`：有 pid 的，进程没了或启动时间不同（pid 复用）就移除；没 pid 的，24 小时没有事件就移除。移除和 `perch session rm` 一样：推 `session.ended`、记移除时间（之前观测到的迟到事件不会让它复活）、关掉它的 request。进程活着的会话再安静也不动。perchd 启动时先扫一遍（停机期间退出的 agent 立刻清掉）。来自已死进程的报告（`end` 除外）直接丢弃：agent 死了但 PermissionRequest hook 还在等，之后发的"去终端"不会让会话复活。新 pid 连同它的启动时间一起替换，不会把旧启动时间配给新 pid。
 - 实测（2026-09-28，本机）：Claude 桌面 App 每个会话一个进程（`Claude` → `disclaimer` → `…/claude-code/2.1.x/claude.app/Contents/MacOS/claude`），hook 能找到 → 桌面会话按 pid 清理，不走 24 小时。Codex 桌面 App（ChatGPT.app）所有会话共用一个 `codex app-server` 进程，只有退出 App 才会被清。隔离 perchd 上用"以 `claude` 为名启动的 bash"跑 hook、再 `kill -HUP` 模拟关 tab：20 秒后推 `session.ended`。用户在真 Ghostty tab 里跑 `claude`、关 tab，会话自动消失（2026-09-28 确认）。
 - 已知限制：同一个 session id 同时开在两个进程里（另一个 tab `--resume`），以最后上报的 pid 为准，关掉那个 tab 就移除；那个"去终端" waiting item（过渡期的旧 item，#19 下线）不会随会话被清。用 npm 装的 Claude Code（`node …/cli.js`）argv[0] 可能是 `node`（未实测），那样找不到 pid → 走 24 小时兜底。
+
+7.3 的进度（2026-09-29，#17 未关）：
+- ✅ install.sh 装好；Codex 的 hooks.json 和 M5 信任时逐字节相同，不用重新 `/hooks` 信任。
+- ✅ Claude Code（Ghostty）：Running → Needs you（完整命令）→ 终端批准 → Running → Done；关 tab 后会话消失（#16 时已测）；hook.log 无错误。
+- ✅ Done → Idle 10 分钟：本会话（桌面 App）实测 01:09:47 Done → 01:19:47 Idle。
+- ❌ **在终端里对权限提示选 No，Claude Code 不发任何 hook**（官方文档：`PermissionDenied` 只管 auto mode；Stop / PostToolUseFailure 都不触发）→ 会话停在 Needs you、刘海一直橙，直到下一条 prompt。和 Esc 打断（#8，会话停在 Running）同一个根因，记在 #8。候选修法：接 Notification 的 `idle_prompt`（waiting / running 时收到 → idle，done 不动），但文档没说它在拒绝 / Esc 后会不会触发，要先实测（`claude --settings /tmp/…` 挂一个只记 Notification 的 hook）。
+- 未测：Codex（Running → Needs you → Done、Esc → Idle）、Hermes 一轮。
 
 ### M2 协议扩展：`update`（已实现）
 
