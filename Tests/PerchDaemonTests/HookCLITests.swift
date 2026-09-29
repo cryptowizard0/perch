@@ -30,29 +30,26 @@ struct HookCLITests {
         let link = try #require(session.link.flatMap(TerminalLink.init(string:)))
         #expect(link == TerminalLink(app: "apple_terminal", cwd: "/Users/me/work/perch", bundleID: "com.apple.Terminal"))
 
-        // Permission prompt: waiting, orange, with the session's link.
+        // Permission prompt: the session needs you, keeping its link. No item: the session is the only state.
         try hook(cli, event("Notification", #","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash""#))
-        var items = try d.client.send(Request(op: .list)).items ?? []
-        #expect(items.map(\.title) == ["perch · Claude needs your permission to use Bash"])
-        #expect(items.first?.status == .waiting)
-        #expect(items.first?.link == session.link)
+        var latest = try #require(try d.client.send(Request(op: .sessions)).sessions?.first)
+        #expect(latest.status == .waiting && latest.detail == "Claude needs your permission to use Bash" && latest.link == session.link)
+        #expect(try allItems(d) == [])
 
         // Idle prompts are ignored.
         try hook(cli, event("Notification", #","notification_type":"idle_prompt","message":"Claude is waiting for your input""#))
-        #expect(try d.client.send(Request(op: .list)).items?.count == 1)
+        #expect(try d.client.send(Request(op: .sessions)).sessions?.map(\.status) == [.waiting])
 
-        // Stop: turn done, waiting resolved, a notice that fades.
+        // Stop: done, with the reply's first line; no notice.
         try hook(cli, event("Stop", #","stop_hook_active":false,"last_assistant_message":"All 12 tests pass.""#))
-        #expect(try d.client.send(Request(op: .sessions)).sessions?.map(\.status) == [.done])
-        items = try d.client.send(Request(op: .list)).items ?? []
-        #expect(items.map(\.title) == ["perch · All 12 tests pass."])
-        #expect(items.first?.kind == .notice)
-        #expect(items.first?.expiresAt != nil)
+        latest = try #require(try d.client.send(Request(op: .sessions)).sessions?.first)
+        #expect(latest.status == .done && latest.lastMessage == "All 12 tests pass.")
+        #expect(try allItems(d) == [])
 
-        // Next prompt: the old notice goes away, a new turn starts.
+        // Next prompt: a new turn in the same session.
         try hook(cli, event("UserPromptSubmit", #","prompt":"thanks""#))
-        #expect(try d.client.send(Request(op: .list)).items == [])
-        #expect(try d.client.send(Request(op: .sessions)).sessions?.count == 1)
+        #expect(try d.client.send(Request(op: .sessions)).sessions?.map(\.status) == [.running])
+        #expect(try allItems(d) == [])
     }
 
     @Test func silentAndZeroWhenThingsGoWrong() throws {
@@ -67,6 +64,18 @@ struct HookCLITests {
         #expect(log.contains("perchd is not running"))
         #expect(log.contains("unreadable claude-code hook input"))
     }
+}
+
+/// Every item in perchd, closed ones too: Claude Code / Codex hooks leave none behind except allowlisted requests.
+func allItems(_ d: TestDaemon) throws -> [Item] {
+    try d.client.send(Request(op: .list, filter: .init(all: true))).items ?? []
+}
+
+/// The one session a test drives.
+func onlySession(_ d: TestDaemon) throws -> Session {
+    let sessions = try d.client.send(Request(op: .sessions)).sessions ?? []
+    guard sessions.count == 1 else { throw CLIError("expected one session, got \(sessions.count)") }
+    return sessions[0]
 }
 
 /// Waits (up to 3 s) for a hook running in the background to post its request to the notch.
@@ -103,7 +112,9 @@ struct PermissionHookTests {
         let result = try finish()
         #expect(result.status == 0)
         #expect(result.stdout == #"{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}"#)
-        #expect(try d.client.send(Request(op: .list)).items == [])
+        // The request is the only item, answered; the session runs on.
+        #expect(try allItems(d).map(\.id) == [request.id])
+        #expect(try onlySession(d).status == .running)
     }
 
     @Test func denyFromTheNotch() throws {
@@ -121,10 +132,10 @@ struct PermissionHookTests {
         let result = try finish()
         #expect(result.status == 0 && result.stdout.isEmpty)
         #expect(Date().timeIntervalSince(started) < 4)
-        let items = try d.client.send(Request(op: .list)).items ?? []
-        #expect(items.map(\.title) == ["perch · pytest"])
-        #expect(items.first?.status == .waiting && items.first?.kind == .task)
-        #expect(items.first?.key == "claude-code:s1")
+        // No "go to terminal" item: the session says where to answer.
+        #expect(try allItems(d).map(\.kind) == [.request])
+        let session = try onlySession(d)
+        #expect(session.status == .waiting && session.detail == "pytest\nAnswer in the terminal")
     }
 
     @Test func notOnTheAllowlistGoesToTheTerminalAtOnce() throws {
@@ -134,21 +145,20 @@ struct PermissionHookTests {
         let result = try cli.run(["hook", "claude-code"], stdin: permission("rm -rf build/"), env: env)
         #expect(result.status == 0 && result.stdout.isEmpty)
         #expect(Date().timeIntervalSince(started) < 1)
-        var items = try d.client.send(Request(op: .list)).items ?? []
-        #expect(items.map(\.title) == ["perch · rm -rf build/"])
-        #expect(items.first?.kind == .task && items.first?.status == .waiting)
-        #expect(items.first?.meta?["terminal_reason"] == "`rm -rf` is not on the allowlist")
+        let asked = "rm -rf build/\nAnswer in the terminal: `rm -rf` is not on the allowlist"
+        #expect(try onlySession(d).detail == asked)
+        #expect(try allItems(d) == [])
 
         // Six seconds later Claude Code's permission_prompt notification must not replace the command text.
         let notification = #"{"session_id":"s1","cwd":"/w/perch","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}"#
         try cli.run(["hook", "claude-code"], stdin: notification, env: env)
-        items = try d.client.send(Request(op: .list)).items ?? []
-        #expect(items.map(\.title) == ["perch · rm -rf build/"])
+        #expect(try onlySession(d).detail == asked)
 
         // Answered in the terminal: the tool ran, the orange goes away without waiting for Stop.
         let ran = #"{"session_id":"s1","cwd":"/w/perch","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf build/"}}"#
         try cli.run(["hook", "claude-code"], stdin: ran, env: env)
-        #expect(try d.client.send(Request(op: .list)).items == [])
+        #expect(try onlySession(d).status == .running)
+        #expect(try allItems(d) == [])
     }
 
     @Test func aBrokenAllowlistApprovesNothing() throws {
@@ -156,7 +166,8 @@ struct PermissionHookTests {
         try "{ broken".write(to: d.home.appendingPathComponent("allowlist.json"), atomically: true, encoding: .utf8)
         let result = try CLI(home: d.home).run(["hook", "claude-code"], stdin: permission("npm test"), env: env)
         #expect(result.stdout.isEmpty)
-        #expect(try d.client.send(Request(op: .list)).items?.first?.kind == .task)
+        #expect(try allItems(d) == [])
+        #expect(try onlySession(d).detail?.hasPrefix("npm test\nAnswer in the terminal") == true)
         let log = try String(contentsOf: d.home.appendingPathComponent("hook.log"), encoding: .utf8)
         #expect(log.contains("nothing can be approved from the notch"))
     }
@@ -198,22 +209,21 @@ struct CodexHookTests {
         let patch = event("PermissionRequest", #","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch"}"#)
         let terminal = try hook(cli, patch, wait: "20")
         #expect(terminal.status == 0 && terminal.stdout.isEmpty)
-        var items = try d.client.send(Request(op: .list)).items ?? []
-        #expect(items.map(\.title) == ["perch · apply_patch *** Begin Patch"])
-        #expect(items.first?.key == "codex:019a" && items.first?.status == .waiting)
+        #expect(try onlySession(d).detail?.hasPrefix("apply_patch *** Begin Patch\nAnswer in the terminal") == true)
         try hook(cli, event("PostToolUse", #","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch"},"tool_response":{},"tool_use_id":"u1""#))
-        #expect(try d.client.send(Request(op: .list)).items == [])
+        #expect(try onlySession(d).status == .running)
+        // The answered request is the only item Codex ever left.
+        #expect(try allItems(d).map(\.id) == [asked.id])
 
         // Esc: Codex sends Interrupt and no Stop; the session goes idle anyway.
         try hook(cli, event("Interrupt"))
         #expect(try d.client.send(Request(op: .sessions)).sessions?.map(\.status) == [.idle])
 
-        // A finished turn leaves a notice; a null last message still reads.
+        // A finished turn is done, no notice; a null last message still decodes.
         try hook(cli, event("UserPromptSubmit", #","prompt":"again""#))
         try hook(cli, event("Stop", #","stop_hook_active":false,"last_assistant_message":null"#))
-        items = try d.client.send(Request(op: .list)).items ?? []
-        #expect(items.map(\.title) == ["perch · finished"])
-        #expect(items.first?.kind == .notice && items.first?.key == "codex:019a:done")
+        #expect(try onlySession(d).status == .done)
+        #expect(try allItems(d).map(\.id) == [asked.id])
     }
 }
 

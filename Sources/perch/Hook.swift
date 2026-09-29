@@ -33,13 +33,7 @@ struct Hook: ParsableCommand {
         let link = terminalLink(for: input, client: client)
         let process = agentProcess()
         if input.event == "PermissionRequest" { return permission(input, link: link, process: process, client: client, now: now) }
-        var alreadyWaiting = false
-        if input.event == "Notification" {
-            let key = HookAdapter.waitingKey(agent: agent, session: input.sessionID)
-            let active = (try? client.send(Request(op: .list), timeout: 2))?.items ?? []
-            alreadyWaiting = active.contains { $0.key == key && $0.status == .waiting }
-        }
-        for request in HookAdapter.requests(for: input, agent: agent, link: link, now: now, alreadyWaiting: alreadyWaiting) {
+        for request in HookAdapter.requests(for: input, agent: agent, link: link, now: now) {
             do {
                 let response = try client.send(request.reporting(process), timeout: 2)
                 // Resolving a waiting item that is not there is the normal case.
@@ -54,41 +48,30 @@ struct Hook: ParsableCommand {
     }
 
     /// The session needs you either way. Allowlisted: a request in the notch, wait up to `wait` s, print the decision
-    /// if answered. Otherwise, or on timeout: a waiting "go to terminal" item and no output, so the terminal's own
-    /// prompt appears. That also goes for a request closed without an answer (by hand, or by another tool of the same
-    /// turn finishing): no decision means the terminal asks.
+    /// if answered. Otherwise no output, so the terminal's own prompt appears, and the session says to answer there.
+    /// That also goes for a request that times out or is closed without an answer (by hand, or by another tool of the
+    /// same turn finishing): no decision means the terminal asks.
     func permission(_ input: HookInput, link: String?, process: ProcessEntry?, client: PerchClient, now: Date) {
         let (allowlist, problem) = Allowlist.load(from: PerchPaths.allowlist)
         if let problem { HookLog.write(problem) }
         let plan = HookAdapter.permission(for: input, agent: agent, link: link, allowlist: allowlist, wait: wait, now: now)
         send(Request(op: .sessionReport, report: HookAdapter.permissionReport(for: input, plan: plan, agent: agent, link: link, now: now))
             .reporting(process), client: client)
-        let fallback: Item
-        switch plan {
-        case .terminal(let item):
-            fallback = item
-        case .ask(let request):
-            do {
-                switch try RequestWaiter.addAndWait(request, client: client) {
-                case .answered(let item):
-                    if let answer = item.response, let decision = HookAdapter.decision(agent: agent, answer: answer) {
-                        print(decision)
-                        let resumed = HookAdapter.sessionReport(input, .resume, agent: agent, link: link, now: Date())
-                        send(Request(op: .sessionReport, report: resumed).reporting(process), client: client)
-                        return
-                    }
-                case .unanswered:
-                    break
-                }
-            } catch {
-                HookLog.write("PermissionRequest: \(error)")
+        guard case .ask(let request) = plan else { return }
+        do {
+            if case .answered(let item) = try RequestWaiter.addAndWait(request, client: client),
+               let answer = item.response, let decision = HookAdapter.decision(agent: agent, answer: answer) {
+                print(decision)
+                let resumed = HookAdapter.sessionReport(input, .resume, agent: agent, link: link, now: Date())
+                send(Request(op: .sessionReport, report: resumed).reporting(process), client: client)
                 return
             }
-            fallback = HookAdapter.goToTerminal(after: request, agent: agent, session: input.sessionID)
-            let handoff = HookAdapter.terminalReport(after: request, input: input, agent: agent, link: link, now: Date())
-            send(Request(op: .sessionReport, report: handoff).reporting(process), client: client)
+        } catch {
+            HookLog.write("PermissionRequest: \(error)")
+            return
         }
-        send(Request(op: .add, item: fallback), client: client)
+        let handoff = HookAdapter.terminalReport(after: request, input: input, agent: agent, link: link, now: Date())
+        send(Request(op: .sessionReport, report: handoff).reporting(process), client: client)
     }
 
     /// The agent process this hook runs under (it starts hooks through a shell, so it is an ancestor). Every session

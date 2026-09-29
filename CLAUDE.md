@@ -55,23 +55,23 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 `id`（4 位可手打，如 `t7k2`）、`title`、`kind`（task / notice / request）、`status`（open / waiting / done / dismissed）、`source`（自由字符串）、`due_at`、`link`、`meta`、`key`、request 专用的 `options` / `response` / `expires_at`、`created_at` / `updated_at`。
 `kind` 区分 task 和 notice 是刻意的："agent 完成了"不是待办，混在一起会稀释橙色信号。
 
-M7 起有 `sessions` 表（schema v2，字段与 `Session`（`Sources/PerchCore/Sessions.swift`）一一对应）：会话状态只放这里，重启后原样恢复。hook 适配器发 `session_report`（`SessionReport`：prompt / waiting / resume / stop / failure / interrupt / end，与 agent 无关），状态机在 perchd 的 `SessionRegistry`：比该会话最后一次事件旧的报告丢弃（平局照收），被移除的会话 10 分钟内记着移除时间，旧事件不会让它复活；Done 10 分钟后变 Idle（`session_seen` 立刻变）；resume / stop / failure / interrupt / end 顺带把 `meta.session_id` 指向该会话的 request 关掉（不带回应）。白名单内的 PermissionRequest 仍发 request（经 `meta.session_id` 挂到会话）。（M8 前）Claude Code / Codex 的 hook 仍然同时发 waiting / notice item，保证旧刘海的橙色信号不断，#19 下线。清理：pid 存活检测（30 秒，比对进程启动时间防复用）为主，拿不到 pid 的 24 小时无事件兜底，`perch session rm` 手动移除（#16）。`perch hook` 沿父进程链找 argv[0] 叫 `claude` / `codex` 的最近祖先（`AgentProcess`，纯函数；进程表由 `PerchClient/SystemProcesses.swift` 用 sysctl 读），每条 `session_report` 带上它的 pid 和启动时间。**按 argv[0] 认，不按内核进程名**：`~/.local/bin/claude` 是指向 `versions/2.1.x` 的符号链接，内核记的名字是 `2.1.x`。
+M7 起有 `sessions` 表（schema v2，字段与 `Session`（`Sources/PerchCore/Sessions.swift`）一一对应）：会话状态只放这里，重启后原样恢复。hook 适配器发 `session_report`（`SessionReport`：prompt / waiting / resume / stop / failure / interrupt / end，与 agent 无关），状态机在 perchd 的 `SessionRegistry`：比该会话最后一次事件旧的报告丢弃（平局照收），被移除的会话 10 分钟内记着移除时间，旧事件不会让它复活；Done 10 分钟后变 Idle（`session_seen` 立刻变）；resume / stop / failure / interrupt / end 顺带把 `meta.session_id` 指向该会话的 request 关掉（不带回应）。白名单内的 PermissionRequest 仍发 request（经 `meta.session_id` 挂到会话）。M8（#19）起 Claude Code / Codex 的 hook 不再发 waiting / notice item，request 是它们唯一会建的 item。清理：pid 存活检测（30 秒，比对进程启动时间防复用）为主，拿不到 pid 的 24 小时无事件兜底，`perch session rm` 手动移除（#16）。`perch hook` 沿父进程链找 argv[0] 叫 `claude` / `codex` 的最近祖先（`AgentProcess`，纯函数；进程表由 `PerchClient/SystemProcesses.swift` 用 sysctl 读），每条 `session_report` 带上它的 pid 和启动时间。**按 argv[0] 认，不按内核进程名**：`~/.local/bin/claude` 是指向 `versions/2.1.x` 的符号链接，内核记的名字是 `2.1.x`。
 
 ## Hook 适配（M3 / M4 / M5）
 
 两家的 stdin JSON 结构、返回格式和 600 秒默认超时一致，共用一个适配器：`perch hook <agent>`（Swift，不写 shell 脚本；映射逻辑在 `PerchCore/Hooks.swift` 的 `HookAdapter`）。事件集合不同（M5 核对）：Codex 没有 `Notification` / `StopFailure` / `PostToolUseFailure`（waiting 只来自 PermissionRequest），多一个 `Interrupt`（Esc 打断一轮，不会再有 Stop）；`SessionEnd` 在 Codex 里总是同步跑、最多 3 秒。`perch hooks install <agent>` 按各家的事件表写。
 不阻塞的 hook 一律 `"async": true`（例外：Codex 的 `SessionEnd` 总是同步跑，装成同步、timeout 3；Codex 的 `Interrupt` 即使 async 也最多 3 秒）；适配器**不往 stdout 打任何东西**（SessionStart / UserPromptSubmit 的 stdout 会进模型上下文）、永远 exit 0，失败写 `~/.perch/hook.log`。
 
-M7 起每个事件先发一条 `session_report` 更新会话状态（映射见 `HookAdapter` 的文档注释和 `docs/PRD.md`"Agent 面板"）：UserPromptSubmit → running，Notification / PermissionRequest → waiting（Notification 的 `permission_prompt` 不覆盖已记下的命令），PostToolUse(Failure) 和刘海回应后 → running，Stop → done，StopFailure → failed（记 `error`），Interrupt → idle，SessionEnd → 移除。下表是仍在并行发的 item（M8 前），阻塞、不打 stdout、exit 0、超时交给终端这些规则不变。PermissionRequest 的 request 没有回应就结束（过期、被 done / rm、被会话事件关掉）一律补发"去终端"，因为没有决定就是终端在问。
+每个事件只发一条 `session_report` 更新会话状态（映射见 `HookAdapter` 的文档注释和 `docs/PRD.md`"Agent 面板"），会话是唯一的状态；唯一的 item 是白名单内 PermissionRequest 的 request。阻塞、不打 stdout、exit 0、超时交给终端这些规则不变。PermissionRequest 的 request 没有回应就结束（过期、被 done / rm、被会话事件关掉）一律把会话改成"完整命令 + Answer in the terminal"，因为没有决定就是终端在问。
 
-| 事件 | 适配器行为 | 阻塞 agent |
+| 事件 | 会话 | 阻塞 agent |
 | --- | --- | --- |
-| `UserPromptSubmit` | session_start（新一轮 Running）；resolve 本会话的 waiting 和上一条完成 notice；Ghostty 下记下当前聚焦的 terminal id | 否 |
-| `Notification`（matcher `permission_prompt` / `elicitation_dialog` / `agent_needs_input`；**不接 `idle_prompt`**） | add waiting，key `<agent>:<session_id>` | 否 |
-| `Stop` | session_end；`done --key` resolve waiting；发 notice（`last_assistant_message` 首行摘要，key `<agent>:<session_id>:done`，10 分钟后消失） | 否 |
-| `StopFailure` / `SessionEnd` / `Interrupt`（Codex） | session_end；resolve waiting | 否 |
-| `PermissionRequest` | 白名单内：发 request 等刘海（`--wait`，默认 20 秒），有回应就打印决定；超时或白名单外：立刻发一条"去终端"的 waiting（完整命令），不打印任何东西，终端原生提示接管 | 是 |
-| `PostToolUse` / `PostToolUseFailure` | resolve 本会话的 waiting（工具跑了，说明权限已在终端处理） | 否 |
+| `UserPromptSubmit` | running（本轮 prompt 首行）；Ghostty 下记下当前聚焦的 terminal id | 否 |
+| `Notification`（matcher `permission_prompt` / `elicitation_dialog` / `agent_needs_input`；**不接 `idle_prompt`**） | waiting（agent 的原话；`permission_prompt` 不覆盖已记下的命令） | 否 |
+| `Stop` | done（`last_assistant_message` 首行） | 否 |
+| `StopFailure` / `Interrupt`（Codex） / `SessionEnd` | failed（记 `error`）/ idle / 移除 | 否 |
+| `PermissionRequest` | waiting（完整命令）。白名单内：发 request 等刘海（`--wait`，默认 20 秒），有回应就打印决定、会话回 running；超时或白名单外：会话写上"Answer in the terminal"，不打印任何东西，终端原生提示接管 | 是 |
+| `PostToolUse` / `PostToolUseFailure` | running（工具跑了，说明权限已在终端处理） | 否 |
 
 Hermes Agent（M6 定：它跑在本机，不在 Docker 里，所以走 shell hook 而不是 HTTP）：同一个适配器 `perch hook hermes`，事件名是 snake_case，细节在 stdin 的 `extra` 里。Hermes 的 shell hook **同步**执行（timeout 10），stdout 若是 JSON 会被解析（`pre_llm_call` 的 `context` 会进 LLM 上下文），所以同样什么都不打印。
 
@@ -101,7 +101,7 @@ PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permissi
 - 展开态必须显示完整命令原文，不截断不摘要。
 - 白名单之外的工具不给批准按钮，只显示"去终端"。默认白名单：Read / Glob / Grep / WebFetch / WebSearch；Bash 只放 `npm test`、`pytest`、`cargo test`、`git status|diff|log`。`rm`、`sudo`、`git push --force`、`curl | sh`、写 `.env` / `~/.ssh` / `*.pem` 一律去终端。
 - 白名单是本地配置文件，用户可改；默认值宁严勿松。已实现（M4）：`~/.perch/allowlist.json`（没有文件 = 默认值；文件坏了 = 什么都不能在刘海批准），`perch allowlist [show|check|init]`。Bash 带 shell 元字符（`; & | $ \` > < ( ) \` 换行）或危险参数（`--output` 等）一律去终端；受保护路径对所有工具生效。
-- 白名单外的请求不会变成 request：hook 立刻返回（终端马上弹提示框），刘海里只出一条"去终端"的 waiting。刘海按钮只对 request 显示，所以不存在"白名单外却有 Allow 按钮"的路径。
+- 白名单外的请求不会变成 request：hook 立刻返回（终端马上弹提示框），刘海里那个会话只显示完整命令和"Answer in the terminal"。刘海按钮只对 request 显示，所以不存在"白名单外却有 Allow 按钮"的路径。
 
 ## 范围守卫（不要做）
 

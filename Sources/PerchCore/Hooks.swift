@@ -89,21 +89,21 @@ public struct HookInput: Decodable, Equatable, Sendable {
 /// Turns one hook invocation into perchd requests. Pure; `perch hook <agent>` does the I/O.
 ///
 /// Claude Code and Codex drive the session state machine with a `session_report` per event (see `SessionReport`).
-/// Until the notch shows sessions, the waiting / notice items it shows today are still posted next to them.
+/// The session is the only state: the one item they still post is an allowlisted PermissionRequest's request.
 ///
-/// | event | session report | items |
-/// | --- | --- | --- |
-/// | UserPromptSubmit | prompt (first line) → running | resolve this session's waiting item and last "finished" notice |
-/// | Notification (needs you) | waiting with the message (a recorded command stays) | add waiting, key `<agent>:<session>` |
-/// | PermissionRequest | waiting with the full command; see `permission(for:…)`, handled by `perch hook` itself | request or waiting |
-/// | PostToolUse / PostToolUseFailure | resume → running; resolves the session's request | resolve the waiting item |
-/// | Stop | stop → done with the last reply's first line | resolve the waiting item; add a notice, key `<agent>:<session>:done` |
-/// | StopFailure | failure → failed with the error type | resolve the waiting item |
-/// | Interrupt (Codex) | interrupt → idle | resolve the waiting item |
-/// | SessionEnd | end → removed | resolve the waiting item |
+/// | event | session report |
+/// | --- | --- |
+/// | UserPromptSubmit | prompt (first line) → running |
+/// | Notification (needs you) | waiting with the message (a recorded command stays) |
+/// | PermissionRequest | waiting with the full command; see `permission(for:…)`, handled by `perch hook` itself (request if allowlisted) |
+/// | PostToolUse / PostToolUseFailure | resume → running; resolves the session's request |
+/// | Stop | stop → done with the last reply's first line |
+/// | StopFailure | failure → failed with the error type |
+/// | Interrupt (Codex) | interrupt → idle |
+/// | SessionEnd | end → removed |
 ///
 /// Codex sends the same JSON for the events it has. It has no Notification, StopFailure or PostToolUseFailure
-/// (its waiting items come only from PermissionRequest), and adds Interrupt (Esc on a running turn, no Stop).
+/// (it needs you only through PermissionRequest), and adds Interrupt (Esc on a running turn, no Stop).
 ///
 /// Hermes Agent (shell hooks, snake_case events; details in `extra`):
 ///
@@ -119,9 +119,9 @@ public struct HookInput: Decodable, Equatable, Sendable {
 /// turns are ignored; gateway turns (Telegram, …) are named after the platform and have no terminal link.
 public enum HookAdapter {
     /// Notification types that mean "an agent is blocked on the human". `idle_prompt` is left out on purpose:
-    /// Stop already posts a notice, and every finished turn turning orange would dilute the signal.
+    /// Stop already marks the session done, and every finished turn turning orange would dilute the signal.
     public static let waitingNotifications: Set<String> = ["permission_prompt", "elicitation_dialog", "agent_needs_input"]
-    /// The Stop notice fades after this long.
+    /// Hermes's reply notice fades after this long.
     public static let noticeLifetime: TimeInterval = 10 * 60
     static let summaryLength = 140
 
@@ -130,58 +130,30 @@ public enum HookAdapter {
     /// Events that start a turn: the human just typed, so that terminal has focus.
     public static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call"]
 
-    /// `alreadyWaiting`: this session already has an active waiting item. A late `permission_prompt` notification
-    /// then leaves it alone, so the full command text from PermissionRequest is not replaced by a generic message.
-    public static func requests(for input: HookInput, agent: String, link: String?, now: Date,
-                                alreadyWaiting: Bool = false) -> [Request] {
-        let session = input.sessionID
-        let waiting = waitingKey(agent: agent, session: session)
-        let project = projectName(input.cwd)
-        var meta = ["session_id": session]
-        if let cwd = input.cwd { meta["cwd"] = cwd }
-
-        func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> Request {
-            Request(op: .sessionReport, report: sessionReport(input, kind, agent: agent, link: link, now: now, fill))
+    public static func requests(for input: HookInput, agent: String, link: String?, now: Date) -> [Request] {
+        func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> [Request] {
+            [Request(op: .sessionReport, report: sessionReport(input, kind, agent: agent, link: link, now: now, fill))]
         }
-        let resolveWaiting = Request(op: .done, key: waiting)
         switch input.event {
         case "UserPromptSubmit":
-            return [
-                report(.prompt) { $0.prompt = promptLine(input.prompt ?? "") },
-                resolveWaiting,
-                Request(op: .done, key: noticeKey(agent: agent, session: session)),
-            ]
+            return report(.prompt) { $0.prompt = promptLine(input.prompt ?? "") }
         case "Notification":
             guard let type = input.notificationType, waitingNotifications.contains(type) else { return [] }
-            let question = report(.waiting) {
+            // A late `permission_prompt` keeps the full command PermissionRequest recorded (keep_detail).
+            return report(.waiting) {
                 $0.detail = input.message.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty } ?? waitingForAnswer
                 $0.keepDetail = type == "permission_prompt"
             }
-            if alreadyWaiting && type == "permission_prompt" { return [question] }
-            meta["notification_type"] = type
-            let message = oneLine(input.message ?? "") ?? "needs you"
-            return [question, Request(op: .add, item: Item(
-                title: "\(project) · \(message)", kind: .task, status: .waiting, source: agent,
-                link: link, meta: meta, key: waiting
-            ))]
         case "Stop":
-            return [
-                report(.stop) { $0.lastMessage = oneLine(input.lastAssistantMessage ?? "") },
-                resolveWaiting,
-                Request(op: .add, item: Item(
-                    title: "\(project) · \(summary(input.lastAssistantMessage))", kind: .notice, source: agent,
-                    link: link, meta: meta, key: noticeKey(agent: agent, session: session),
-                    expiresAt: now.addingTimeInterval(noticeLifetime)
-                )),
-            ]
+            return report(.stop) { $0.lastMessage = oneLine(input.lastAssistantMessage ?? "") }
         case "StopFailure":
-            return [report(.failure) { $0.error = input.errorType }, resolveWaiting]
+            return report(.failure) { $0.error = input.errorType }
         case "Interrupt":
-            return [report(.interrupt), resolveWaiting]
+            return report(.interrupt)
         case "SessionEnd":
-            return [report(.end), resolveWaiting]
+            return report(.end)
         case "PostToolUse", "PostToolUseFailure":
-            return [report(.resume), resolveWaiting]
+            return report(.resume)
 
         default:
             return hermes(input, agent: agent, link: link, now: now)
@@ -281,8 +253,8 @@ public enum HookAdapter {
     public enum PermissionPlan: Equatable, Sendable {
         /// On the allowlist: post this request and wait for Allow / Deny.
         case ask(Item)
-        /// Not approvable from the notch: post this waiting "go to terminal" item and return no decision at once.
-        case terminal(Item)
+        /// Not approvable from the notch: return no decision at once; the session says why and where to answer.
+        case terminal(reason: String)
     }
 
     public static func permission(for input: HookInput, agent: String, link: String?, allowlist: Allowlist,
@@ -298,8 +270,7 @@ public enum HookAdapter {
             return .ask(Item(title: text, kind: .request, status: .waiting, source: agent, link: link, meta: meta,
                              options: ["allow", "deny"], expiresAt: now.addingTimeInterval(wait)))
         case .terminal(let reason):
-            meta["terminal_reason"] = reason
-            return .terminal(goToTerminal(text: text, agent: agent, session: input.sessionID, cwd: input.cwd, link: link, meta: meta))
+            return .terminal(reason: reason)
         }
     }
 
@@ -308,27 +279,15 @@ public enum HookAdapter {
     public static func permissionReport(for input: HookInput, plan: PermissionPlan, agent: String, link: String?,
                                         now: Date) -> SessionReport {
         var detail = PermissionPrompt.title(tool: input.toolName ?? "tool", input: input.toolStrings)
-        if case .terminal(let item) = plan {
-            detail += "\n" + answerInTerminal + (item.meta?["terminal_reason"].map { ": \($0)" } ?? "")
+        if case .terminal(let reason) = plan {
+            detail += "\n" + answerInTerminal + (reason.isEmpty ? "" : ": \(reason)")
         }
         return sessionReport(input, .waiting, agent: agent, link: link, now: now) { $0.detail = detail }
     }
 
-    /// The notch request timed out: the terminal's own prompt is showing now.
+    /// The notch request timed out (or was closed without an answer): the terminal's own prompt is showing now.
     public static func terminalReport(after request: Item, input: HookInput, agent: String, link: String?, now: Date) -> SessionReport {
         sessionReport(input, .waiting, agent: agent, link: link, now: now) { $0.detail = request.title + "\n" + answerInTerminal }
-    }
-
-    /// After a notch request timed out (or was closed without an answer): the terminal prompt is showing now.
-    public static func goToTerminal(after request: Item, agent: String, session: String) -> Item {
-        goToTerminal(text: request.title, agent: agent, session: session, cwd: request.meta?["cwd"], link: request.link,
-                     meta: request.meta ?? [:])
-    }
-
-    private static func goToTerminal(text: String, agent: String, session: String, cwd: String?, link: String?,
-                                     meta: [String: String]) -> Item {
-        Item(title: "\(projectName(cwd)) · \(text)", kind: .task, status: .waiting, source: agent, link: link, meta: meta,
-             key: waitingKey(agent: agent, session: session))
     }
 
     /// What the hook prints for an answer; nil (print nothing, the terminal asks) for anything but allow / deny.
