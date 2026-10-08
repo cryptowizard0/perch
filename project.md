@@ -350,8 +350,8 @@ hermes hooks list               # 5 个都应是 allowed
   - Claude 自己给命令加了 `2>&1 | tail -40`：刘海只显示完整命令 + "Answer in the terminal: uses shell operators…"、没有按钮（白名单外的路径）；终端选 Yes 后刘海变蓝。
   - 要求原样跑 `npm test`：刘海出现 Allow / Deny，点 Allow 后终端不弹提示、直接跑完。
 - 改了（验收中用户定）：Codex 图标 `>_` 认不出来，换成仿 ChatGPT 的六环花结；`PixelIcon` 支持 24×24 细格（同样 12pt，一格一个 Retina 像素），其他图标仍是 12×12（`08fee1f`）。PRD 原来的"不照描任何 logo"相应改了；开源分发前要再评估这个图标和 OpenAI 商标的距离。
-- ❌→✅ 验收发现：Codex 桌面 App（ChatGPT.app）的会话点了不跳。原因：它的 hook 跑在 `ChatGPT.app/…/CodexCLI.app/…/codex app-server` 下，环境里既没有 `TERM_PROGRAM` 也没有 `__CFBundleIdentifier`（Claude 桌面 App 会传），链接是空的。修法：两者都没有时，按 agent 进程的可执行路径（`SystemProcesses.executablePath`，`proc_pidpath`）找最外层 `.app`（`TerminalLink.hostApp`），读它的 bundle id（ChatGPT.app 是 `com.openai.codex`），链接 = 激活那个 App。所有 Codex 桌面会话共用一个 app-server 进程，所以只能激活 App，定位不到具体对话。测试用 `cc` 现编一个放在假 `.app` 里的 "codex"（复制的 /bin/sh 在系统目录外会被杀）。已有的会话要等下一条 prompt 才会换上新链接。
-- 待人工：⌥⇧A / ⌥⇧D、20 秒超时交给终端、⌥⇧O、点行跳 Ghostty tab 并变灰、Codex 真实会话（含 Esc → Idle）、右键移除、全屏 App 下的表现、关 tab 后消失。
+- ❌→✅ 验收发现：Codex 桌面 App（ChatGPT.app）的会话点了不跳。原因：它的 hook 跑在 `ChatGPT.app/…/CodexCLI.app/…/codex app-server` 下，环境里既没有 `TERM_PROGRAM` 也没有 `__CFBundleIdentifier`（Claude 桌面 App 会传），链接是空的。修法：两者都没有时，按 agent 进程的可执行路径（`SystemProcesses.executablePath`，`proc_pidpath`）找最外层 `.app`（`TerminalLink.hostApp`），读它的 bundle id（ChatGPT.app 是 `com.openai.codex`），链接 = 激活那个 App。所有 Codex 桌面会话共用一个 app-server 进程，所以只能激活 App，定位不到具体对话。测试用 `cc` 现编一个放在假 `.app` 里的 "codex"（复制的 /bin/sh 在系统目录外会被杀）。已有的会话要等下一条 prompt 才会换上新链接。用户实测（2026-10-08）：重装后在 Codex 桌面 App 里发一条消息，点 Done 行能跳到 ChatGPT.app 并变灰。
+- 待人工：⌥⇧A / ⌥⇧D、20 秒超时交给终端、⌥⇧O、点行跳 Ghostty tab 并变灰、Codex CLI 会话（含 Esc → Idle）、右键移除、全屏 App 下的表现、关 tab 后消失。
 
 ### M2 协议扩展：`update`（已实现）
 
