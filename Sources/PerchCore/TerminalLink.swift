@@ -40,4 +40,16 @@ public struct TerminalLink: Equatable, Sendable {
         c.queryItems = items.isEmpty ? nil : items
         return c.string ?? "\(Self.scheme)://\(app)"
     }
+
+    /// The outermost app bundle in an executable's path ("/Applications/ChatGPT.app" for Codex's desktop agent,
+    /// nested in ChatGPT.app/…/CodexCLI.app): the app to bring forward when the hook saw no terminal.
+    public static func hostApp(executable: String) -> String? {
+        guard executable.hasPrefix("/") else { return nil }
+        var path = ""
+        for part in executable.split(separator: "/") {
+            path += "/" + part
+            if part.hasSuffix(".app") { return path }
+        }
+        return nil
+    }
 }

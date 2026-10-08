@@ -25,6 +25,13 @@ public enum SystemProcesses {
     }
 
     /// When `pid` started, or nil if there is no such (live) process. perchd's liveness probe.
+    /// The file the process runs (symlinks resolved), or nil if it is gone.
+    public static func executablePath(of pid: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        return length > 0 ? String(cString: buffer) : nil
+    }
+
     public static func startTime(of pid: Int32) -> Date? {
         kernelEntry(pid: pid)?.startedAt
     }

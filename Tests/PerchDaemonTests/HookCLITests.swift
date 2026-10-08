@@ -1,4 +1,5 @@
 import Foundation
+import PerchAppCore
 import PerchClient
 import PerchCore
 import Testing
@@ -278,5 +279,47 @@ extension HermesHookTests {
         let item = try #require(try d.client.send(Request(op: .list)).items?.first)
         #expect(item.link == turn)
         #expect(item.key == "hermes:default:c9")
+    }
+}
+
+extension CodexHookTests {
+    /// Codex's desktop app: the agent runs inside an app bundle (ChatGPT.app/…/codex) and hooks get neither
+    /// TERM_PROGRAM nor __CFBundleIdentifier. The session still gets a link that brings that app forward.
+    @Test func desktopAppSessionsJumpToTheirApp() throws {
+        let d = try TestDaemon()
+        let app = d.home.appendingPathComponent("Fake Codex.app")
+        let macOS = app.appendingPathComponent("Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        let plist: [String: Any] = ["CFBundleIdentifier": "dev.perch.test.fake-codex", "CFBundleExecutable": "codex"]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: app.appendingPathComponent("Contents/Info.plist"))
+        // The "agent": a real executable inside the bundle that runs the hook through a shell, as agents do.
+        // (A copy of /bin/sh will not run from there: system binaries are killed outside their own paths.)
+        let source = d.home.appendingPathComponent("codex.c")
+        try "#include <stdlib.h>\nint main(void) { return system(getenv(\"PERCH_CMD\")) == 0 ? 0 : 1; }\n"
+            .write(to: source, atomically: true, encoding: .utf8)
+        let cc = Process()
+        cc.executableURL = URL(fileURLWithPath: "/usr/bin/cc")
+        cc.arguments = ["-o", macOS.appendingPathComponent("codex").path, source.path]
+        try cc.run()
+        cc.waitUntilExit()
+        try #require(cc.terminationStatus == 0, "cc failed")
+
+        let process = Process()
+        process.executableURL = macOS.appendingPathComponent("codex")
+        process.environment = ["PATH": "/usr/bin:/bin", "HOME": NSHomeDirectory(), "PERCH_HOME": d.home.path,
+                               "PERCH_CMD": "'\(try #require(CLI.binary).path)' hook codex"]
+        let input = Pipe()
+        process.standardInput = input
+        try process.run()
+        input.fileHandleForWriting.write(Data(event("UserPromptSubmit", #","prompt":"hi""#).utf8))
+        try input.fileHandleForWriting.close()
+        process.waitUntilExit()
+
+        let session = try onlySession(d)
+        #expect(session.pid == process.processIdentifier)
+        let link = try #require(session.link.flatMap(TerminalLink.init(string:)))
+        #expect(link == TerminalLink(app: "app", cwd: "/w/perch", bundleID: "dev.perch.test.fake-codex"))
+        #expect(JumpTarget(link: session.link) == .terminal(link))
     }
 }

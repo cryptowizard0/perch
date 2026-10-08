@@ -88,6 +88,17 @@ import Testing
         #expect(TerminalLink(string: "https://example.com") == nil)
         #expect(TerminalLink(string: "/tmp") == nil)
     }
+
+    /// Codex's desktop app runs its agent inside ChatGPT.app and passes hooks no terminal or bundle variables:
+    /// the outermost app in the agent's path is what to bring forward.
+    @Test func hostAppFromTheAgentsPath() {
+        #expect(TerminalLink.hostApp(executable: "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")
+                == "/Applications/ChatGPT.app")
+        #expect(TerminalLink.hostApp(executable: "/Users/me/Applications/Foo Bar.app/Contents/MacOS/agent") == "/Users/me/Applications/Foo Bar.app")
+        #expect(TerminalLink.hostApp(executable: "/Users/me/.local/share/claude/versions/2.1.258") == nil)
+        #expect(TerminalLink.hostApp(executable: "/opt/apps/notreally.application/bin/x") == nil)
+        #expect(TerminalLink.hostApp(executable: "codex") == nil)
+    }
 }
 
 @Suite struct PermissionAdapterTests {

@@ -46,3 +46,16 @@ import Testing
         #expect(SystemProcesses.startTime(of: pid) == nil)
     }
 }
+
+extension SystemProcessesTests {
+    /// The file a process runs, symlinks resolved: where `perch hook` finds the app hosting an agent.
+    @Test func executablePath() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["5"]
+        try process.run()
+        defer { process.terminate() }
+        #expect(SystemProcesses.executablePath(of: process.processIdentifier) == "/bin/sleep")
+        #expect(SystemProcesses.executablePath(of: 99_999_999) == nil)
+    }
+}

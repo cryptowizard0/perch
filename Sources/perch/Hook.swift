@@ -30,8 +30,8 @@ struct Hook: ParsableCommand {
             return HookLog.write("unreadable \(agent) hook input: \(error)")
         }
         let client = PerchClient()
-        let link = terminalLink(for: input, client: client)
         let process = agentProcess()
+        let link = terminalLink(for: input, client: client, process: process)
         if input.event == "PermissionRequest" { return permission(input, link: link, process: process, client: client, now: now) }
         for request in HookAdapter.requests(for: input, agent: agent, link: link, now: now) {
             do {
@@ -93,10 +93,15 @@ struct Hook: ParsableCommand {
 
     /// Where "jump back" goes. Captured when the human submits a prompt (that terminal has focus right then);
     /// later events reuse the session's link, since by then focus may be anywhere.
-    func terminalLink(for input: HookInput, client: PerchClient) -> String? {
+    func terminalLink(for input: HookInput, client: PerchClient, process: ProcessEntry?) -> String? {
         let env = ProcessInfo.processInfo.environment
         let program = env["TERM_PROGRAM"].flatMap { $0.isEmpty ? nil : $0.lowercased() }
-        let bundle = env["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
+        var bundle = env["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
+        // No terminal and no launching app said (Codex's desktop app): the app the agent process lives in.
+        if program == nil, bundle == nil, let process, let path = SystemProcesses.executablePath(of: process.pid),
+           let app = TerminalLink.hostApp(executable: path) {
+            bundle = Bundle(path: app)?.bundleIdentifier
+        }
         guard program != nil || bundle != nil else { return nil }
         var link = TerminalLink(app: program ?? "app", cwd: input.cwd, bundleID: bundle)
         if HookAdapter.turnStarts.contains(input.event) {
