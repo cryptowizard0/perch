@@ -11,7 +11,7 @@ import PerchCore
 struct Perch: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "perch",
-        abstract: "Where your agents wait. A notch-resident queue for AI agents.",
+        abstract: "Perch: your AI coding agents, live in the MacBook notch.",
         version: PerchVersion.string,
         subcommands: [Add.self, Ls.self, Get.self, Done.self, Update.self, Respond.self, Rm.self, Watch.self, SessionCommand.self, Hook.self, Hooks.self, AllowlistCommand.self]
     )

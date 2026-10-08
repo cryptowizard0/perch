@@ -372,6 +372,7 @@ hermes hooks list               # 5 个都应是 allowed
 | `link` 跳回终端的机制（Zed / Warp / tmux / iTerm） | M2.4 跳转按钮、M3 | ✅ Ghostty AppleScript focus terminal id；其他终端激活 App |
 | hook 等刘海的超时取 15 秒还是 30 秒 | M4 | ✅ 先用 20 秒（`--wait` 可改），用一周后再看 |
 | 开源许可证 | 分发 | ✅ MIT（2026-10-08，#4），`LICENSE` 在仓库根目录 |
+| README | 分发 | ✅ 重写（2026-10-08，#5）：英文，按 v0.2 的 agent 面板写；截图在 `docs/images/`，用隔离 perchd 造的示例会话 + `PERCH_PIN_EXPANDED=1` 截的（不含真实数据）。面板有变化时要重截 |
 
 ## 已知限制 / 技术债
 
