@@ -2,7 +2,7 @@
 
 **Your AI coding agents, live in the MacBook notch.** See at a glance which session is running, which one needs you, and which one finished or failed. Approve safe commands right there, or click to jump back to the right terminal.
 
-<p align="center"><img src="docs/images/panel-expanded.png" width="460" alt="Perch's expanded notch panel: sessions grouped into Needs you, Failed, Running, Done and Idle"></p>
+<p align="center"><img src="docs/images/desktop-expanded.png" alt="A Mac desktop with Perch's panel hanging from the notch: sessions grouped into Needs you, Failed, Running, Done and Idle"></p>
 
 The loop it is built for: **an agent is waiting for you → the notch lights up → you handle it in place, or jump back.**
 
@@ -98,9 +98,13 @@ Design notes (in Chinese): [docs/PRD.md](docs/PRD.md) (product), [docs/MILESTONE
 
 Collapsed, the notch shows one dot (the most urgent session's colour) and how many sessions are running:
 
-<p align="center"><img src="docs/images/panel-collapsed.png" width="265" alt="Perch collapsed: an orange dot and the number of running sessions beside the notch"></p>
+<p align="center"><img src="docs/images/desktop-collapsed.png" alt="The menu bar with Perch collapsed around the notch: an orange dot on the left, the number of running sessions on the right"></p>
 
-Expanded on hover, sessions are grouped by state, most urgent first (the image at the top). Each row shows the agent (Claude Code's pixel monster, Codex's knot), the project, how long it has been in that state, and a second line: the prompt while running, the full command when it needs you, the error when it failed, the last reply when done.
+Expanded on hover, sessions are grouped by state, most urgent first:
+
+<p align="center"><img src="docs/images/panel-expanded.png" width="460" alt="Perch's expanded panel, close up"></p>
+
+Each row shows the agent (Claude Code's pixel monster, Codex's knot), the project, how long it has been in that state, and a second line: the prompt while running, the full command when it needs you, the error when it failed, the last reply when done.
 
 ## License
 

@@ -372,7 +372,14 @@ hermes hooks list               # 5 个都应是 allowed
 | `link` 跳回终端的机制（Zed / Warp / tmux / iTerm） | M2.4 跳转按钮、M3 | ✅ Ghostty AppleScript focus terminal id；其他终端激活 App |
 | hook 等刘海的超时取 15 秒还是 30 秒 | M4 | ✅ 先用 20 秒（`--wait` 可改），用一周后再看 |
 | 开源许可证 | 分发 | ✅ MIT（2026-10-08，#4），`LICENSE` 在仓库根目录 |
-| README | 分发 | ✅ 重写（2026-10-08，#5）：英文，按 v0.2 的 agent 面板写；截图在 `docs/images/`，用隔离 perchd 造的示例会话 + `PERCH_PIN_EXPANDED=1` 截的（不含真实数据）。面板有变化时要重截 |
+| README | 分发 | ✅ 重写（2026-10-08，#5）：英文，按 v0.2 的 agent 面板写；截图在 `docs/images/`，不含真实数据。面板有变化时要重截，步骤见下 |
+
+README 截图怎么重做（`scripts/readme-images/`）：
+1. 先退出自己的 Perch（`osascript -e 'quit app id "dev.perch.app"'`），不然两个面板会叠在一起。
+2. `PERCH_HOME=/tmp/perch-shot swift run perchd --no-http &`，然后 `python3 scripts/readme-images/seed.py /tmp/perch-shot/perchd.sock` 造示例会话（五种状态，带 Allow / Deny 的 request）。
+3. `scripts/bundle-app.sh` 后，用 `PERCH_HOME=/tmp/perch-shot PERCH_PIN_EXPANDED=1` 启动 `.build/Perch.app`，`screencapture -x -o -l <窗口号>` 截面板窗口，得到 `docs/images/panel-expanded.png`（Running 的点在呼吸，多截几张挑亮的）；不带 `PERCH_PIN_EXPANDED` 再截一张收起态。窗口号用 `CGWindowListCopyWindowInfo` 按 pid 找。
+4. 合成桌面：`swift scripts/readme-images/compose-desktop.swift <面板截图> docs/images/desktop-expanded.png 520 2400`（收起态用 `100 2400`）。墙纸是生成的渐变，菜单栏只画 Finder 菜单、电池、Wi‑Fi、控制中心和 9:41，不露真实桌面。
+5. 关掉测试用的 perchd 和 App，重新打开自己的 Perch。
 
 ## 已知限制 / 技术债
 
