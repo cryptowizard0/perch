@@ -53,21 +53,30 @@ public enum Inbox {
         public var entries: [String]
         /// The file's new contents: every line that was not absorbed (empty if only blank lines remain).
         public var remainder: String
+        /// The last line is an entry without its newline, left in `remainder`: it may still be being written.
+        public var pending = false
     }
 
-    public static func parse(_ text: String) -> Parsed {
+    /// `absorbUnterminated`: take a last entry that has no newline too (the file has stopped changing, so it is
+    /// an editor that saves without a final newline, not a line half written).
+    public static func parse(_ text: String, absorbUnterminated: Bool = false) -> Parsed {
         var entries: [String] = []
         var kept: [Substring] = []
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if let entry = entry(in: line) {
+        var pending = false
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, line) in lines.enumerated() {
+            // The last piece has no newline after it (empty when the text ends with one).
+            if let entry = entry(in: line), absorbUnterminated || index < lines.count - 1 {
                 if !entry.isEmpty { entries.append(entry) }
             } else {
+                if entry(in: line).map({ !$0.isEmpty }) == true { pending = true }
                 kept.append(line)
             }
         }
         let remainder = kept.joined(separator: "\n")
         return Parsed(entries: entries,
-                      remainder: remainder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : remainder)
+                      remainder: remainder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : remainder,
+                      pending: pending)
     }
 
     /// The text after `- [ ] ` / `* [ ] `, or nil if the line is not an open checkbox.

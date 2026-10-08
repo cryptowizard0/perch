@@ -126,14 +126,19 @@ public final class Daemon {
         (try? service.store.list(nil)) ?? []
     }
 
+    /// How long an unterminated last line must stay unchanged before it counts as finished (#6).
+    static let inboxSettle: TimeInterval = 1
+
     /// Absorbs `- [ ] …` lines from inbox.md as tasks and rewrites the file without them.
     /// The file is re-read right before rewriting; if it changed meanwhile, start over, so a line
-    /// appended during ingestion is never lost.
-    private func ingestInbox() -> [Event] {
+    /// appended during ingestion is never lost. A last line without its newline may be half written: it waits
+    /// until the file has not changed for `inboxSettle` (`settled` is what the file held then).
+    private func ingestInbox(settled: String? = nil) -> [Event] {
         let url = URL(fileURLWithPath: config.inboxPath)
         for _ in 0..<5 {
             guard let before = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-            let parsed = Inbox.parse(before)
+            let parsed = Inbox.parse(before, absorbUnterminated: before == settled)
+            if parsed.pending { settleInbox(expecting: parsed.entries.isEmpty ? before : parsed.remainder) }
             guard !parsed.entries.isEmpty else { return [] }
             guard (try? String(contentsOf: url, encoding: .utf8)) == before,
                   let handle = try? FileHandle(forWritingTo: url) else { continue }
@@ -147,6 +152,14 @@ public final class Daemon {
             }
         }
         return []
+    }
+
+    /// Looks again once the file has had time to settle; if it still holds `expected`, the last line goes in.
+    private func settleInbox(expecting expected: String) {
+        queue.asyncAfter(deadline: .now() + Self.inboxSettle) { [weak self] in
+            guard let self else { return }
+            self.afterChange(self.ingestInbox(settled: expected))
+        }
     }
 
     /// One timer for the earliest `expires_at` or done session to idle; it sweeps, broadcasts and re-arms itself.

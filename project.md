@@ -378,7 +378,7 @@ hermes hooks list               # 5 个都应是 allowed
 剩余工作都已开成 GitHub issue：https://github.com/cryptowizard0/perch/issues
 （#1 M4 验收 · #2 M5 Codex · #3 M6 Hermes · #4 许可证 · #5 README · #6 #7 inbox · #8 Esc 打断 · #9 自启 + 图标 · #10 URL scheme / 其他终端 · #11 展开态高度 · #12 UI 自动化测试 · #13 等待时长复盘）。做完一项就关对应 issue。
 
-- inbox 最后一行如果还没写完（没有换行符）就被读到，会被当成一整行吸收。`echo >>` 一次写入没问题。
+- ~~inbox 最后一行没写完就被吸收~~ 已修（#6，2026-10-08）：没有换行符的最后一行先不吸收，文件 1 秒没变（`Daemon.inboxSettle`）才算写完；所以保存时不带结尾换行的编辑器，最后一行会晚 1 秒进库。
 - inbox 在"读取 → 核对 → 原地重写"之间有微秒级窗口，这期间追加的行可能丢失（已尽量缩小）。
 - 从 `.build/` 执行 `perchd install` 会打印提醒：执行 `swift package clean` 后 agent 就会失效。日常使用要先把二进制复制到固定位置再装。
 - 测试用的 Unix socket 放在 `/tmp/perch-test-*`：socket 路径上限 103 字节，`/var/folders/...` 太长。

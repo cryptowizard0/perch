@@ -48,6 +48,32 @@ import Testing
         #expect(eventually { read(d.daemon.config.mirrorPath).contains("buy milk") })
     }
 
+    /// #6: a line still being written (no newline yet) is not absorbed half-done.
+    @Test func aHalfWrittenInboxLineWaitsForTheRest() throws {
+        let d = try TestDaemon()
+        let inbox = d.daemon.config.inboxPath
+        let handle = try #require(FileHandle(forWritingAtPath: inbox))
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("- [ ] buy oat".utf8))
+        Thread.sleep(forTimeInterval: 0.4)  // well inside the settle time
+        #expect(try d.client.send(Request(op: .list)).items == [])
+        #expect(read(inbox) == "- [ ] buy oat")
+        try handle.write(contentsOf: Data(" milk\n".utf8))
+        try handle.close()
+        #expect(try eventually { try d.client.send(Request(op: .list)).items?.map(\.title) == ["buy oat milk"] })
+        #expect(eventually { read(inbox) == "" })
+    }
+
+    /// Editors that save without a final newline still get their last line in, once the file settles.
+    @Test func aLastLineWithoutNewlineGoesInOnceTheFileSettles() throws {
+        let d = try TestDaemon()
+        let inbox = d.daemon.config.inboxPath
+        try Data("- [ ] first\n- [ ] no newline".utf8).write(to: URL(fileURLWithPath: inbox), options: .atomic)
+        #expect(try eventually { try d.client.send(Request(op: .list)).items?.map(\.title) == ["first"] })
+        #expect(try eventually { Set(try d.client.send(Request(op: .list)).items?.map(\.title) ?? []) == ["first", "no newline"] })
+        #expect(eventually { read(inbox) == "" })
+    }
+
     @Test func inboxWrittenByShellAppendAndAtomicSave() throws {
         let d = try TestDaemon()
         let inbox = d.daemon.config.inboxPath

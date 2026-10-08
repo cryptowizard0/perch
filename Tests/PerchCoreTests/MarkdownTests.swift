@@ -62,6 +62,21 @@ import Testing
     @Test func onlyEntriesLeavesAnEmptyFile() {
         #expect(Inbox.parse("- [ ] a\n- [ ] b\n\n") == Inbox.Parsed(entries: ["a", "b"], remainder: ""))
     }
+
+    /// A last line without its newline may still be being written (#6): it stays, and `pending` says so.
+    @Test func anUnterminatedLastEntryWaits() {
+        let parsed = Inbox.parse("# notes\n- [ ] done typing\n- [ ] still typ")
+        #expect(parsed.entries == ["done typing"])
+        #expect(parsed.remainder == "# notes\n- [ ] still typ")
+        #expect(parsed.pending)
+        // Once the file has stopped changing, it goes in after all.
+        let settled = Inbox.parse("# notes\n- [ ] done typing\n- [ ] still typ", absorbUnterminated: true)
+        #expect(settled.entries == ["done typing", "still typ"] && settled.remainder == "# notes" && !settled.pending)
+        // Terminated, or not an entry: nothing to wait for.
+        #expect(!Inbox.parse("- [ ] a\n").pending)
+        #expect(!Inbox.parse("- [ ] a\nsome note").pending)
+        #expect(Inbox.parse("- [ ] only").entries.isEmpty)
+    }
 }
 
 @Suite struct QuickEntryTests {
