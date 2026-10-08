@@ -346,7 +346,11 @@ hermes hooks list               # 5 个都应是 allowed
 - ✅ 延迟：`scripts/measure-latency.sh 20`，均值 14 ms、最差 36 ms（预算 200 ms）。
 - ✅ 真实会话截图（本机刘海在 MacBook 内屏，5K 外接屏是主屏）：收起态绿点 + 1（这个会话 Running，另一个 Idle 不计数）；展开态另开一个 `PERCH_PIN_EXPANDED=1` 的实例连真实 perchd 截图：Running / Idle 两组、组标题数量、Claude Code 小怪物图标、prompt / 回复首行、Idle 整行变暗都对。
 - ✅ PRD 对齐实际实现：审批行 "Answer in the terminal: 原因"、提问行显示 agent 原话、⌥⇧A / D / O 的目标、SQLite 用系统 libsqlite3。
-- 待人工：Codex 真实会话、Allow / Deny / 去终端 / 超时、点行跳 Ghostty tab 并变灰、右键移除、⌥⇧A / D / O、全屏 App 下的表现。
+- ✅ 人工（2026-10-08，Ghostty + `claude`，测试目录 `/tmp/perch-m8`，`npm test` 只打印 ok）：
+  - Claude 自己给命令加了 `2>&1 | tail -40`：刘海只显示完整命令 + "Answer in the terminal: uses shell operators…"、没有按钮（白名单外的路径）；终端选 Yes 后刘海变蓝。
+  - 要求原样跑 `npm test`：刘海出现 Allow / Deny，点 Allow 后终端不弹提示、直接跑完。
+- 改了（验收中用户定）：Codex 图标 `>_` 认不出来，换成仿 ChatGPT 的六环花结；`PixelIcon` 支持 24×24 细格（同样 12pt，一格一个 Retina 像素），其他图标仍是 12×12（`08fee1f`）。PRD 原来的"不照描任何 logo"相应改了；开源分发前要再评估这个图标和 OpenAI 商标的距离。
+- 待人工：⌥⇧A / ⌥⇧D、20 秒超时交给终端、⌥⇧O、点行跳 Ghostty tab 并变灰、Codex 真实会话（含 Esc → Idle）、右键移除、全屏 App 下的表现、关 tab 后消失。
 
 ### M2 协议扩展：`update`（已实现）
 
