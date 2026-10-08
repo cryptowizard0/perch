@@ -371,7 +371,7 @@ hermes hooks list               # 5 个都应是 allowed
 | 全局快捷键默认值（快速录入；⌥⇧A / ⌥⇧D / ⌥⇧O） | M2.6、M4 | ✅ 快速录入 ⌥⇧Space；其余沿用 PRD，M4 实现 |
 | `link` 跳回终端的机制（Zed / Warp / tmux / iTerm） | M2.4 跳转按钮、M3 | ✅ Ghostty AppleScript focus terminal id；其他终端激活 App |
 | hook 等刘海的超时取 15 秒还是 30 秒 | M4 | ✅ 先用 20 秒（`--wait` 可改），用一周后再看 |
-| 开源许可证 | 分发 | 未定 |
+| 开源许可证 | 分发 | ✅ MIT（2026-10-08，#4），`LICENSE` 在仓库根目录 |
 
 ## 已知限制 / 技术债
 

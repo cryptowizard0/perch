@@ -126,4 +126,4 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 - ~~Claude 桌面 App 里的会话能否沿父进程链找到 agent 的 pid~~ 已定（M7 实测）：能。桌面 App 每个会话一个 `claude` 进程（`Claude` → `disclaimer` → `claude`），会话进程退出就移除。Codex 桌面 App（ChatGPT.app）所有会话共用一个 `codex app-server` 进程，只有退出 App 才会按 pid 清掉。
 - ~~全屏 App 下刘海面板是否可见~~ 已定（M8 实测）：可见。`NotchPanel` 是 `.fullScreenAuxiliary` + `.canJoinAllSpaces`、层级在菜单栏之上，全屏 Ghostty 里能悬停展开、能看到脉冲。
 - hook 等刘海的超时：先用 20 秒（M4 定，`perch hooks install claude-code --wait N` 可改），用一周后再看。
-- 开源许可证。
+- ~~开源许可证~~ 已定（2026-10-08，#4）：MIT，见 `LICENSE`。借来的第三方文件保留自己的版权头和许可证（NotchDo 是 MIT，`CGSSpace.swift` 是 MPL-2.0），Boring Notch（GPL-3.0）仍然不能碰。
