@@ -52,7 +52,7 @@
   - `screencapture -x` 可用（有屏幕录制权限）：改 UI 后截图 + `sips -c` 裁剪看效果。**不能合成鼠标 / 键盘事件**（`CGPreflightPostEventAccess` 为 false，System Events 无辅助功能权限）→ 悬停、点击、快捷键只能靠人工或 `PERCH_PIN_EXPANDED=1` 截图。
   - 看窗口位置不需要权限：`CGWindowListCopyWindowInfo` 过滤 owner "Perch"。
 - git 提交用 1Password SSH 签名；1Password 锁着时报 "failed to fill whole buffer"，让用户解锁后重试（不要自己关签名）。
-  - `codesign` 可用（ad-hoc 签名 `codesign -s -`）。`actool`（Asset Catalog）不可用 → 图标用 png / icns。
+  - `codesign` 可用（ad-hoc 签名 `codesign -s -`）。`actool`（Asset Catalog）不可用 → 图标用 `iconutil` 打 icns（见 `scripts/icon/`）。
 - `/usr/local/include/sqlite3.h` 是一个手动装的野头文件，会让 `import SQLite3` 编译失败。所以 daemon 用 `Sources/CSQLite` 自己声明 sqlite3 函数；新增函数就加到 `Sources/CSQLite/include/CSQLite.h`。**不要删那个系统文件，也不要改回 `import SQLite3`。**
 - GitHub 走 ssh 偶尔失败（ssh-agent 签名问题）；依赖已在 `.build` 缓存。不要随意加新依赖。
 
@@ -391,7 +391,8 @@ README 截图怎么重做（`scripts/readme-images/`）：
 - 从 `.build/` 执行 `perchd install` 会打印提醒：执行 `swift package clean` 后 agent 就会失效。日常使用要先把二进制复制到固定位置再装。
 - 测试用的 Unix socket 放在 `/tmp/perch-test-*`：socket 路径上限 103 字节，`/var/folders/...` 太长。
 - CLITests 通过 `--test-bundle-path` 找 `perch` 二进制（swift-testing 跑在 `swiftpm-testing-helper` 里，`Bundle.main` 不可用）。
-- Perch.app 还不会开机自启（perchd 有 launchd，App 没有）；也没有图标（`actool` 不可用，要做就放 .icns 到 `packaging/`）。
+- Perch.app 还不会开机自启（perchd 有 launchd，App 没有）。2026-10-08 用户定先不做（#9）；候选方案：`install.sh` 加一个登录时 `open -a` 的 LaunchAgent（推荐），或 App 里 `SMAppService.mainApp`（ad-hoc 签名每次重建都变，没实测过）。
+- App 图标（2026-10-08，#9）：奶白像素小鸟站在刘海（收起态的黑条 + 橙色状态点）上，背景是 README 截图同款渐变。`scripts/icon/draw-icon.swift` 画 1024 母版并缩出 16–1024 的 iconset，`scripts/icon/make-icon.sh` 用系统自带的 `iconutil` 打成 `packaging/Perch.icns`（不需要 Xcode / actool），`bundle-app.sh` 拷进 `Contents/Resources`，Info.plist 的 `CFBundleIconFile` = Perch。Perch.app 不进 Dock，图标出现在 Finder、Spotlight、登录项和系统通知里。
 - 展开态高度是估算的（request 按 52 字 / 行算），很长的 request 靠列表滚动兜底。
 - `link` 只能打开 URL 和绝对 / `~` 路径；tmux 等终端会话引用没有跳转按钮，等 M3 定机制。
 - #8（2026-10-08 实测，Claude Code 2.1.258，`claude --settings` 挂一个记录所有事件的 hook）：权限提示上选 No 或按 Esc，**不发任何 hook**（`idle_prompt` 等了 2.5–5 分钟也没来），transcript 里写 `[Request interrupted by user for tool use]` + `turn_duration` → 已修：perchd 监视 Running / Needs you 会话的 transcript，见到标记就转 Idle（`ClaudeTranscript` / `TranscriptWatcher`，schema v3 加 `transcript_path`）。Claude 还在思考、没输出时按 Esc：hook 和 transcript 都没有任何记录（prompt 被放回输入框）→ 没有可靠信号，会话停在 Running 直到下一条 prompt 或关 tab，记为已知限制。输出到一半按 Esc：transcript 写 `[Request interrupted by user]`（不带 "for tool use"），同一个修法能认（2026-10-08 实测变灰）。命令运行中（`sleep 30`）按 Esc 也实测变灰。Codex 有 Interrupt hook，没这个问题。用户实测（2026-10-08，重装后）：权限提示上选 No、按 Esc，刘海那行都在一两秒内从橙变灰。

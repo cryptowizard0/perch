@@ -18,6 +18,7 @@ BIN=$(swift build -c "$CONFIG" --show-bin-path)
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/PerchApp" "$APP/Contents/MacOS/Perch"
+cp packaging/Perch.icns "$APP/Contents/Resources/Perch.icns"  # redraw with scripts/icon/make-icon.sh
 sed "s/__VERSION__/$SHORT/g" packaging/Info.plist > "$APP/Contents/Info.plist"
 plutil -lint -s "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
