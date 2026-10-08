@@ -2,10 +2,13 @@ import PerchAppCore
 import Testing
 
 @Suite struct PixelIconTests {
-    @Test func everyIconIs12By12AndDrawsSomething() {
+    /// 12 or 24 cells a side in the same 12 pt square: a 24-cell icon is one Retina pixel per cell.
+    @Test func everyIconIsASquareGridAndDrawsSomething() {
         for icon in PixelIcon.all {
-            #expect(icon.rows.count == PixelIcon.size, "\(icon.name)")
-            #expect(icon.rows.allSatisfy { $0.count == PixelIcon.size }, "\(icon.name)")
+            #expect([12, 24].contains(icon.grid), "\(icon.name)")
+            #expect(icon.rows.count == icon.grid, "\(icon.name)")
+            #expect(icon.rows.allSatisfy { $0.count == icon.grid }, "\(icon.name)")
+            #expect(icon.cellSize * Double(icon.grid) == Double(PixelIcon.size), "\(icon.name)")
             #expect(icon.rows.allSatisfy { $0.allSatisfy { $0 == "#" || $0 == "." } }, "\(icon.name)")
             #expect(!icon.cells.isEmpty, "\(icon.name)")
         }
@@ -29,6 +32,12 @@ import Testing
             }
         }
         #expect(icon.cells.count == icon.rows.joined().filter { $0 == "#" }.count)
-        #expect(!icon.isOn(x: -1, y: 0) && !icon.isOn(x: 12, y: 0) && !icon.isOn(x: 0, y: 12))
+        #expect(!icon.isOn(x: -1, y: 0) && !icon.isOn(x: icon.grid, y: 0) && !icon.isOn(x: 0, y: icon.grid))
+    }
+
+    /// The ChatGPT-like knot needs the finer grid; the others stay chunky.
+    @Test func codexIsTheFineOne() {
+        #expect(PixelIcon.codex.grid == 24 && PixelIcon.codex.cellSize == 0.5)
+        #expect(PixelIcon.claudeCode.grid == 12 && PixelIcon.claudeCode.cellSize == 1)
     }
 }

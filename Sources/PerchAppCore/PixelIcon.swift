@@ -1,14 +1,19 @@
 import Foundation
 
-/// A 12×12 monochrome agent icon, drawn cell by cell without antialiasing (the view picks the colour).
-/// Our own drawings of an idea, not traced logos, and no trademark files are bundled.
-/// A new agent needs one more bitmap here; anything unknown gets the robot.
+/// A 12 pt monochrome agent icon, drawn cell by cell without antialiasing (the view picks the colour).
+/// Our own drawings, no trademark files bundled. A new agent needs one more bitmap here; anything unknown gets the robot.
 public struct PixelIcon: Equatable, Sendable {
+    /// Points a side, whatever the grid.
     public static let size = 12
 
     public let name: String
-    /// `size` strings of `size` characters: `#` lit, `.` empty. Top row first.
+    /// `grid` strings of `grid` characters: `#` lit, `.` empty. Top row first.
     public let rows: [String]
+
+    /// Cells a side: 12 (one point each, chunky) or 24 (half a point, one Retina pixel) for shapes 12 cannot hold.
+    public var grid: Int { rows.count }
+    /// Points per cell.
+    public var cellSize: Double { Double(Self.size) / Double(grid) }
 
     public init(name: String, rows: [String]) {
         self.name = name
@@ -55,20 +60,33 @@ public struct PixelIcon: Equatable, Sendable {
         "............",
     ])
 
-    /// A prompt: `>_`.
+    /// A woven six-loop knot around a hexagonal hole, after ChatGPT's mark (the user's call: `>_` did not read).
+    /// Generated from six interlocking capsules, each passing under the next, then fixed as a bitmap.
     public static let codex = PixelIcon(name: "codex", rows: [
-        "............",
-        "............",
-        "##..........",
-        ".##.........",
-        "..##........",
-        "...##.......",
-        "..##........",
-        ".##.........",
-        "##....######",
-        "......######",
-        "............",
-        "............",
+        "..........###...........",
+        ".........#...##.........",
+        "........#.....#.........",
+        ".......##.....##........",
+        "....##.##############...",
+        "..######...##...##...#..",
+        ".##...#....#.....#...##.",
+        ".#...##....#......#..##.",
+        ".#..###....#...####..##.",
+        ".#..#.#....#..##..##.#..",
+        "..###..########....##...",
+        "..##.....#####......#...",
+        "...#......#####.....##..",
+        "...##....########..###..",
+        "..#.##..##..#....#.#..#.",
+        ".##..####...#....###..#.",
+        ".##..#......#....##...#.",
+        ".##...#.....#....#...##.",
+        "..#...##...##...######..",
+        "...##############.##....",
+        "........##.....##.......",
+        ".........#.....#........",
+        ".........##...#.........",
+        "...........###..........",
     ])
 
     /// A pair of wings.

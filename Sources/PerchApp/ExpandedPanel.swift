@@ -168,7 +168,7 @@ struct SessionRowView: View {
     }
 }
 
-/// A `PixelIcon`, one point per cell, square cells, no antialiasing.
+/// A `PixelIcon`, 12 pt square, `cellSize` per cell, no antialiasing.
 struct PixelIconView: View {
     var icon: PixelIcon
     var color: Color = .white.opacity(0.85)
@@ -176,8 +176,9 @@ struct PixelIconView: View {
     var body: some View {
         Canvas { context, _ in
             var path = Path()
+            let side = icon.cellSize
             for cell in icon.cells {
-                path.addRect(CGRect(x: cell.x, y: cell.y, width: 1, height: 1))
+                path.addRect(CGRect(x: Double(cell.x) * side, y: Double(cell.y) * side, width: side, height: side))
             }
             context.fill(path, with: .color(color))
         }

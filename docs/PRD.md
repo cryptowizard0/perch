@@ -247,7 +247,7 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 | Done | 最后一条回复的首行 | 多久前完成 |
 | Idle | 同 Done，整行变暗 | 多久前 |
 
-**agent 图标**：自己渲染的 12×12 像素点阵（代码里的字符串，SwiftUI `Canvas` 逐格画，不抗锯齿），单色白，Idle 时随整行变暗。颜色只给状态圆点。只取意象，不照描任何 logo，不打包任何商标文件：Claude Code = 像素小怪物，Codex = `>_`，Hermes = 翅膀，未知 agent = 小机器人。新 agent 加一张点阵即可。
+**agent 图标**：自己渲染的 12pt 像素点阵（代码里的字符串，SwiftUI `Canvas` 逐格画，不抗锯齿），一般 12×12 格，放不下的形状用 24×24 细格（每格半个点，Retina 上一个像素）。单色白，Idle 时随整行变暗。颜色只给状态圆点。不打包任何商标文件：Claude Code = 像素小怪物，Codex = 仿 ChatGPT 的六环花结（24×24；M8 验收时用户定，`>_` 认不出来），Hermes = 翅膀，未知 agent = 小机器人。新 agent 加一张点阵即可。
 
 文案一律英文。
 
