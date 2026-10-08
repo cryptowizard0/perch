@@ -386,7 +386,7 @@ hermes hooks list               # 5 个都应是 allowed
 - Perch.app 还不会开机自启（perchd 有 launchd，App 没有）；也没有图标（`actool` 不可用，要做就放 .icns 到 `packaging/`）。
 - 展开态高度是估算的（request 按 52 字 / 行算），很长的 request 靠列表滚动兜底。
 - `link` 只能打开 URL 和绝对 / `~` 路径；tmux 等终端会话引用没有跳转按钮，等 M3 定机制。
-- #8（2026-10-08 实测，Claude Code 2.1.258，`claude --settings` 挂一个记录所有事件的 hook）：权限提示上选 No 或按 Esc，**不发任何 hook**（`idle_prompt` 等了 2.5–5 分钟也没来），transcript 里写 `[Request interrupted by user for tool use]` + `turn_duration` → 已修：perchd 监视 Running / Needs you 会话的 transcript，见到标记就转 Idle（`ClaudeTranscript` / `TranscriptWatcher`，schema v3 加 `transcript_path`）。Claude 还在思考、没输出时按 Esc：hook 和 transcript 都没有任何记录（prompt 被放回输入框）→ 没有可靠信号，会话停在 Running 直到下一条 prompt 或关 tab，记为已知限制。输出到一半按 Esc 没测，估计写 `[Request interrupted by user]`，同一个修法能认。Codex 有 Interrupt hook，没这个问题。用户实测（2026-10-08，重装后）：权限提示上选 No、按 Esc，刘海那行都在一两秒内从橙变灰。
+- #8（2026-10-08 实测，Claude Code 2.1.258，`claude --settings` 挂一个记录所有事件的 hook）：权限提示上选 No 或按 Esc，**不发任何 hook**（`idle_prompt` 等了 2.5–5 分钟也没来），transcript 里写 `[Request interrupted by user for tool use]` + `turn_duration` → 已修：perchd 监视 Running / Needs you 会话的 transcript，见到标记就转 Idle（`ClaudeTranscript` / `TranscriptWatcher`，schema v3 加 `transcript_path`）。Claude 还在思考、没输出时按 Esc：hook 和 transcript 都没有任何记录（prompt 被放回输入框）→ 没有可靠信号，会话停在 Running 直到下一条 prompt 或关 tab，记为已知限制。输出到一半按 Esc：transcript 写 `[Request interrupted by user]`（不带 "for tool use"），同一个修法能认（2026-10-08 实测变灰）。Codex 有 Interrupt hook，没这个问题。用户实测（2026-10-08，重装后）：权限提示上选 No、按 Esc，刘海那行都在一两秒内从橙变灰。
 - 非 Ghostty 终端只能激活 App，定位不到 tab。Perch.app 还没有注册 `perch-terminal://` URL scheme（todo.md 里的这类链接点不开）。
 - 点击 / 快捷键的 UI 路径没有自动化测试（只测了 `QueueModel` 的 open / remove / openHead / answerHead），改交互要人工回归上面的清单。
 
