@@ -41,7 +41,7 @@ import Testing
         #expect(try store.sessions().map(\.id) == ["s1"])
         var version = 0
         try store.db.run("PRAGMA user_version") { version = $0.int(0) }
-        #expect(version == Store.schemaVersion && version == 2)
+        #expect(version == Store.schemaVersion && version == 3)
     }
 
     @Test func pingOverUnixSocket() throws {

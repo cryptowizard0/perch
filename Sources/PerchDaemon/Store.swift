@@ -4,7 +4,7 @@ import PerchCore
 /// The `items` and `sessions` tables. Columns map 1:1 to `Item` / `Session`; dates are ISO-8601 UTC text,
 /// `meta` / `options` are JSON text. Only perchd opens this database.
 public final class Store {
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
 
     let db: SQLiteDatabase
 
@@ -198,6 +198,13 @@ public final class Store {
             PRAGMA user_version = 2;
             """)
         }
+        if version < 3 {
+            // Claude Code's transcript, watched for interruptions no hook reports (#8).
+            try db.execute("""
+            ALTER TABLE sessions ADD COLUMN transcript_path TEXT;
+            PRAGMA user_version = 3;
+            """)
+        }
     }
 }
 
@@ -206,7 +213,7 @@ public final class Store {
 extension Store {
     static let sessionColumns = """
     id, source, title, cwd, link, status, prompt, last_message, detail, error, pid, pid_started_at, \
-    started_at, turn_started_at, status_at, updated_at
+    started_at, turn_started_at, status_at, updated_at, transcript_path
     """
 
     /// Inserts or overwrites the row with `session.id`.
@@ -216,7 +223,7 @@ extension Store {
             SQLValue(s.prompt), SQLValue(s.lastMessage), SQLValue(s.detail), SQLValue(s.error),
             SQLValue(s.pid), SQLValue(s.pidStartedAt.map(Self.formatDate)),
             .text(Self.formatDate(s.startedAt)), .text(Self.formatDate(s.turnStartedAt)),
-            .text(Self.formatDate(s.statusAt)), .text(Self.formatDate(s.updatedAt)),
+            .text(Self.formatDate(s.statusAt)), .text(Self.formatDate(s.updatedAt)), SQLValue(s.transcriptPath),
         ]
         let marks = Array(repeating: "?", count: values.count).joined(separator: ", ")
         try db.run("INSERT OR REPLACE INTO sessions (\(Self.sessionColumns)) VALUES (\(marks))", values)
@@ -278,6 +285,7 @@ extension Store {
         s.turnStartedAt = try date(13)
         s.statusAt = try date(14)
         s.updatedAt = try date(15)
+        s.transcriptPath = row.text(16)
         return s
     }
 }

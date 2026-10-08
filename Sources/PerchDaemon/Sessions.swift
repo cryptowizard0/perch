@@ -97,6 +97,7 @@ public final class SessionRegistry {
         s.title = report.title ?? s.title
         s.cwd = report.cwd ?? s.cwd
         s.link = report.link ?? s.link
+        s.transcriptPath = report.transcriptPath ?? s.transcriptPath
         if let pid = report.pid {
             s.pid = pid
             s.pidStartedAt = report.pidStartedAt

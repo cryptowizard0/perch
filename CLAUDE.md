@@ -93,6 +93,7 @@ Hermes 的审批 hook 只能观察，不能代答，所以刘海**永远不能�
 
 返回格式（M4 按官方文档核对过）：Claude Code 是 `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny","message":"…"}}}`（`message` 只用于 deny；不是 PreToolUse 的 `permissionDecision`；exit code 2 在 PermissionRequest 不生效）。Codex（M5 核对）读同一个 JSON，所以不分支；不要返回 `updatedInput` / `updatedPermissions` / `interrupt`（Codex 目前对这些 fail closed）。
 PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permission_prompt` 要等提示框挂了约 6 秒才触发。
+**Claude Code 在权限提示上选 No 或按 Esc 时不发任何 hook**（#8 实测，2.1.258：`idle_prompt` 也不来），只在 transcript 里写 `[Request interrupted by user for tool use]` + `system/turn_duration`。所以 Claude Code 的报告带 `transcript_path`（存在会话里，schema v3），perchd 监视 Running / Needs you 会话的 transcript（`TranscriptWatcher`），末尾的消息是这个标记（`ClaudeTranscript.interruption`）就按标记时间发 `interrupt` → Idle。transcript 不是公开接口，格式变了就退回原样（会话停在原状态）。思考中、还没输出就按 Esc 时 transcript 什么都不写，会话停在 Running，直到下一条 prompt 或关 tab（已知限制）。
 配置文件：Claude Code `~/.claude/settings.json`；Codex `~/.codex/hooks.json`（`$CODEX_HOME` 可覆盖；Codex 按 hook 内容的 hash 记信任，新装或改过的 hook 要在 codex 里 `/hooks` 确认后才会跑）；Hermes `~/.hermes/config.yaml` 的 `hooks:`（`$HERMES_HOME` 可覆盖；没有 YAML 库，Perch 在文件末尾写一段带标记的块；Hermes 用 yaml.dump 重写文件时标记会丢，所以只含 Perch 命令的 `hooks:` 段也认作 Perch 的；混了别人 hook 的 `hooks:` 段不动、安装拒绝；Hermes 对每个 (事件, 命令) 首次运行要确认，记在 `~/.hermes/shell-hooks-allowlist.json`，gateway 要 `hermes gateway restart` 才会加载）。
 以官方文档为准：https://code.claude.com/docs/en/hooks 、 https://learn.chatgpt.com/docs/hooks 、Hermes 仓库的 `website/docs/user-guide/features/hooks.md`（Shell Hooks 一节）。
 

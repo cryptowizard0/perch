@@ -31,6 +31,7 @@ public final class Daemon {
     private var livenessTimer: DispatchSourceTimer?
     private let mirror: MirrorWriter
     private var inbox: InboxWatcher?
+    private var transcripts: TranscriptWatcher?
 
     /// `probe` tells whether a session's agent process still runs; `livenessInterval` is how often it is asked.
     public init(config: DaemonConfig, now: @escaping () -> Date = Date.init, probe: @escaping ProcessProbe = SystemProcesses.startTime(of:),
@@ -45,6 +46,7 @@ public final class Daemon {
             FileManager.default.createFile(atPath: config.inboxPath, contents: nil)
         }
         queue.sync {
+            transcripts = TranscriptWatcher(queue: queue) { [weak self] id in self?.checkTranscript(of: id) }
             mirror.write(activeItems())
             afterChange(service.dismissLegacyHookItems())
             afterChange(ingestInbox())
@@ -54,8 +56,10 @@ public final class Daemon {
             }
             watcher.start()
             inbox = watcher
-            // Right away too: sessions whose agent exited while perchd was down go now.
+            // Right away too: sessions whose agent exited while perchd was down go now, and transcripts get
+            // watched (and read once: a turn interrupted while perchd was down).
             reapOnQueue()
+            syncTranscripts()
             let liveness = DispatchSource.makeTimerSource(queue: queue)
             liveness.schedule(deadline: .now() + livenessInterval, repeating: livenessInterval, leeway: .milliseconds(100))
             liveness.setEventHandler { [weak self] in self?.reapOnQueue() }
@@ -68,20 +72,47 @@ public final class Daemon {
         expiryTimer?.cancel()
         livenessTimer?.cancel()
         inbox?.stop()
+        transcripts?.stop()
     }
 
     public func perform(_ request: Request) -> Response {
         queue.sync {
-            if request.op.isSession {
-                let outcome = sessions.handle(request)
-                publish(sessionEvents: outcome.events)
-                afterChange(outcome.resolveRequestsOf.map(service.resolveRequests(session:)) ?? [])
-                return outcome.response
-            }
+            if request.op.isSession { return applySession(request) }
             let (response, events) = service.handle(request)
             afterChange(events)
             return response
         }
+    }
+
+    /// On `queue`: a session op, its events, and closing the requests of a session that moved on.
+    private func applySession(_ request: Request) -> Response {
+        let outcome = sessions.handle(request)
+        publish(sessionEvents: outcome.events)
+        afterChange(outcome.resolveRequestsOf.map(service.resolveRequests(session:)) ?? [])
+        return outcome.response
+    }
+
+    /// Session id → transcript path perchd is watching (running / waiting Claude Code sessions).
+    var watchedTranscripts: [String: String] {
+        queue.sync { transcripts?.paths ?? [:] }
+    }
+
+    /// Watches the transcripts of running / waiting sessions, and only those; a newly watched one is read at once.
+    private func syncTranscripts() {
+        guard let transcripts else { return }
+        let live = ((try? sessions.store.sessions()) ?? []).filter { $0.status == .running || $0.status == .waiting }
+        let wanted = Dictionary(live.compactMap { s in s.transcriptPath.map { (s.id, $0) } }, uniquingKeysWith: { $1 })
+        for id in transcripts.watch(wanted) { checkTranscript(of: id) }
+    }
+
+    /// The transcript says the turn was interrupted (No or Esc at Claude Code's prompt, #8): the session goes idle,
+    /// as of the interruption, so a report from a later turn still wins.
+    private func checkTranscript(of id: String) {
+        guard let path = transcripts?.paths[id], let tail = TranscriptWatcher.tail(of: path),
+              let at = ClaudeTranscript.interruption(tail: tail),
+              let session = try? sessions.store.session(id: id), session.status == .running || session.status == .waiting
+        else { return }
+        _ = applySession(Request(op: .sessionReport, report: SessionReport(id: id, kind: .interrupt, at: at)))
     }
 
     /// Removes sessions whose agent is gone (see `SessionRegistry.reap`), as the liveness timer does.
@@ -184,6 +215,7 @@ public final class Daemon {
             let message = Response(ok: true, sessionEvent: event)
             for sink in subscribers.values { sink(message) }
         }
+        if !events.isEmpty { syncTranscripts() }
     }
 
     private func publish(_ events: [Event]) {
