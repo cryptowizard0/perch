@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-08 · M1–M8 完成（M7 / M8 由用户在真实会话上验收通过，#17 / #20）· 下一步：M9（Hermes 迁到会话模型）先单独设计；#8（终端里选 No / Esc 不发 hook）
+最后更新：2026-10-08 · M1–M8 完成（M7 / M8 由用户在真实会话上验收通过，#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· 下一步候选：#8（终端里选 No / Esc 不发 hook）、行尾跳转图标区分终端 / 桌面 App
 
 ## 总览
 
@@ -17,7 +17,7 @@
 | M6 | Hermes 接入（改为 shell hook） | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ✅ 完成 | #15 状态机 ✅；#16 存活检测 ✅；#17 真实会话验收 ✅（2026-10-08，Hermes 一轮未测） |
 | M8 | Agent 面板 UI；刘海 todo UI 下线 | ✅ 完成 | #18 面板 ✅；#19 交互 + todo 下线 ✅；#20 验收 ✅（2026-10-08，用户确认） |
-| M9 | Hermes 迁到会话模型 | 未开始 | M8 验收后单独设计 |
+| M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
 
@@ -35,7 +35,7 @@
 | todo | UI 拿掉，底层和 CLI 不动；以后作为独立 tab 回来 | |
 | 会话存哪 | SQLite（`sessions` 表） | 推翻 M3 "session 只在内存"的决定；重启后面板原样恢复 |
 | 僵尸会话 | pid 存活检测为主（30 秒）+ 24 小时超时兜底 + 手动移除 | |
-| 接哪些 agent | Claude Code + Codex；Hermes 暂不显示，M9 单独做 | Codex 几乎零成本，还能验证状态机与 agent 无关 |
+| 接哪些 agent | Claude Code + Codex；Hermes 暂不显示（2026-10-08 起暂不支持，M9 搁置） | Codex 几乎零成本，还能验证状态机与 agent 无关 |
 | 会话与 item 分工 | 状态只在会话里；item 只剩 request | 一个概念只放一处 |
 | 交互 | 点整行跳转；Allow / Deny；⌥⇧A / D / O；右键行移除；右键刘海只剩 Quit | |
 | 提醒 | 只有刘海脉冲；不发系统通知、不加提示音 | |

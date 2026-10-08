@@ -87,7 +87,7 @@ Hermes Agent（M6 定：它跑在本机，不在 Docker 里，所以走 shell ho
 
 Hermes 的审批 hook 只能观察，不能代答，所以刘海**永远不能批准 Hermes 的命令**，只能提示去哪里回答。审批 hook 带的是 gateway 的 `session_key`（CLI 里是 `default`，gateway 是 `agent:main:<platform>:…`），不是 session_id。
 
-会话 CLI：`perch session ls [--json]`（状态和详情）、`perch session seen <id>`（done → idle）、`perch session rm <id>`（手动移除，之后再来事件会重新出现）；`perch session start|end` 保持旧含义（start = 新一轮 running，end = 移除），Hermes 还在用。`watch` 推 `session.updated`（每次变化）、`session.ended`（移除）和 `session.started`（新一轮开始，给老客户端）。刘海（M8，#18）只显示会话（Hermes 除外，M9）：收起态 = 最紧急会话的颜色 + Running 数；展开态按状态分组，逻辑在 `PerchAppCore/Panel.swift`（`Panel` / `SessionRow`），像素图标在 `PixelIcon.swift`。Live Activity（"2 agents · 4m"）已去掉。
+会话 CLI：`perch session ls [--json]`（状态和详情）、`perch session seen <id>`（done → idle）、`perch session rm <id>`（手动移除，之后再来事件会重新出现）；`perch session start|end` 保持旧含义（start = 新一轮 running，end = 移除），Hermes 还在用。`watch` 推 `session.updated`（每次变化）、`session.ended`（移除）和 `session.started`（新一轮开始，给老客户端）。刘海（M8，#18）只显示会话（Hermes 除外：2026-10-08 起暂不支持，M9 搁置）：收起态 = 最紧急会话的颜色 + Running 数；展开态按状态分组，逻辑在 `PerchAppCore/Panel.swift`（`Panel` / `SessionRow`），像素图标在 `PixelIcon.swift`。Live Activity（"2 agents · 4m"）已去掉。
 
 `perch add --kind request --wait` 的约定：有人回应 → stdout 打印回应值、exit 0；过期（`--expires`）/ 被 done / 被 rm → exit 3、不打印回应。适配器只在 exit 0 时返回决定，其余一律不返回，让终端原生提示接管。
 
