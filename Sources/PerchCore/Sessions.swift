@@ -32,6 +32,8 @@ public struct Session: Codable, Equatable, Identifiable, Sendable {
     /// The agent process and its start time, for liveness checks (a reused pid has another start time).
     public var pid: Int32?
     public var pidStartedAt: Date?
+    /// Claude Code's session log: perchd watches its end while the session runs or waits (`ClaudeTranscript`).
+    public var transcriptPath: String?
     /// First seen.
     public var startedAt: Date
     /// When this turn started (the last prompt).
@@ -60,6 +62,7 @@ public struct Session: Codable, Equatable, Identifiable, Sendable {
         case id, source, title, cwd, link, status, prompt, detail, error, pid
         case lastMessage = "last_message"
         case pidStartedAt = "pid_started_at"
+        case transcriptPath = "transcript_path"
         case startedAt = "started_at"
         case turnStartedAt = "turn_started_at"
         case statusAt = "status_at"
@@ -81,6 +84,7 @@ public struct Session: Codable, Equatable, Identifiable, Sendable {
         error = try c.decodeIfPresent(String.self, forKey: .error)
         pid = try c.decodeIfPresent(Int32.self, forKey: .pid)
         pidStartedAt = try c.decodeIfPresent(Date.self, forKey: .pidStartedAt)
+        transcriptPath = try c.decodeIfPresent(String.self, forKey: .transcriptPath)
         startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt) ?? Date()
         turnStartedAt = try c.decodeIfPresent(Date.self, forKey: .turnStartedAt) ?? startedAt
         statusAt = try c.decodeIfPresent(Date.self, forKey: .statusAt) ?? startedAt
@@ -120,6 +124,7 @@ public struct SessionReport: Codable, Equatable, Sendable {
     public var error: String?
     public var pid: Int32?
     public var pidStartedAt: Date?
+    public var transcriptPath: String?
 
     public init(id: String, kind: Kind, at: Date, source: String? = nil, title: String? = nil, cwd: String? = nil,
                 link: String? = nil, prompt: String? = nil, detail: String? = nil, keepDetail: Bool? = nil,
@@ -145,6 +150,7 @@ public struct SessionReport: Codable, Equatable, Sendable {
         case keepDetail = "keep_detail"
         case lastMessage = "last_message"
         case pidStartedAt = "pid_started_at"
+        case transcriptPath = "transcript_path"
     }
 }
 

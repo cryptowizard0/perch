@@ -7,6 +7,8 @@ public struct HookInput: Decodable, Equatable, Sendable {
     public var sessionID: String
     public var event: String
     public var cwd: String?
+    /// Claude Code's session log (JSONL); see `ClaudeTranscript`.
+    public var transcriptPath: String?
     public var notificationType: String?
     public var message: String?
     public var lastAssistantMessage: String?
@@ -58,6 +60,7 @@ public struct HookInput: Decodable, Equatable, Sendable {
         case cwd, message, extra, prompt, error
         case sessionID = "session_id"
         case event = "hook_event_name"
+        case transcriptPath = "transcript_path"
         case notificationType = "notification_type"
         case lastAssistantMessage = "last_assistant_message"
         case toolName = "tool_name"
@@ -66,8 +69,10 @@ public struct HookInput: Decodable, Equatable, Sendable {
 
     public init(sessionID: String, event: String, cwd: String? = nil, notificationType: String? = nil,
                 message: String? = nil, lastAssistantMessage: String? = nil, toolName: String? = nil,
-                toolInput: [String: JSONValue]? = nil, extra: Extra? = nil, prompt: String? = nil, error: JSONValue? = nil) {
+                toolInput: [String: JSONValue]? = nil, extra: Extra? = nil, prompt: String? = nil, error: JSONValue? = nil,
+                transcriptPath: String? = nil) {
         self.prompt = prompt
+        self.transcriptPath = transcriptPath
         self.error = error
         self.sessionID = sessionID
         self.event = event
@@ -164,11 +169,13 @@ public enum HookAdapter {
     public static let waitingForAnswer = "Waiting for your answer"
     public static let answerInTerminal = "Answer in the terminal"
 
-    /// A report about `input`'s session, carrying what every event knows (agent, project, directory, jump link).
+    /// A report about `input`'s session, carrying what every event knows (agent, project, directory, jump link;
+    /// for Claude Code its transcript, where perchd finds the interruptions no hook reports).
     public static func sessionReport(_ input: HookInput, _ kind: SessionReport.Kind, agent: String, link: String?, now: Date,
                                      _ fill: (inout SessionReport) -> Void = { _ in }) -> SessionReport {
         var report = SessionReport(id: input.sessionID, kind: kind, at: now, source: agent, title: projectName(input.cwd),
                                    cwd: input.cwd, link: link)
+        if agent == "claude-code" { report.transcriptPath = input.transcriptPath.flatMap { $0.isEmpty ? nil : $0 } }
         fill(&report)
         return report
     }

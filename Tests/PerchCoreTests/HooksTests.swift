@@ -17,7 +17,8 @@ import Testing
         """#
         let input = try JSONDecoder().decode(HookInput.self, from: Data(json.utf8))
         #expect(input == HookInput(sessionID: "abc", event: "Notification", cwd: "/Users/me/work/perch",
-                                   notificationType: "permission_prompt", message: "Claude needs your permission to use Bash"))
+                                   notificationType: "permission_prompt", message: "Claude needs your permission to use Bash",
+                                   transcriptPath: "/x.jsonl"))
     }
 
     @Test func promptStartsTheTurn() {
@@ -70,6 +71,20 @@ import Testing
             #expect(r[0].report?.kind == kind)
         }
         #expect(requests(HookInput(sessionID: "abc", event: "PreToolUse")).isEmpty)
+    }
+
+    /// Claude Code's reports carry the transcript (perchd reads its end for interruptions no hook reports, #8).
+    /// Codex has its own Interrupt hook and another log format, so its reports do not.
+    @Test func claudeCodeReportsCarryTheTranscript() throws {
+        let json = #"{"session_id":"abc","transcript_path":"/Users/me/.claude/projects/p/abc.jsonl","cwd":"/w/perch","hook_event_name":"UserPromptSubmit","prompt":"hi"}"#
+        let input = try JSONDecoder().decode(HookInput.self, from: Data(json.utf8))
+        #expect(input.transcriptPath == "/Users/me/.claude/projects/p/abc.jsonl")
+        #expect(requests(input).first?.report?.transcriptPath == "/Users/me/.claude/projects/p/abc.jsonl")
+        let codex = HookAdapter.requests(for: input, agent: "codex", link: nil, now: now)
+        #expect(codex.first?.report?.transcriptPath == nil)
+        // Codex sends null.
+        let null = try JSONDecoder().decode(HookInput.self, from: Data(#"{"session_id":"x","hook_event_name":"Stop","transcript_path":null}"#.utf8))
+        #expect(null.transcriptPath == nil)
     }
 
     @Test func projectNames() {
