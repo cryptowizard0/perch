@@ -123,6 +123,6 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 - ~~`link` 跳回终端的机制~~ 已定（M3）：`perch-terminal://<app>?id=&cwd=&bundle=`。Ghostty（≥ 1.3，AppleScript）在 UserPromptSubmit 时记下聚焦的 terminal id，跳转时 `focus` 那个 terminal，找不到按目录找，再不行激活 App；其他终端只激活 App（按 `__CFBundleIdentifier`）。
 - ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。M8 起快速录入随 todo UI 下线（#19 已删），⌥⇧A / D 回答面板上第一个 request、⌥⇧O 跳到等得最久的 Needs you 会话。
 - ~~Claude 桌面 App 里的会话能否沿父进程链找到 agent 的 pid~~ 已定（M7 实测）：能。桌面 App 每个会话一个 `claude` 进程（`Claude` → `disclaimer` → `claude`），会话进程退出就移除。Codex 桌面 App（ChatGPT.app）所有会话共用一个 `codex app-server` 进程，只有退出 App 才会按 pid 清掉。
-- 全屏 App 下刘海面板是否可见：M8 核实。
+- ~~全屏 App 下刘海面板是否可见~~ 已定（M8 实测）：可见。`NotchPanel` 是 `.fullScreenAuxiliary` + `.canJoinAllSpaces`、层级在菜单栏之上，全屏 Ghostty 里能悬停展开、能看到脉冲。
 - hook 等刘海的超时：先用 20 秒（M4 定，`perch hooks install claude-code --wait N` 可改），用一周后再看。
 - 开源许可证。

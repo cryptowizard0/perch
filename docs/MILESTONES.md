@@ -61,7 +61,7 @@
 - [x] `perch hook` 沿父进程链找到 agent 进程的 pid 并随事件上报；实测 Claude 桌面 App 会话能否找到（能：每个会话一个 `claude` 进程）
 - [x] 重写 Claude Code / Codex 的 hook 映射：不再产生 waiting / notice，只保留白名单内 PermissionRequest 的 request（`meta.session_id` 挂会话）；Hermes 不改（#19，a8c1483；升级留下的旧 item 由 perchd 启动时清掉，aa26609）
 - [x] `perch session ls [--json]` 显示状态；`perch session start|end` 保持兼容；标记已看（Done → Idle）的 op 供 M8 跳转用（`session_seen` / `perch session seen`；`perch session rm` 也已做）
-- [ ] 验收：真实 Claude Code 和 Codex 会话，`perch session ls` 状态流转正确；关掉终端 tab 后 30 秒内消失（Claude Code + Ghostty 已确认，#16）；`swift test` 通过
+- [x] 验收：真实 Claude Code 和 Codex 会话，`perch session ls` 状态流转正确；关掉终端 tab 后 30 秒内消失（Claude Code + Ghostty 已确认，#16）；`swift test` 通过（2026-10-08 和 M8 验收一起测完，#17）
 
 ## M8 — Agent 面板 UI
 
@@ -70,8 +70,8 @@
 - [x] 12pt 单色像素 agent 图标（Claude Code 小怪物、Codex 仿 ChatGPT 的花结（24×24 细格）、Hermes 翅膀、未知机器人），点阵数据在 PerchAppCore 可测
 - [x] 交互：点整行跳转并标记已看；Allow / Deny（白名单内）；⌥⇧A / D / O 作用于队首 Needs you；右键行 "Remove from Panel"；右键刘海只剩 Quit（#19，点击 / 右键 / 快捷键的 UI 路径待 #20 人工验收）
 - [x] 刘海上的 todo UI 下线：task 行、快速录入（⌥⇧Space、New Task）、到期提醒与系统通知；Claude Code / Codex 的 hook 不再发 waiting / notice item（#19）
-- [ ] 核实全屏 App 下刘海的表现
-- [ ] 验收：真实会话下颜色、数量、分组、跳转、审批都正确；CLI 到刘海 ≤ 200 ms
+- [x] 核实全屏 App 下刘海的表现：可见、能悬停展开、能看到脉冲（2026-10-08，Ghostty 全屏）
+- [x] 验收：真实会话下颜色、数量、分组、跳转、审批都正确；CLI 到刘海 ≤ 200 ms（2026-10-08，#20；延迟均值 14 ms）
 
 ## M9 — Hermes 迁到会话模型
 

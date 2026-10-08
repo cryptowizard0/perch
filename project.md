@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-09-29 · M1–M6 全部完成（M4–M6 由用户确认验收通过）· 2026-09-28 方向调整为 agent 面板；M7：#15、#16 完成，#17 真实会话验收暂停；M8：面板（#18）、交互 + todo 下线（#19）完成，下一步 M8 验收（#20）
+最后更新：2026-10-08 · M1–M8 完成（M7 / M8 由用户在真实会话上验收通过，#17 / #20）· 下一步：M9（Hermes 迁到会话模型）先单独设计；#8（终端里选 No / Esc 不发 hook）
 
 ## 总览
 
@@ -15,8 +15,8 @@
 | M4 | PermissionRequest + 白名单 | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M5 | Codex 复用同一套 hook 脚本 | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M6 | Hermes 接入（改为 shell hook） | ✅ 完成 | 用户确认验收通过（2026-09-28） |
-| M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ⏳ 进行中 | #15 状态机 ✅；#16 存活检测 ✅；#17 真实会话验收待做。不动 UI |
-| M8 | Agent 面板 UI；刘海 todo UI 下线 | ⏳ 进行中 | #18 面板 ✅；#19 交互 + todo 下线 ✅；#20 验收待做 |
+| M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ✅ 完成 | #15 状态机 ✅；#16 存活检测 ✅；#17 真实会话验收 ✅（2026-10-08，Hermes 一轮未测） |
+| M8 | Agent 面板 UI；刘海 todo UI 下线 | ✅ 完成 | #18 面板 ✅；#19 交互 + todo 下线 ✅；#20 验收 ✅（2026-10-08，用户确认） |
 | M9 | Hermes 迁到会话模型 | 未开始 | M8 验收后单独设计 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -351,7 +351,9 @@ hermes hooks list               # 5 个都应是 allowed
   - 要求原样跑 `npm test`：刘海出现 Allow / Deny，点 Allow 后终端不弹提示、直接跑完。
 - 改了（验收中用户定）：Codex 图标 `>_` 认不出来，换成仿 ChatGPT 的六环花结；`PixelIcon` 支持 24×24 细格（同样 12pt，一格一个 Retina 像素），其他图标仍是 12×12（`08fee1f`）。PRD 原来的"不照描任何 logo"相应改了；开源分发前要再评估这个图标和 OpenAI 商标的距离。
 - ❌→✅ 验收发现：Codex 桌面 App（ChatGPT.app）的会话点了不跳。原因：它的 hook 跑在 `ChatGPT.app/…/CodexCLI.app/…/codex app-server` 下，环境里既没有 `TERM_PROGRAM` 也没有 `__CFBundleIdentifier`（Claude 桌面 App 会传），链接是空的。修法：两者都没有时，按 agent 进程的可执行路径（`SystemProcesses.executablePath`，`proc_pidpath`）找最外层 `.app`（`TerminalLink.hostApp`），读它的 bundle id（ChatGPT.app 是 `com.openai.codex`），链接 = 激活那个 App。所有 Codex 桌面会话共用一个 app-server 进程，所以只能激活 App，定位不到具体对话。测试用 `cc` 现编一个放在假 `.app` 里的 "codex"（复制的 /bin/sh 在系统目录外会被杀）。已有的会话要等下一条 prompt 才会换上新链接。用户实测（2026-10-08）：重装后在 Codex 桌面 App 里发一条消息，点 Done 行能跳到 ChatGPT.app 并变灰。
-- 待人工：⌥⇧A / ⌥⇧D、20 秒超时交给终端、⌥⇧O、点行跳 Ghostty tab 并变灰、Codex CLI 会话（含 Esc → Idle）、右键移除、全屏 App 下的表现、关 tab 后消失。
+- ✅ 人工其余各项（2026-10-08，用户确认全部通过）：⌥⇧A / ⌥⇧D、20 秒超时交给终端（会话改成 "Answer in the terminal"、按钮消失）、⌥⇧O、点 Ghostty 会话的行跳回原 tab 并变灰、Codex CLI 会话（Running → Needs you → Done、Esc → Idle）、右键 "Remove from Panel" 后下一个事件带回来、右键刘海只有 Quit、全屏 Ghostty 下刘海可见 / 能展开 / 能看到脉冲、关 tab 30 秒内消失。`~/.perch/hook.log` 不存在（hook 从没失败过）。
+- 未测：Hermes 一轮（#17 的验收项之一；M8 起 Hermes 不进面板，只确认 hook 还能跑）。
+- 待定（用户还没选）：行尾跳转图标区分终端和桌面 App（现在一律是终端图标，悬停提示 "Back to app"）；候选是桌面 App 用单色窗口图标 + "Back to ChatGPT / Claude"（App 名从 bundle 读），或用 App 自己的彩色图标。
 
 ### M2 协议扩展：`update`（已实现）
 
