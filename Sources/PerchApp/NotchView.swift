@@ -31,8 +31,8 @@ struct NotchView: View {
     }
 }
 
-/// The band beside the notch: the dot on the left (the most urgent session's colour), the number of running
-/// sessions on the right (hidden at 0), or the offline icon.
+/// The band beside the notch, all on the left wing: the dot (the most urgent session's colour) and right next
+/// to it the number of running sessions (hidden at 0), or the offline icon.
 struct CollapsedBar: View {
     @ObservedObject var queue: QueueModel
     var notchWidth: CGFloat
@@ -40,19 +40,20 @@ struct CollapsedBar: View {
     var body: some View {
         let panel = queue.panel
         HStack(spacing: 0) {
-            StatusDot(status: panel.signal, online: queue.online, pulse: queue.pulse, pulseStatus: queue.pulseStatus, size: 8)
-                .padding(.leading, 14)
-            Spacer(minLength: notchWidth)
-            Group {
-                if !queue.online {
-                    Image(systemName: "bolt.horizontal.circle").help(queue.offlineReason ?? "perchd is not running")
-                } else if panel.runningCount > 0 {
-                    Text("\(panel.runningCount)").monospacedDigit().help("\(panel.runningCount) running")
+            HStack(spacing: 4) {
+                StatusDot(status: panel.signal, online: queue.online, pulse: queue.pulse, pulseStatus: queue.pulseStatus, size: 8)
+                Group {
+                    if !queue.online {
+                        Image(systemName: "bolt.horizontal.circle").help(queue.offlineReason ?? "perchd is not running")
+                    } else if panel.runningCount > 0 {
+                        Text("\(panel.runningCount)").monospacedDigit().help("\(panel.runningCount) running")
+                    }
                 }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.9))
             }
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.9))
-            .padding(.trailing, 14)
+            .padding(.leading, 12)
+            Spacer(minLength: notchWidth)
         }
     }
 }
