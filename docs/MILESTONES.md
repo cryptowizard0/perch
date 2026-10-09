@@ -65,7 +65,7 @@
 
 ## M8 — Agent 面板 UI
 
-- [x] 收起态：总色点（Needs you 🟠 > Failed 🔴 > Running 🟢 呼吸 > Done 🔵 > Idle ⚪）+ 运行中会话数（0 不显示）；橙 / 红 / 蓝进入时脉冲
+- [x] 收起态：总色点（Needs you 🟠 > Failed 🔴 > Running 🟢 呼吸 > Done 🔵 > Idle ⚪）+ 运行中会话数（0 不显示）；橙 / 红 / 蓝进入时脉冲（v0.3 起色点换成像素小怪物，#22）
 - [x] 展开态：按状态分组、组标题带数量、空组不显示；每行色点 + 像素图标 + 项目名 + 时长 + 跳转，第二行随状态变化；结构留出以后加 tab 的位置
 - [x] 12pt 单色像素 agent 图标（Claude Code 小怪物、Codex 仿 ChatGPT 的花结（24×24 细格）、Hermes 翅膀、未知机器人），点阵数据在 PerchAppCore 可测
 - [x] 交互：点整行跳转并标记已看；Allow / Deny（白名单内）；⌥⇧A / D / O 作用于队首 Needs you；右键行 "Remove from Panel"；右键刘海只剩 Quit（#19，点击 / 右键 / 快捷键的 UI 路径待 #20 人工验收）

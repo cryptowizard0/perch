@@ -31,8 +31,8 @@ struct NotchView: View {
     }
 }
 
-/// The band beside the notch, all on the left wing: the dot (the most urgent session's colour) and right next
-/// to it the number of running sessions (hidden at 0), or the offline icon.
+/// The band beside the notch, all on the left wing: the mascot (acting out the most urgent session's state) and
+/// right next to it the number of running sessions (hidden at 0), or the offline icon.
 struct CollapsedBar: View {
     @ObservedObject var queue: QueueModel
     var notchWidth: CGFloat
@@ -40,8 +40,8 @@ struct CollapsedBar: View {
     var body: some View {
         let panel = queue.panel
         HStack(spacing: 0) {
-            HStack(spacing: 4) {
-                StatusDot(status: panel.signal, online: queue.online, pulse: queue.pulse, pulseStatus: queue.pulseStatus, size: 8)
+            HStack(spacing: NotchGeometry.collapsedGap) {
+                MascotView(signal: panel.signal, online: queue.online, pulse: queue.pulse, pulseStatus: queue.pulseStatus)
                 Group {
                     if !queue.online {
                         Image(systemName: "bolt.horizontal.circle").help(queue.offlineReason ?? "perchd is not running")
@@ -52,44 +52,26 @@ struct CollapsedBar: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
             }
-            .padding(.leading, 12)
+            .padding(.leading, NotchGeometry.collapsedInset)
             Spacer(minLength: notchWidth)
         }
     }
 }
 
-/// A session state's colour. Running breathes; `pulse` changes ring once (entering Needs you / Failed / Done),
-/// in the colour of what happened (`pulseStatus`), which may not be the dot's own.
+/// A session state's colour; Running breathes.
 struct StatusDot: View {
     var status: SessionStatus?
-    var online = true
-    var pulse = 0
-    var pulseStatus: SessionStatus?
     var size: CGFloat = 7
-    @State private var ring = false
     @State private var breathing = false
 
     var body: some View {
-        let color = online ? SessionStatus.color(status) : Color.gray.opacity(0.5)
         Circle()
-            .fill(color)
+            .fill(SessionStatus.color(status))
             .frame(width: size, height: size)
-            .opacity(status == .running && online ? (breathing ? 0.35 : 1) : 1)
+            .opacity(status == .running ? (breathing ? 0.35 : 1) : 1)
             .animation(status == .running ? .easeInOut(duration: 1.4).repeatForever(autoreverses: true) : .default, value: breathing)
-            .overlay(
-                Circle().stroke(pulseStatus.map { SessionStatus.color($0) } ?? color, lineWidth: 2)
-                    .scaleEffect(ring ? 3 : 1)
-                    .opacity(ring ? 0 : 0.9)
-                    .animation(ring ? .easeOut(duration: 0.9).repeatCount(2, autoreverses: false) : nil, value: ring)
-                    .opacity(ring ? 1 : 0)
-            )
             .onAppear { breathing = status == .running }
             .onChange(of: status) { breathing = status == .running }
-            .onChange(of: pulse) {
-                ring = false
-                DispatchQueue.main.async { ring = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { ring = false }
-            }
     }
 }
 

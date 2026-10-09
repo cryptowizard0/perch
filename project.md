@@ -3,7 +3,15 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-08 · M1–M8 完成（M7 / M8 由用户在真实会话上验收通过，#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· 下一步候选：#8（终端里选 No / Esc 不发 hook）、行尾跳转图标区分终端 / 桌面 App
+最后更新：2026-10-09 · **v0.2.0 已发布**（第一阶段：M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.3.0-dev` · 进行中：收起态的圆点换成像素独眼小怪物（#22，分支 `feat/notch-mascot`）· 下一步候选：行尾跳转图标区分终端 / 桌面 App
+
+## 发布
+
+| 版本 | 日期 | 内容 |
+| --- | --- | --- |
+| [v0.2.0](https://github.com/cryptowizard0/perch/releases/tag/v0.2.0) | 2026-10-09 | 第一阶段（M1–M8）：刘海里的 agent 面板，支持 Claude Code + Codex。tag 打在 `4a1df87`（`chore: release v0.2.0`），之后 `main` 改成 `0.3.0-dev`（`cadb7d6`）。GitHub Release 附 `perch-0.2.0-macos-arm64.zip`（`perch` + `perchd` + `Perch.app`，只有 arm64、ad-hoc 签名未公证）和它的 `.sha256` |
+
+发版步骤（v0.2.0 这样做的）：`Sources/PerchCore/Version.swift` 去掉 `-dev` → `swift build` + `swift test` → 提交 `chore: release vX.Y.Z` → `git tag -a vX.Y.Z` → 推 main 和 tag → 在 tag 的独立 worktree 里 `swift build -c release` + `scripts/bundle-app.sh`，`ditto -c -k` 打 zip、`shasum -a 256` → `gh release create vX.Y.Z --verify-tag` 附 zip 和 sha256 → `main` 改成下一个 `-dev`。版本号只有 `Version.swift` 一处，`perch` / `perchd` 读它，`bundle-app.sh` 去掉 `-dev` 写进 Info.plist。本机只有 Command Line Tools，打不了 universal（x86_64）包。
 
 ## 总览
 
@@ -355,6 +363,14 @@ hermes hooks list               # 5 个都应是 allowed
 - 未测：Hermes 一轮（#17 的验收项之一；M8 起 Hermes 不进面板，只确认 hook 还能跑）。
 - 待定（用户还没选）：行尾跳转图标区分终端和桌面 App（现在一律是终端图标，悬停提示 "Back to app"）；候选是桌面 App 用单色窗口图标 + "Back to ChatGPT / Claude"（App 名从 bundle 读），或用 App 自己的彩色图标。
 
+## v0.3：刘海小怪物（#22，2026-10-09）
+
+- 用户从 6 个候选（小角怪 / 独眼怪 / 小幽灵 / 史莱姆 / 小蝙蝠 / 毛球怪）里选了**独眼怪**：一只大白眼在 1x 下最好认，表情基本靠这只眼。方案和逐状态动画写在 #22。
+- `PerchAppCore/Mascot.swift`：纯函数 `Mascot.frame(mood, time:, reaction:)` → 画布上的格子（`body` / `white` / `dark` / `faint` 四种墨）；画布 15×16pt，精灵 13×13 在 (1, 3)，Idle 的 z 允许往右溢出到 18pt（那时不会有 Running 数）。眨眼放在 4 秒周期的 3.6–3.9 秒：放在周期末尾，静止帧（t = 0）才是睁眼的；长 300ms，比一次重绘间隔（5fps，屏幕取整后最多约 0.22 秒）长，任何采样相位每个周期都能采到（PR #23 Codex review 指出原来 150ms 可能永远采不到，`runningBlinksWhateverTheFramePhase` 覆盖）。
+- `PerchApp/MascotView.swift`：`TimelineView(.animation(minimumInterval:paused:))` + `Canvas`，不抗锯齿；fps 为 0 的状态（Failed / Done / 没有会话 / 离线）暂停不重绘。反应由 `QueueModel.pulse` 触发、用 `pulseStatus` 的样子和颜色（取代原来的光环），`@Environment(\.accessibilityReduceMotion)` 下只画 `Mascot.still`。
+- 收起态两边的宽度（原来固定 40pt）改成按左边内容算、两边对称（用户嫌宽，2026-10-09）：`NotchGeometry.collapsedWing` = 边距 7 + 小怪物 15 +（间距 3 + Running 数 / 离线图标）+ 4，只有小怪物 26pt、一位数字 37pt、离线 44pt、两位数字 45pt（数字 7.9pt、离线图标 15pt 是实测的）。Running 数从 0 变成 1 时整条会变宽，展开 / 收起本来就是这样换 frame 的。`StatusDot` 只剩展开态每行用（呼吸保留，光环 / 离线参数删掉）。
+- 截图验收（隔离 perchd + debug App，`screencapture -l` 截窗口，自写 CGImage 最近邻放大看像素）：六种状态、Needs you 和 Done 的反应、"等你时另一个会话跑完"先蓝色跳再回橙色、离线都对；连拍 8 张：Running 6 种帧、Needs you 4 种、Idle 3 种，Failed / Done 1 种。"减少动态效果"没法在本机切换（系统设置），靠单测覆盖。
+
 ### M2 协议扩展：`update`（已实现）
 
 - op `update` + `id` + `patch`（`title` / `kind` / `due_at` / `clear_due`，JSON snake_case），只改给了的字段；内容不变不发事件。
@@ -378,7 +394,7 @@ README 截图怎么重做（`scripts/readme-images/`）：
 1. 先退出自己的 Perch（`osascript -e 'quit app id "dev.perch.app"'`），不然两个面板会叠在一起。
 2. `PERCH_HOME=/tmp/perch-shot swift run perchd --no-http &`，然后 `python3 scripts/readme-images/seed.py /tmp/perch-shot/perchd.sock` 造示例会话（五种状态，带 Allow / Deny 的 request）。
 3. `scripts/bundle-app.sh` 后，用 `PERCH_HOME=/tmp/perch-shot PERCH_PIN_EXPANDED=1` 启动 `.build/Perch.app`，`screencapture -x -o -l <窗口号>` 截面板窗口，得到 `docs/images/panel-expanded.png`（Running 的点在呼吸，多截几张挑亮的）；不带 `PERCH_PIN_EXPANDED` 再截一张收起态。窗口号用 `CGWindowListCopyWindowInfo` 按 pid 找。
-4. 合成桌面：`swift scripts/readme-images/compose-desktop.swift <面板截图> docs/images/desktop-expanded.png 520 2400`（收起态用 `100 2400`）。墙纸是生成的渐变，菜单栏只画 Finder 菜单、电池、Wi‑Fi、控制中心和 9:41，不露真实桌面。
+4. 合成桌面：`swift scripts/readme-images/compose-desktop.swift <面板截图> docs/images/desktop-expanded.png 520 2400`（收起态用 `100 2400`）。`docs/images/mascot-states.png`（#22）是六种状态的小怪物各截一张收起态、裁出小怪物（@2x 像素 46×46，起点 (14, 10)）、最近邻放大 4 倍、黑底横排拼成的。墙纸是生成的渐变，菜单栏只画 Finder 菜单、电池、Wi‑Fi、控制中心和 9:41，不露真实桌面。
 5. 关掉测试用的 perchd 和 App，重新打开自己的 Perch。
 
 ## 已知限制 / 技术债

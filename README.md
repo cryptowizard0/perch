@@ -6,7 +6,8 @@
 
 The loop it is built for: **an agent is waiting for you → the notch lights up → you handle it in place, or jump back.**
 
-- **One row per agent session**, in five states: 🟠 Needs you · 🔴 Failed · 🟢 Running · 🔵 Done · ⚪ Idle. The notch pulses when a session starts needing you, fails or finishes.
+- **One row per agent session**, in five states: 🟠 Needs you · 🔴 Failed · 🟢 Running · 🔵 Done · ⚪ Idle.
+- **A pixel cyclops lives in the notch** and acts out the most urgent state: it trots while an agent runs, waves at you when one needs you, and hops when one starts needing you, fails or finishes.
 - **Allow / Deny in the notch** for commands on your allowlist (`npm test`, `git status`, …). Everything else shows the full command and *Answer in the terminal*.
 - **Click a row** to go back to its terminal (the exact Ghostty tab) or its desktop app.
 - Works with **Claude Code** and **Codex**, in the terminal or their desktop apps, through their hooks. No changes to how you run them.
@@ -96,9 +97,13 @@ Design notes (in Chinese): [docs/PRD.md](docs/PRD.md) (product), [docs/MILESTONE
 
 ## Screenshots
 
-Collapsed, the notch shows one dot (the most urgent session's colour) and how many sessions are running:
+Collapsed, the notch shows the mascot acting out the most urgent session's state, and how many sessions are running:
 
-<p align="center"><img src="docs/images/desktop-collapsed.png" alt="The menu bar with Perch collapsed around the notch: an orange dot on the left, the number of running sessions on the right"></p>
+<p align="center"><img src="docs/images/desktop-collapsed.png" alt="The menu bar with Perch collapsed around the notch: an orange pixel cyclops waving on the left, next to the number of running sessions"></p>
+
+<p align="center"><img src="docs/images/mascot-states.png" width="552" alt="The mascot close up, one per state: green Running, orange Needs you, red Failed with an X in its eye, blue Done smiling, grey Idle asleep with a z, dark grey with no sessions"></p>
+
+Running trots and looks around, Needs you waves and flashes its antenna, Failed and Done stand still, Idle sleeps. It moves only when it has something to say, and stays still with Reduce Motion on.
 
 Expanded on hover, sessions are grouped by state, most urgent first:
 

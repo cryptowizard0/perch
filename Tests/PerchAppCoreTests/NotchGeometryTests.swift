@@ -31,6 +31,15 @@ import Testing
         #expect(frame == CGRect(x: 723, y: 1074, width: 275, height: 33))
     }
 
+    /// The wings fit the left wing's content: the mascot, then the running count or the offline icon.
+    @Test func collapsedWingsFitTheirContent() {
+        #expect(NotchGeometry.collapsedWing(runningCount: 0, online: true) == 26)
+        #expect(NotchGeometry.collapsedWing(runningCount: 1, online: true) == 37)
+        #expect(NotchGeometry.collapsedWing(runningCount: 12, online: true) == 45)
+        #expect(NotchGeometry.collapsedWing(runningCount: 3, online: false) == 44)
+        #expect(NotchGeometry.collapsedWing(runningCount: 0, online: false) == 44)
+    }
+
     @Test func noNotchIsACapsuleCentredInTheMenuBar() {
         let frame = external.collapsedFrame(leftWing: 40, rightWing: 40)
         #expect(frame.width == 80)
