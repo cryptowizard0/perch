@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-09 · **v0.2.0 已发布**（第一阶段：M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.3.0-dev` · 下一步候选：收起态的圆点换成像素小怪物（按状态动画，方案讨论中）、行尾跳转图标区分终端 / 桌面 App
+最后更新：2026-10-09 · **v0.2.0 已发布**（第一阶段：M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.3.0-dev` · 进行中：收起态的圆点换成像素独眼小怪物（#22，分支 `feat/notch-mascot`）· 下一步候选：行尾跳转图标区分终端 / 桌面 App、README 的收起态截图重截
 
 ## 发布
 
@@ -362,6 +362,14 @@ hermes hooks list               # 5 个都应是 allowed
 - ✅ 人工其余各项（2026-10-08，用户确认全部通过）：⌥⇧A / ⌥⇧D、20 秒超时交给终端（会话改成 "Answer in the terminal"、按钮消失）、⌥⇧O、点 Ghostty 会话的行跳回原 tab 并变灰、Codex CLI 会话（Running → Needs you → Done、Esc → Idle）、右键 "Remove from Panel" 后下一个事件带回来、右键刘海只有 Quit、全屏 Ghostty 下刘海可见 / 能展开 / 能看到脉冲、关 tab 30 秒内消失。`~/.perch/hook.log` 不存在（hook 从没失败过）。
 - 未测：Hermes 一轮（#17 的验收项之一；M8 起 Hermes 不进面板，只确认 hook 还能跑）。
 - 待定（用户还没选）：行尾跳转图标区分终端和桌面 App（现在一律是终端图标，悬停提示 "Back to app"）；候选是桌面 App 用单色窗口图标 + "Back to ChatGPT / Claude"（App 名从 bundle 读），或用 App 自己的彩色图标。
+
+## v0.3：刘海小怪物（#22，2026-10-09）
+
+- 用户从 6 个候选（小角怪 / 独眼怪 / 小幽灵 / 史莱姆 / 小蝙蝠 / 毛球怪）里选了**独眼怪**：一只大白眼在 1x 下最好认，表情基本靠这只眼。方案和逐状态动画写在 #22。
+- `PerchAppCore/Mascot.swift`：纯函数 `Mascot.frame(mood, time:, reaction:)` → 画布上的格子（`body` / `white` / `dark` / `faint` 四种墨）；画布 15×16pt，精灵 13×13 在 (1, 3)，Idle 的 z 允许往右溢出到 18pt（那时不会有 Running 数）。眨眼放在 4 秒周期的 3.6–3.75 秒，这样静止帧（t = 0）是睁眼的。
+- `PerchApp/MascotView.swift`：`TimelineView(.animation(minimumInterval:paused:))` + `Canvas`，不抗锯齿；fps 为 0 的状态（Failed / Done / 没有会话 / 离线）暂停不重绘。反应由 `QueueModel.pulse` 触发、用 `pulseStatus` 的样子和颜色（取代原来的光环），`@Environment(\.accessibilityReduceMotion)` 下只画 `Mascot.still`。
+- 收起态左边宽度 40 → 44pt（小怪物 15pt + 两位数字）；`StatusDot` 只剩展开态每行用（呼吸保留，光环 / 离线参数删掉）。
+- 截图验收（隔离 perchd + debug App，`screencapture -l` 截窗口，自写 CGImage 最近邻放大看像素）：六种状态、Needs you 和 Done 的反应、"等你时另一个会话跑完"先蓝色跳再回橙色、离线都对；连拍 8 张：Running 6 种帧、Needs you 4 种、Idle 3 种，Failed / Done 1 种。"减少动态效果"没法在本机切换（系统设置），靠单测覆盖。
 
 ### M2 协议扩展：`update`（已实现）
 
