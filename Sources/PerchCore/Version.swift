@@ -1,3 +1,3 @@
 public enum PerchVersion {
-    public static let string = "0.3.0"
+    public static let string = "0.4.0-dev"
 }
