@@ -366,7 +366,7 @@ hermes hooks list               # 5 个都应是 allowed
 ## v0.3：刘海小怪物（#22，2026-10-09）
 
 - 用户从 6 个候选（小角怪 / 独眼怪 / 小幽灵 / 史莱姆 / 小蝙蝠 / 毛球怪）里选了**独眼怪**：一只大白眼在 1x 下最好认，表情基本靠这只眼。方案和逐状态动画写在 #22。
-- `PerchAppCore/Mascot.swift`：纯函数 `Mascot.frame(mood, time:, reaction:)` → 画布上的格子（`body` / `white` / `dark` / `faint` 四种墨）；画布 15×16pt，精灵 13×13 在 (1, 3)，Idle 的 z 允许往右溢出到 18pt（那时不会有 Running 数）。眨眼放在 4 秒周期的 3.6–3.75 秒，这样静止帧（t = 0）是睁眼的。
+- `PerchAppCore/Mascot.swift`：纯函数 `Mascot.frame(mood, time:, reaction:)` → 画布上的格子（`body` / `white` / `dark` / `faint` 四种墨）；画布 15×16pt，精灵 13×13 在 (1, 3)，Idle 的 z 允许往右溢出到 18pt（那时不会有 Running 数）。眨眼放在 4 秒周期的 3.6–3.9 秒：放在周期末尾，静止帧（t = 0）才是睁眼的；长 300ms，比一次重绘间隔（5fps，屏幕取整后最多约 0.22 秒）长，任何采样相位每个周期都能采到（PR #23 Codex review 指出原来 150ms 可能永远采不到，`runningBlinksWhateverTheFramePhase` 覆盖）。
 - `PerchApp/MascotView.swift`：`TimelineView(.animation(minimumInterval:paused:))` + `Canvas`，不抗锯齿；fps 为 0 的状态（Failed / Done / 没有会话 / 离线）暂停不重绘。反应由 `QueueModel.pulse` 触发、用 `pulseStatus` 的样子和颜色（取代原来的光环），`@Environment(\.accessibilityReduceMotion)` 下只画 `Mascot.still`。
 - 收起态两边的宽度（原来固定 40pt）改成按左边内容算、两边对称（用户嫌宽，2026-10-09）：`NotchGeometry.collapsedWing` = 边距 7 + 小怪物 15 +（间距 3 + Running 数 / 离线图标）+ 4，只有小怪物 26pt、一位数字 37pt、离线 44pt、两位数字 45pt（数字 7.9pt、离线图标 15pt 是实测的）。Running 数从 0 变成 1 时整条会变宽，展开 / 收起本来就是这样换 frame 的。`StatusDot` 只剩展开态每行用（呼吸保留，光环 / 离线参数删掉）。
 - 截图验收（隔离 perchd + debug App，`screencapture -l` 截窗口，自写 CGImage 最近邻放大看像素）：六种状态、Needs you 和 Done 的反应、"等你时另一个会话跑完"先蓝色跳再回橙色、离线都对；连拍 8 张：Running 6 种帧、Needs you 4 种、Idle 3 种，Failed / Done 1 种。"减少动态效果"没法在本机切换（系统设置），靠单测覆盖。

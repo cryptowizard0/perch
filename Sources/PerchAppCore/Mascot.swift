@@ -133,8 +133,9 @@ public enum Mascot {
                 look.antenna = .left
             }
             look.eye = [Eye.open, .right, .open, .left][step(0.8) % 4]
-            // Late in the cycle, so the still frame (t = 0) has its eye open, and between hops.
-            if (3.6..<3.75).contains(t.truncatingRemainder(dividingBy: 4)) { look.eye = .blink }
+            // Late in the cycle, so the still frame (t = 0) has its eye open. Longer than a redraw (≤ ~0.22 s once
+            // the display rounds the 5 fps interval up) so every cycle catches it, whatever the sampling phase.
+            if (3.6..<3.9).contains(t.truncatingRemainder(dividingBy: 4)) { look.eye = .blink }
         case .waiting:
             look.eye = .up
             look.mouth = .open

@@ -90,6 +90,19 @@ import Testing
         #expect(art(Mascot.frame(.running, time: 3.65))[6] == ".####ooo####.")
     }
 
+    /// Redrawn at 5 fps (or a little slower: the display rounds the interval up to its refresh), Running must catch
+    /// a blink every 4 s cycle whatever the sampling phase, or it may never blink at all.
+    @Test func runningBlinksWhateverTheFramePhase() {
+        for interval in [1 / Mascot.Mood.running.fps, 13.0 / 60, 25.0 / 120] {
+            for phase in stride(from: 0.0, to: interval, by: 0.005) {
+                let samples = stride(from: phase, to: 4, by: interval)
+                // The open eye is white; a blink is the only frame without white.
+                let blinked = samples.contains { !Mascot.frame(.running, time: $0).contains { $0.ink == .white } }
+                #expect(blinked, "interval \(interval), phase \(phase)")
+            }
+        }
+    }
+
     /// Needs you waves one arm, then the other, and flashes its antenna tip.
     @Test func needsYouWavesAndFlashes() {
         let a = art(Mascot.frame(.waiting, time: 0.1)), b = art(Mascot.frame(.waiting, time: 0.3))
