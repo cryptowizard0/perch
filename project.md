@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-09 · **v0.2.0 已发布**（第一阶段：M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.3.0-dev` · 进行中：收起态的圆点换成像素独眼小怪物（#22，分支 `feat/notch-mascot`）· 下一步候选：行尾跳转图标区分终端 / 桌面 App、README 的收起态截图重截
+最后更新：2026-10-09 · **v0.2.0 已发布**（第一阶段：M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.3.0-dev` · 进行中：收起态的圆点换成像素独眼小怪物（#22，分支 `feat/notch-mascot`）· 下一步候选：行尾跳转图标区分终端 / 桌面 App
 
 ## 发布
 
@@ -394,7 +394,7 @@ README 截图怎么重做（`scripts/readme-images/`）：
 1. 先退出自己的 Perch（`osascript -e 'quit app id "dev.perch.app"'`），不然两个面板会叠在一起。
 2. `PERCH_HOME=/tmp/perch-shot swift run perchd --no-http &`，然后 `python3 scripts/readme-images/seed.py /tmp/perch-shot/perchd.sock` 造示例会话（五种状态，带 Allow / Deny 的 request）。
 3. `scripts/bundle-app.sh` 后，用 `PERCH_HOME=/tmp/perch-shot PERCH_PIN_EXPANDED=1` 启动 `.build/Perch.app`，`screencapture -x -o -l <窗口号>` 截面板窗口，得到 `docs/images/panel-expanded.png`（Running 的点在呼吸，多截几张挑亮的）；不带 `PERCH_PIN_EXPANDED` 再截一张收起态。窗口号用 `CGWindowListCopyWindowInfo` 按 pid 找。
-4. 合成桌面：`swift scripts/readme-images/compose-desktop.swift <面板截图> docs/images/desktop-expanded.png 520 2400`（收起态用 `100 2400`）。墙纸是生成的渐变，菜单栏只画 Finder 菜单、电池、Wi‑Fi、控制中心和 9:41，不露真实桌面。
+4. 合成桌面：`swift scripts/readme-images/compose-desktop.swift <面板截图> docs/images/desktop-expanded.png 520 2400`（收起态用 `100 2400`）。`docs/images/mascot-states.png`（#22）是六种状态的小怪物各截一张收起态、裁出小怪物（@2x 像素 46×46，起点 (14, 10)）、最近邻放大 4 倍、黑底横排拼成的。墙纸是生成的渐变，菜单栏只画 Finder 菜单、电池、Wi‑Fi、控制中心和 9:41，不露真实桌面。
 5. 关掉测试用的 perchd 和 App，重新打开自己的 Perch。
 
 ## 已知限制 / 技术债
