@@ -39,7 +39,7 @@ final class NotchWindowController {
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
 
-    static let collapsedWing: CGFloat = 40
+    static let collapsedWing: CGFloat = 44
     static let expandedWidth: CGFloat = 460
 
     init(notch: NotchModel, queue: QueueModel, menu: NotchMenu) {
