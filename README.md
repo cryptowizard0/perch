@@ -29,7 +29,7 @@ This builds everything and installs:
 - `Perch.app` into `~/Applications` (`APPDIR=…`), which it then opens;
 - the hooks for Claude Code (`~/.claude/settings.json`) and, if you use Codex, for Codex (`~/.codex/hooks.json`). `--no-hooks` skips them.
 
-Codex runs new hooks only after you trust them: start `codex` and review them with `/hooks`. Re-run `scripts/install.sh` after pulling to upgrade.
+Re-run `scripts/install.sh` after pulling to upgrade.
 
 <details>
 <summary>Uninstall</summary>
@@ -43,6 +43,32 @@ rm ~/.local/bin/perch ~/.local/bin/perchd
 rm -rf ~/Applications/Perch.app ~/.perch     # ~/.perch holds the database and settings
 ```
 </details>
+
+### Codex: trust the hooks
+
+**Codex skips new hooks silently until you trust them**, so until you do, Codex sessions never show up in the notch. After installing, start `codex`, type `/hooks` and trust Perch's six hooks (UserPromptSubmit, PermissionRequest, PostToolUse, Stop, Interrupt, SessionEnd), then open a new Codex session.
+
+Codex remembers trust per hook content, so do it again whenever the hooks change: after `perch hooks install codex` with a different `perch` path or `--wait`, or after moving `perch`. Claude Code needs no such step.
+
+### Prebuilt (Apple silicon)
+
+Each [release](https://github.com/cryptowizard0/perch/releases) has `perch-<version>-macos-arm64.zip` with `perch`, `perchd` and `Perch.app`. It is ad-hoc signed, not notarized. In the folder you unzipped it to:
+
+```bash
+xattr -dr com.apple.quarantine perch-*-macos-arm64
+mkdir -p ~/.local/bin ~/Applications
+cp perch-*-macos-arm64/perch perch-*-macos-arm64/perchd ~/.local/bin/
+ditto perch-*-macos-arm64/Perch.app ~/Applications/Perch.app
+~/.local/bin/perchd install
+~/.local/bin/perch hooks install claude-code
+~/.local/bin/perch hooks install codex
+open ~/Applications/Perch.app
+```
+
+Then trust the hooks in Codex (above).
+
+- **Clear the quarantine flag first.** Otherwise macOS blocks `perch` when an agent runs it in the background, without telling anyone.
+- **Copy the binaries to where they will stay, then install from there.** The hooks and the launchd agent remember the absolute path of the `perch` / `perchd` that installed them; running them from the unzipped folder breaks everything once that folder is gone.
 
 ## Use
 
@@ -68,6 +94,15 @@ perch allowlist init                   # write ~/.perch/allowlist.json to edit
 - **Perch never allows anything by default.** If you don't answer in the notch within 20 seconds, the agent's own prompt appears in the terminal as usual.
 - Only commands on the allowlist get buttons. The default is strict: read-only tools (Read, Glob, Grep, WebFetch, WebSearch) and a few Bash commands (`npm test`, `pytest`, `cargo test`, `git status` / `diff` / `log`). Any shell operator (`;`, `|`, `>`, `$(…)`, …), `rm`, `sudo`, and writes to `.env`, `~/.ssh` or `*.pem` always go to the terminal. A broken allowlist file approves nothing.
 - The panel always shows the full command, never a summary.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Codex sessions never appear | The hooks are not trusted yet: `/hooks` in `codex` (see [Codex: trust the hooks](#codex-trust-the-hooks)). `grep -A1 'hooks.json:permission_request' ~/.codex/config.toml` shows a `trusted_hash` once they are. |
+| Claude Code sessions never appear | Claude Code needs no trust step and picks up new hooks on its own. Type `/hooks` in `claude`: Perch's eight hooks should be listed under user settings. If not, check for `"disableAllHooks": true` in any settings file (a project's settings override yours), `allowManagedHooksOnly` in managed settings on a work machine, and that `CLAUDE_CONFIG_DIR` was the same when you ran `perch hooks install claude-code`. |
+| No session appears for any agent | `perch session ls` must list sessions; if it cannot connect, `perchd` is not running (`perchd install` again). Prebuilt: is the quarantine flag cleared (`xattr -l ~/.local/bin/perch`) and do the hooks point at a `perch` that still exists (`grep perch ~/.codex/hooks.json ~/.claude/settings.json`)? |
+| A hook fails | Hooks never print anything or block the agent; failures go to `~/.perch/hook.log`. No such file usually means the hook was never run at all. |
 
 ## How it works
 

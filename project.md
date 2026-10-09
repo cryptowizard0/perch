@@ -12,6 +12,8 @@
 | [v0.3.0](https://github.com/cryptowizard0/perch/releases/tag/v0.3.0) | 2026-10-09 | 收起态的圆点换成像素独眼小怪物、按状态动画，进入 Needs you / Failed / Done 时有反应动作（#22，PR #23）；刘海两边按内容收窄。tag 打在 `fed12a8`（`chore: release v0.3.0`），之后 `main` 改成 `0.4.0-dev`。附 `perch-0.3.0-macos-arm64.zip` + `.sha256`（同样只有 arm64、ad-hoc 签名） |
 | [v0.2.0](https://github.com/cryptowizard0/perch/releases/tag/v0.2.0) | 2026-10-09 | 第一阶段（M1–M8）：刘海里的 agent 面板，支持 Claude Code + Codex。tag 打在 `4a1df87`（`chore: release v0.2.0`），之后 `main` 改成 `0.3.0-dev`（`cadb7d6`）。GitHub Release 附 `perch-0.2.0-macos-arm64.zip`（`perch` + `perchd` + `Perch.app`，只有 arm64、ad-hoc 签名未公证）和它的 `.sha256` |
 
+预编译包的坑（2026-10-09，用户在另一台电脑装 v0.3.0 的 zip，Codex 会话一直不出现）：**原因是没在 codex 里 `/hooks` 信任**，Codex 静默跳过未信任的 hook。README 的 Install 现在单列"Codex: trust the hooks"和"Prebuilt"两节（先清隔离标记、先把二进制放到固定位置再从那里 `perchd install` / `perch hooks install`，因为 hooks 和 launchd 记的是绝对路径），另加 Troubleshooting 表。每次发版的 release notes 都要带上"在 codex 里 `/hooks` 信任"这一句。Claude Code 没有信任这一步（按官方 hooks / permissions 文档核对，2026-10-09）：用户设置里的 hooks 直接生效、改了会被文件监视自动加载；会让它收不到的是 `disableAllHooks`（项目设置可以覆盖用户设置）、托管设置的 `allowManagedHooksOnly`、`CLAUDE_CONFIG_DIR` 不一致，以及预编译包的隔离标记 / 路径失效。Claude Code 里的 `/hooks` 是只读列表，可以用来确认 Perch 的 8 个 hook 是否生效。
+
 发版步骤（v0.2.0 这样做的）：`Sources/PerchCore/Version.swift` 去掉 `-dev` → `swift build` + `swift test` → 提交 `chore: release vX.Y.Z` → `git tag -a vX.Y.Z` → 推 main 和 tag → 在 tag 的独立 worktree 里 `swift build -c release` + `scripts/bundle-app.sh`，`ditto -c -k` 打 zip、`shasum -a 256` → `gh release create vX.Y.Z --verify-tag` 附 zip 和 sha256 → `main` 改成下一个 `-dev`。版本号只有 `Version.swift` 一处，`perch` / `perchd` 读它，`bundle-app.sh` 去掉 `-dev` 写进 Info.plist。本机只有 Command Line Tools，打不了 universal（x86_64）包。
 
 ## 总览
