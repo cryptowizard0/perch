@@ -40,7 +40,7 @@ struct CollapsedBar: View {
     var body: some View {
         let panel = queue.panel
         HStack(spacing: 0) {
-            HStack(spacing: 3) {
+            HStack(spacing: NotchGeometry.collapsedGap) {
                 MascotView(signal: panel.signal, online: queue.online, pulse: queue.pulse, pulseStatus: queue.pulseStatus)
                 Group {
                     if !queue.online {
@@ -52,7 +52,7 @@ struct CollapsedBar: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
             }
-            .padding(.leading, 11)
+            .padding(.leading, NotchGeometry.collapsedInset)
             Spacer(minLength: notchWidth)
         }
     }

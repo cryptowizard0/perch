@@ -47,6 +47,22 @@ public struct NotchGeometry: Equatable, Sendable {
         return clamped(CGRect(x: x, y: top - bandHeight, width: leftWing + middle + rightWing, height: bandHeight))
     }
 
+    /// The collapsed band's left wing, left to right: `collapsedInset`, the mascot, `collapsedGap`, the running
+    /// count or the offline icon, `collapsedInset` again before the notch.
+    public static let collapsedInset: CGFloat = 7
+    public static let collapsedGap: CGFloat = 3
+    /// A running-count digit (12 pt semibold, monospaced digits) and the offline icon, measured.
+    static let digitWidth: CGFloat = 7.9
+    static let offlineIconWidth: CGFloat = 15
+
+    /// Each wing of the collapsed band: just wide enough for the left wing's content, and the same on the right so
+    /// the band stays centred on the notch. 26 pt for the mascot alone, 37 with one digit, 44 offline.
+    public static func collapsedWing(runningCount: Int, online: Bool) -> CGFloat {
+        let after = !online ? offlineIconWidth : runningCount > 0 ? CGFloat(String(runningCount).count) * digitWidth : 0
+        let content = CGFloat(Mascot.width) + (after > 0 ? collapsedGap + after : 0)
+        return (collapsedInset + content + 4).rounded(.up)
+    }
+
     /// Expanded: `size` hanging from the same top edge, centred under the notch, kept on screen.
     public func expandedFrame(size: CGSize) -> CGRect {
         let width = max(size.width, notch.map { $0.width + 40 } ?? 0)

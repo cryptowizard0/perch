@@ -39,7 +39,6 @@ final class NotchWindowController {
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
 
-    static let collapsedWing: CGFloat = 44
     static let expandedWidth: CGFloat = 460
 
     init(notch: NotchModel, queue: QueueModel, menu: NotchMenu) {
@@ -73,9 +72,10 @@ final class NotchWindowController {
         guard let screen = NotchGeometry.preferredScreen() else { return panel.orderOut(nil) }
         let geometry = NotchGeometry(screen: screen)
         if notch.geometry != geometry { notch.geometry = geometry }
+        let wing = NotchGeometry.collapsedWing(runningCount: queue.panel.runningCount, online: queue.online)
         let frame = notch.expanded
             ? geometry.expandedFrame(size: CGSize(width: Self.expandedWidth, height: expandedHeight(band: geometry.bandHeight)))
-            : geometry.collapsedFrame(leftWing: Self.collapsedWing, rightWing: Self.collapsedWing)
+            : geometry.collapsedFrame(leftWing: wing, rightWing: wing)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
