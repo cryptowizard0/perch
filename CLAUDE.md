@@ -12,7 +12,7 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd（daemon）、PerchApp（刘海 App）
 Sources/PerchCore/       模型、wire protocol、路径、纯解析/渲染。所有客户端共享，不含任何 I/O
 Sources/PerchClient/     Unix socket 客户端（CLI 和刘海 App 共用）；sysctl 读进程（hook 找 agent、perchd 存活检测）
-Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd
+Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd、自检和设置行（`Setup` / `AppSetup` / `SetupModel`）
 Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像
 Sources/PerchSetup/      安装 Perch（库，有 I/O）：agent hook 文件读写、perchd 的 launchd agent、agents.json、固定安装位置、状态评估（纯函数 `Setup.evaluate`）、卸载；CLI / perchd / 刘海 App 共用
 Tests/PerchSetupTests/   状态评估的纯函数测试；`perch setup` / `uninstall` 的端到端测试在 PerchDaemonTests/SetupCLITests（临时 HOME + 假 launchctl）
@@ -23,7 +23,7 @@ Tests/PerchCoreTests/    swift-testing（`import Testing`；只装 Command Line 
 Sources/PerchApp/        刘海 App（AppKit + SwiftUI），SwiftPM 可执行 target，不需要 Xcode
 packaging/Info.plist     Perch.app 的 Info.plist（LSUIElement，无 Dock 图标）
 packaging/Perch.icns     App 图标（橙色像素独眼怪吊在刘海下面，2026-10-10 起；之前是像素小鸟）；改图在 scripts/icon/draw-icon.swift，scripts/icon/make-icon.sh 重新生成并提交 .icns
-scripts/bundle-app.sh    编译 PerchApp 并组装、ad-hoc 签名成 .build/Perch.app
+scripts/bundle-app.sh    编译 PerchApp 并组装、ad-hoc 签名成 .build/Perch.app；perch / perchd 放在 Contents/Helpers（App 自检从这里同步到 ~/.perch/bin）
 docs/                    PRD、里程碑、给其他 agent 用的 SKILL 片段
 Sources/perch/Hook*.swift  hook 适配器就是 CLI 子命令：`perch hook <agent>`（读 stdin）、`perch hooks install|uninstall`
 scripts/install.sh       日常安装：编译后跑 `perch setup`（→ ~/.perch/bin、launchd、hooks），~/.local/bin 放链接，Perch.app → ~/Applications
@@ -111,6 +111,7 @@ PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permissi
 - **自修复**：on 的 agent 的 Perch hook 路径或内容不对就重写，保留原来的 `--wait`；只碰 Perch 的 hook；JSON 坏了原样不动、报错；每次改之前写 `.perch-backup`。`perch setup` 显式给 `--wait` 时以它为准。
 - **二进制同步**：`perch setup` 总是拷贝（开发构建版本号相同，不能按版本判断）；App（下一步）只在装在 /Applications 或 ~/Applications、且没设 `PERCH_HOME` 时、版本不同（两个方向）才同步，否则什么都不碰。
 - `perch hooks install|uninstall` 记 on / off；install 默认让 hook 跑 `~/.perch/bin/perch`（不存在时警告）。`hooks uninstall` 之后 `perch setup` 不会再连这个 agent，除非点名。
+- **App 自检与设置 UI（#27）**：只有装在 /Applications 或 ~/Applications、没设 `PERCH_HOME` 的 App 才做（`Setup.maintainsInstall`），`.build/Perch.app` 和隔离运行既不同步也不显示任何设置 UI（卡片、设置行、Agents 子菜单都没有）。每次启动：版本不同就从 `Contents/Helpers` 同步二进制并重启 perchd；修 on 的 agent 的过期 hook。首次运行（卡片没显示过、agents.json 为空）刘海自己展开一次显示设置卡片，Connect 之前不改任何 agent 的配置。设置行在会话分组之上（`Panel.sections`），逻辑在 `PerchAppCore/Setup.swift` 的 `SetupState`，`PerchApp` 只画。Codex 信任：App 看到 codex 的 `session.updated` 且 `updated_at` 晚于 `hooks_written_at` 就写 `trusted_at`，perchd 不变。App 连的 perchd 是 `SetupEnvironment.current.socket`。
 - 测试接缝：setup 的路径都从环境变量来（`HOME`、`PERCH_HOME`、`CLAUDE_CONFIG_DIR`、`CODEX_HOME`），`PERCH_LAUNCHCTL` 可以换掉 `/bin/launchctl`（测试里是只记参数的脚本）。测试永远不碰真的 `~/.claude` / `~/.codex` / `~/.perch` / launchd。
 
 ## 安全规则（M4 必须实现，不可绕过）
