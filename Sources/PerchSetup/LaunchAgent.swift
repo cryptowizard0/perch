@@ -4,7 +4,7 @@ import PerchCore
 
 /// perchd as a per-user launchd agent: `~/Library/LaunchAgents/dev.perch.perchd.plist`.
 /// Starts at login, restarts after a crash, logs to `~/.perch/perchd.log`.
-public struct LaunchAgent {
+public struct LaunchAgent: Sendable {
     public static let label = "dev.perch.perchd"
 
     public let plistURL: URL

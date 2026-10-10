@@ -43,6 +43,13 @@ public struct AgentsFile: Codable, Equatable, Sendable {
         agents[agent] = record
     }
 
+    /// Records that an event proved the agent runs Perch's current hooks (Codex after `/hooks`).
+    public mutating func markTrusted(_ agent: String, at time: Date) {
+        guard var record = agents[agent] else { return }
+        record.trustedAt = time
+        agents[agent] = record
+    }
+
     /// Records that the user disconnected the agent: Perch stops suggesting it and does not repair its hooks.
     public mutating func turnOff(_ agent: String, config: String) {
         var record = agents[agent] ?? AgentRecord(status: .off)

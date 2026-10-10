@@ -65,16 +65,13 @@ struct HooksUninstall: ParsableCommand {
         let target = try HookFiles.for(agent)
         let installer = Installer()
         var agents = try installer.loadAgents()
-        let path = settings ?? installer.environment.configPath(for: target, recorded: agents[agent]?.config)
-        let text = try HookFiles.read(path)
-        let (kept, removed) = try text.map { try target.removing($0, path: path) } ?? ("", 0)
-        if removed > 0 { try HookFiles.write(kept, to: path) }
         // Disconnecting: `perch setup` and the app leave this agent alone from now on.
-        agents.turnOff(agent, config: path)
+        let result = try installer.disconnect(target, path: settings, recordingIn: &agents)
         try installer.saveAgents(agents)
         if json { return printJSON(Response(ok: true)) }
-        if text == nil { return print("no \(path); nothing to remove") }
-        print(removed > 0 ? "removed \(removed) Perch hook\(removed == 1 ? "" : "s") from \(path)" : "no Perch hooks in \(path)")
+        let path = result.config
+        if !result.existed { return print("no \(path); nothing to remove") }
+        print(result.removed > 0 ? "removed \(result.removed) Perch hook\(result.removed == 1 ? "" : "s") from \(path)" : "no Perch hooks in \(path)")
     }
 }
 

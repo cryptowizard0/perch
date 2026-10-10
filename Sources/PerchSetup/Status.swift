@@ -74,6 +74,13 @@ public struct AgentStatus: Equatable, Sendable {
     public let config: String
     /// The hook file can't be read or parsed; Perch leaves it alone.
     public let error: String?
+
+    public init(agent: String, state: AgentState, config: String, error: String? = nil) {
+        self.agent = agent
+        self.state = state
+        self.config = config
+        self.error = error
+    }
 }
 
 /// One agent's change in a plan: write `text` to `config` (nil: the hooks are right, only record the choice).
@@ -89,6 +96,12 @@ public struct AgentFailure: Equatable, Sendable {
     public let agent: String
     public let config: String
     public let message: String
+
+    public init(agent: String, config: String, message: String) {
+        self.agent = agent
+        self.config = config
+        self.message = message
+    }
 }
 
 public struct SetupPlan: Equatable, Sendable {
@@ -160,7 +173,8 @@ public enum Setup {
     }
 
     /// Developer builds (`.build/Perch.app`, anything run with PERCH_HOME) never touch the real install.
-    static func maintainsInstall(_ snapshot: SetupSnapshot) -> Bool {
+    /// The CLI always does (running `perch setup` is consent).
+    public static func maintainsInstall(_ snapshot: SetupSnapshot) -> Bool {
         guard case .app(let path) = snapshot.runner else { return true }
         guard (snapshot.environment["PERCH_HOME"] ?? "").isEmpty else { return false }
         let folders = ["/Applications/", URL(fileURLWithPath: snapshot.userHome).appendingPathComponent("Applications").path + "/"]

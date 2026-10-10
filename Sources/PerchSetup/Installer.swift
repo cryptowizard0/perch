@@ -4,7 +4,7 @@ import PerchClient
 import PerchCore
 
 /// Carries out setup on disk: reads the snapshot `Setup.evaluate` works on, then performs its plan. Also uninstall.
-public struct Installer {
+public struct Installer: Sendable {
     public let environment: SetupEnvironment
     public let launchAgent: LaunchAgent
 
@@ -183,6 +183,24 @@ public struct Installer {
             agents.turnOn(change.agent, config: change.config, hooksChanged: change.hooksChanged, at: now)
         }
         return failures
+    }
+
+    public struct Disconnection: Equatable, Sendable {
+        public let config: String
+        /// The hook file existed.
+        public let existed: Bool
+        public let removed: Int
+    }
+
+    /// Removes the agent's Perch hooks (only Perch's) and records it as off, so `perch setup` and the app leave it
+    /// alone from now on. `path` overrides the agent's hook file. `agents` is updated; the caller saves it.
+    public func disconnect(_ file: any HookFile, path: String? = nil, recordingIn agents: inout AgentsFile) throws -> Disconnection {
+        let config = path ?? environment.configPath(for: file, recorded: agents[file.agent]?.config)
+        let text = try HookFiles.read(config)
+        let (kept, removed) = try text.map { try file.removing($0, path: config) } ?? ("", 0)
+        if removed > 0 { try HookFiles.write(kept, to: config) }
+        agents.turnOff(file.agent, config: config)
+        return Disconnection(config: config, existed: text != nil, removed: removed)
     }
 
     // MARK: Uninstall
