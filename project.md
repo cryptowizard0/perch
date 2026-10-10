@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-09 · **v0.3.0 已发布**（刘海小怪物，#22 / #23）· v0.2.0 是第一阶段（M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.4.0-dev` · 下一步候选：行尾跳转图标区分终端 / 桌面 App
+最后更新：2026-10-10 · **v0.3.0 已发布**（刘海小怪物，#22 / #23）· v0.2.0 是第一阶段（M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.4.0-dev` · 进行中：零配置安装（#25），第 1 步 #26（`perch setup` / `perch uninstall`、`~/.perch/bin`、agents.json、自修复、v0.3 迁移）在分支 `feat/perch-setup`，2026-10-10 用户在本机跑 `scripts/install.sh` 验收通过（v0.3 的 hooks / launchd / `~/.local/bin` 迁到 `~/.perch/bin`，Claude Code 会话照常、Codex `/hooks` 重新信任后会话恢复）；第 2 步 #27（App 自检、首次运行设置卡片、设置行、Agents 子菜单、Codex 信任提示）同分支实现，2026-10-10 用户验收通过（见下方"零配置安装 #27"）；PR #30 等 #28 / #29 做完再合；之后 #28 开机启动 / 卸载、#29 Homebrew / 文档
 
 ## 发布
 
@@ -373,6 +373,22 @@ hermes hooks list               # 5 个都应是 allowed
 - `PerchApp/MascotView.swift`：`TimelineView(.animation(minimumInterval:paused:))` + `Canvas`，不抗锯齿；fps 为 0 的状态（Failed / Done / 没有会话 / 离线）暂停不重绘。反应由 `QueueModel.pulse` 触发、用 `pulseStatus` 的样子和颜色（取代原来的光环），`@Environment(\.accessibilityReduceMotion)` 下只画 `Mascot.still`。
 - 收起态两边的宽度（原来固定 40pt）改成按左边内容算、两边对称（用户嫌宽，2026-10-09）：`NotchGeometry.collapsedWing` = 边距 7 + 小怪物 15 +（间距 3 + Running 数 / 离线图标）+ 4，只有小怪物 26pt、一位数字 37pt、离线 44pt、两位数字 45pt（数字 7.9pt、离线图标 15pt 是实测的）。Running 数从 0 变成 1 时整条会变宽，展开 / 收起本来就是这样换 frame 的。`StatusDot` 只剩展开态每行用（呼吸保留，光环 / 离线参数删掉）。
 - 截图验收（隔离 perchd + debug App，`screencapture -l` 截窗口，自写 CGImage 最近邻放大看像素）：六种状态、Needs you 和 Done 的反应、"等你时另一个会话跑完"先蓝色跳再回橙色、离线都对；连拍 8 张：Running 6 种帧、Needs you 4 种、Idle 3 种，Failed / Done 1 种。"减少动态效果"没法在本机切换（系统设置），靠单测覆盖。
+
+## 零配置安装 #27：App 自检与刘海里的设置（2026-10-10）
+
+- **打包**：`scripts/bundle-app.sh` 把 `perch` / `perchd` 放进 `Perch.app/Contents/Helpers`（不放 `Contents/MacOS`：大小写不敏感的盘上 `perch` 和 `Perch` 同名），先签 helper 再签 App。
+- **自检**（`PerchAppCore/AppSetup.swift`，同步 I/O，`SetupModel` 放到后台串行队列跑）：只在 App 位于 `/Applications` / `~/Applications` 且没设 `PERCH_HOME` 时干活（`Setup.maintainsInstall`）。版本不同（两个方向）就把 Helpers 里的二进制拷进 `~/.perch/bin` 并重装 launchd（= 重启 perchd）；launchd plist 不在也重装；on 的 agent 的 Perch hook 过期就重写（`perch uninstall` 之后 hook 没了的不自动放回，行里给 Connect）。agents.json 坏了：只同步二进制，不修 hook，显示错误行。
+- **App 连的 perchd** 改成 `SetupEnvironment.current.socket`（`$PERCH_HOME` 或 `$HOME/.perch`），和自检装 perchd 的位置一致。正常启动时等于原来的 `~/.perch`；好处是 `HOME=/tmp/x` 的隔离运行完全隔离（`FileManager.homeDirectoryForCurrentUser` 不看 `$HOME`）。
+- **纯逻辑**（`PerchAppCore/Setup.swift` 的 `SetupState`，测试在 `SetupPanelTests`）：
+  - 首次运行卡片：开发构建以外、卡片没显示过（user defaults `SetupCardShown`，显示时就记下，所以只自动展开一次）、agents.json 没有条目、没有 agent 是 on。列出 notAsked 的 agent（都勾上）；一个都没找到时卡片只说"还没找到"+ OK。Connect 之后显示每个 agent 的结果和剩下的一步（Codex：`/hooks`），Done 关掉。卡片在时不显示设置行。
+  - 设置行（会话分组上面，`Panel.sections`）：错误（读不了的 hook 文件 "Can't read ~/…"、写失败、二进制 / perchd 装不上、agents.json 坏了）→ 信任 → "<Agent> found" / "Perch's hooks for <Agent> are missing"（带 Connect）→ "Updated Perch's hooks for <Agent>"。off / notDetected / connected 没有行。右键 Dismiss 只对本次启动有效。错误行跟着最新的报告走（修好后下次展开就消失）；自检自己发现的（二进制 / perchd 装不上、修复写失败）留到下次启动。
+  - 右键刘海的 Agents 子菜单（开发构建没有）：勾 = connected / outdated / needsTrust；勾上 = 和 `perch setup <agent>` 一样，取消 = 和 `perch hooks uninstall` 一样（共用 `Installer.disconnect`）。没检测到的 agent 灰掉。展开刘海时重读一次 agents.json 和 hook 文件（CLI 可能改过）。
+  - Codex 信任：App 看到 codex 的 `session.updated`，且会话的 `updated_at`（上报时间，perchd 自己的 done → idle / seen 不改它）晚于 `hooks_written_at`（没有写入时间时任何事件都算）→ 立刻去掉信任行、把 `trusted_at` 写进 agents.json。perchd 不变。
+- **测试**：`SetupPanelTests`（纯）22 个；`AppSetupTests` 11 个在临时 HOME 里跑真的 `AppSetup` + `SetupModel`（launchctl 是记参数的脚本，Helpers 里的 perch 是打印版本号的脚本）：首次安装二进制并启动 perchd、换新 / 旧版本 App 双向同步并重启、开发构建什么都不碰、Connect 前不改配置、Not now 后的 found 行、修复保留 `--wait`、坏 JSON 不动、agents.json 坏了不出卡片、Connect 写不了出错误行、Agents 菜单开关、信任记录。
+- **隔离 HOME 手动验证**（`HOME=/tmp/perch-iso PERCH_LAUNCHCTL=<记参数脚本>`，App 拷到 `$HOME/Applications`，再 `PERCH_HOME=$HOME/.perch perchd run --no-http` 起一个隔离 perchd）：刘海自己展开出卡片、Connect 写了 8 + 6 个 hook（其他设置保留、有 `.perch-backup`）、一个 codex UserPromptSubmit 之后 `trusted_at` 写入；错误行 / 信任行 / 更新行 / found 行 / missing 行都截图看过。**注意**：隔离测试里手敲 `perch hooks install … --settings /tmp/…` 一定要带同一个 `HOME`，否则会把临时路径记进真的 `~/.perch/agents.json`（这次踩过）。
+- **本机验收（2026-10-10，用户）**：跑 `scripts/install.sh` 装上新 App 后，展开刘海看到 "Trust Perch's hooks: run /hooks in codex"；在 codex 里发一条消息，这行立刻消失，`agents.json` 写入 `trusted_at`（晚于 `hooks_written_at`）✅。没出首次运行卡片（agents.json 已有条目），符合设计。
+- **点击验收（2026-10-10，用户在隔离 HOME 的 App 上亲手点）**：首次运行卡片 Connect → Done（写了 8 + 6 个 hook、有备份、关卡片后出信任行）、Not now、行里的 Connect、右键 Dismiss、Agents 子菜单取消 / 勾上 Codex，全部通过 ✅。#27 验收完成（无刘海胶囊形态没有单独看，展开态和有刘海时同一套布局）。
+- **换 App 同步二进制（2026-10-10，用户同意后我在本机做）**：临时把版本改成 `0.4.0-dev.2` 打包进 `~/Applications/Perch.app` 重开 → `~/.perch/bin` 变成 `0.4.0-dev.2`，hook 文件没动；**但 perchd 没起来**：`launchctl bootout` 在旧 perchd 退出前就返回，紧接着的 `bootstrap` 报 "5: Input/output error"（用一个收到 SIGTERM 后 1 秒才退出的假 job 复现），所以 job 没了。`perch setup` 也有同样的潜在问题，之前是碰巧没撞上。修复：`LaunchAgent.install` 在 bootstrap 失败时每 0.2 秒重试、最多 10 秒（`LaunchAgentInstallTests`）。修复后把版本改回 `0.4.0-dev` 再打包重开（降级方向）：`~/.perch/bin` 回到 `0.4.0-dev`、perchd 自动重启（pid 变了，日志是新版本）、会话都在 ✅。
 
 ### M2 协议扩展：`update`（已实现）
 

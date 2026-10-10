@@ -2,13 +2,28 @@ import Foundation
 import PerchCore
 
 /// What the notch shows (v0.2): agent sessions, one row each, grouped by state.
-/// Collapsed: the colour of the most urgent session and how many are running. Expanded: the groups.
-/// Hermes sessions stay out until M9 gives them a lifecycle of their own.
+/// Collapsed: the colour of the most urgent session and how many are running. Expanded: setup (the first-run card
+/// or setup rows), then the groups. Hermes sessions stay out until M9 gives them a lifecycle of their own.
 public struct Panel: Equatable, Sendable {
     public struct Group: Equatable, Sendable {
         public var status: SessionStatus
         public var sessions: [Session]
         public var title: String { status.label }
+    }
+
+    /// The expanded list, top to bottom.
+    public enum Section: Equatable, Sendable, Identifiable {
+        case card(SetupCard)
+        case setup([SetupRow])
+        case group(Group)
+
+        public var id: String {
+            switch self {
+            case .card: return "card"
+            case .setup: return "setup"
+            case .group(let group): return "group:\(group.status.rawValue)"
+            }
+        }
     }
 
     public static let hiddenSources: Set<String> = ["hermes"]
@@ -17,9 +32,14 @@ public struct Panel: Equatable, Sendable {
     public let sessions: [Session]
     /// Open requests that belong to a session (`meta.session_id`): what Allow / Deny answer.
     private let requests: [String: Item]
+    /// The first-run card; while it is up there are no setup rows.
+    public let setupCard: SetupCard?
+    public let setupRows: [SetupRow]
 
-    public init(sessions: some Sequence<Session>, requests: some Sequence<Item> = [Item]()) {
+    public init(sessions: some Sequence<Session>, requests: some Sequence<Item> = [Item](), setup: SetupState = SetupState()) {
         self.sessions = sessions.filter { !Self.hiddenSources.contains($0.source) }
+        setupCard = setup.enabled ? setup.card : nil
+        setupRows = setup.rows
         var bySession: [String: Item] = [:]
         for item in requests where item.kind == .request && (item.status == .waiting || item.status == .open) {
             guard let id = item.meta?["session_id"] else { continue }
@@ -54,6 +74,14 @@ public struct Panel: Equatable, Sendable {
                 return first != second ? first < second : a.id < b.id
             })
         }
+    }
+
+    /// Setup first (it is what to do before sessions can show up), then the groups.
+    public var sections: [Section] {
+        var sections: [Section] = []
+        if let setupCard { sections.append(.card(setupCard)) }
+        if !setupRows.isEmpty { sections.append(.setup(setupRows)) }
+        return sections + groups.map(Section.group)
     }
 
     /// The request the notch can answer for this session: only while it needs you, only if allowlisted
@@ -159,12 +187,36 @@ public enum PanelLayout {
     public static let lineHeight: CGFloat = 16
     public static let buttonsHeight: CGFloat = 28
     public static let maxListHeight: CGFloat = 460
+    public static let setupRowHeight: CGFloat = 30
+    public static let cardLineHeight: CGFloat = 22
+    /// The card's title and its buttons, with padding.
+    public static let cardChromeHeight: CGFloat = 84
     /// Monospaced characters per line at the panel's width.
     static let lineLength = 52
 
-    public static func listHeight(_ panel: Panel) -> CGFloat {
-        guard !panel.sessions.isEmpty else { return messageHeight }
-        let height = panel.groups.reduce(CGFloat(0)) { total, group in
+    /// Setup, then the groups (or, with no sessions or perchd offline, a one-line message).
+    public static func listHeight(_ panel: Panel, online: Bool = true) -> CGFloat {
+        let sessions = online && !panel.sessions.isEmpty ? sessionsHeight(panel) : messageHeight
+        return min(setupHeight(panel) + sessions, maxListHeight)
+    }
+
+    static func setupHeight(_ panel: Panel) -> CGFloat {
+        var height: CGFloat = 0
+        if let card = panel.setupCard {
+            switch card.phase {
+            case .choosing, .connecting: height += cardChromeHeight + CGFloat(max(card.choices.count, 2)) * cardLineHeight
+            case .finished(let lines):
+                height += cardChromeHeight + lines.reduce(CGFloat(0)) { $0 + cardLineHeight + ($1.detail == nil ? 0 : lineHeight * 2) }
+            }
+        }
+        if !panel.setupRows.isEmpty {
+            height += headerHeight + panel.setupRows.reduce(CGFloat(0)) { $0 + setupRowHeight + ($1.detail == nil ? 0 : lineHeight * 2) }
+        }
+        return height
+    }
+
+    static func sessionsHeight(_ panel: Panel) -> CGFloat {
+        panel.groups.reduce(CGFloat(0)) { total, group in
             total + headerHeight + group.sessions.reduce(CGFloat(0)) { sum, s in
                 guard s.status == .waiting else { return sum + rowHeight }
                 let request = panel.request(for: s)
@@ -174,6 +226,5 @@ public enum PanelLayout {
                 return sum + rowHeight + CGFloat(min(lines, 12) - 1) * lineHeight + (request == nil ? 0 : buttonsHeight)
             }
         }
-        return min(height, maxListHeight)
     }
 }

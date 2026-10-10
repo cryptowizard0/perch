@@ -12,12 +12,13 @@ enum PanelTab {
 /// The expanded notch: the current tab's content, then a failed action's message if any.
 struct ExpandedPanel: View {
     @ObservedObject var queue: QueueModel
+    @ObservedObject var setup: SetupModel
     var tab: PanelTab = .agents
 
     var body: some View {
         VStack(spacing: 0) {
             switch tab {
-            case .agents: SessionList(queue: queue)
+            case .agents: SessionList(queue: queue, setup: setup)
             }
             if let flash = queue.flash {
                 Text(flash)
@@ -33,33 +34,46 @@ struct ExpandedPanel: View {
     }
 }
 
-/// Sessions grouped by state, most urgent group first, with the count in each header.
+/// Setup (the first-run card or setup rows) on top, then sessions grouped by state, most urgent group first, with the
+/// count in each header.
 struct SessionList: View {
     @ObservedObject var queue: QueueModel
+    @ObservedObject var setup: SetupModel
 
     var body: some View {
-        let panel = queue.panel
-        if !queue.online {
-            message("perchd is not running — start it with `perchd` or `perchd install`")
-        } else if panel.sessions.isEmpty {
-            message("No agent sessions.")
-        } else {
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(panel.groups, id: \.status) { group in
-                        GroupHeader(group: group)
-                        ForEach(group.sessions) { session in
-                            SessionRowView(session: session, request: panel.request(for: session), now: queue.now) { request, answer in
-                                queue.respond(request, answer)
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture { queue.open(session) }
-                            .contextMenu {
-                                Button("Remove from Panel") { queue.remove(session) }
-                            }
-                        }
+        let panel = queue.panel(setup: setup.state)
+        let sections = panel.sections
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(sections) { section in
+                    switch section {
+                    case .card(let card):
+                        SetupCardView(card: card, setup: setup)
+                    case .setup(let rows):
+                        SetupRows(rows: rows, setup: setup)
+                    case .group(let group):
+                        if queue.online { groupView(group, panel: panel) }
                     }
                 }
+                if !queue.online {
+                    message("perchd is not running — start it with `perchd` or `perchd install`")
+                } else if panel.sessions.isEmpty {
+                    message("No agent sessions.")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func groupView(_ group: Panel.Group, panel: Panel) -> some View {
+        GroupHeader(group: group)
+        ForEach(group.sessions) { session in
+            SessionRowView(session: session, request: panel.request(for: session), now: queue.now) { request, answer in
+                queue.respond(request, answer)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { queue.open(session) }
+            .contextMenu {
+                Button("Remove from Panel") { queue.remove(session) }
             }
         }
     }

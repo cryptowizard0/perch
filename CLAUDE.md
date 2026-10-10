@@ -12,8 +12,10 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd（daemon）、PerchApp（刘海 App）
 Sources/PerchCore/       模型、wire protocol、路径、纯解析/渲染。所有客户端共享，不含任何 I/O
 Sources/PerchClient/     Unix socket 客户端（CLI 和刘海 App 共用）；sysctl 读进程（hook 找 agent、perchd 存活检测）
-Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd
-Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像、launchd
+Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd、自检和设置行（`Setup` / `AppSetup` / `SetupModel`）
+Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像
+Sources/PerchSetup/      安装 Perch（库，有 I/O）：agent hook 文件读写、perchd 的 launchd agent、agents.json、固定安装位置、状态评估（纯函数 `Setup.evaluate`）、卸载；CLI / perchd / 刘海 App 共用
+Tests/PerchSetupTests/   状态评估的纯函数测试；`perch setup` / `uninstall` 的端到端测试在 PerchDaemonTests/SetupCLITests（临时 HOME + 假 launchctl）
 Sources/CSQLite/         系统 libsqlite3 的最小声明（见下方 SQLite 决定）
 Sources/perch/           CLI，唯一对外契约（ArgumentParser）
 Sources/perchd/          daemon 可执行文件入口，只做组装
@@ -21,10 +23,10 @@ Tests/PerchCoreTests/    swift-testing（`import Testing`；只装 Command Line 
 Sources/PerchApp/        刘海 App（AppKit + SwiftUI），SwiftPM 可执行 target，不需要 Xcode
 packaging/Info.plist     Perch.app 的 Info.plist（LSUIElement，无 Dock 图标）
 packaging/Perch.icns     App 图标（橙色像素独眼怪吊在刘海下面，2026-10-10 起；之前是像素小鸟）；改图在 scripts/icon/draw-icon.swift，scripts/icon/make-icon.sh 重新生成并提交 .icns
-scripts/bundle-app.sh    编译 PerchApp 并组装、ad-hoc 签名成 .build/Perch.app
+scripts/bundle-app.sh    编译 PerchApp 并组装、ad-hoc 签名成 .build/Perch.app；perch / perchd 放在 Contents/Helpers（App 自检从这里同步到 ~/.perch/bin）
 docs/                    PRD、里程碑、给其他 agent 用的 SKILL 片段
 Sources/perch/Hook*.swift  hook 适配器就是 CLI 子命令：`perch hook <agent>`（读 stdin）、`perch hooks install|uninstall`
-scripts/install.sh       日常安装：perch / perchd → ~/.local/bin，Perch.app → ~/Applications，launchd，hooks
+scripts/install.sh       日常安装：编译后跑 `perch setup`（→ ~/.perch/bin、launchd、hooks），~/.local/bin 放链接，Perch.app → ~/Applications
 ```
 
 ## 常用命令
@@ -35,6 +37,8 @@ swift test                       # 单元测试，每次提交前必须通过
 swift run perch --help
 swift run perchd                 # 前台跑 daemon（PERCH_HOME=/tmp/x 可隔离数据）
 swift run perchd install         # 装成 launchd agent（--dry-run 只打印 plist）；perchd uninstall 移除
+perch setup [agent…] [--json]    # 安装到 ~/.perch/bin + launchd + 连接 agent（scripts/install.sh 就是编译后跑它）
+perch uninstall [--purge]        # 卸掉 hooks、launchd、~/.perch/bin；--purge 连 ~/.perch 一起删
 scripts/bundle-app.sh            # 打包刘海 App → .build/Perch.app（CONFIG=debug 出调试版）
 open .build/Perch.app
 scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI → 刘海延迟
@@ -97,6 +101,18 @@ PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permissi
 **Claude Code 在权限提示上选 No 或按 Esc 时不发任何 hook**（#8 实测，2.1.258：`idle_prompt` 也不来），只在 transcript 里写 `[Request interrupted by user for tool use]` + `system/turn_duration`。所以 Claude Code 的报告带 `transcript_path`（存在会话里，schema v3），perchd 监视 Running / Needs you 会话的 transcript（`TranscriptWatcher`），末尾的消息是这个标记（`ClaudeTranscript.interruption`）就按标记时间发 `interrupt` → Idle。transcript 不是公开接口，格式变了就退回原样（会话停在原状态）。思考中、还没输出就按 Esc 时 transcript 什么都不写，会话停在 Running，直到下一条 prompt 或关 tab（已知限制）。
 配置文件：Claude Code `~/.claude/settings.json`；Codex `~/.codex/hooks.json`（`$CODEX_HOME` 可覆盖；Codex 按 hook 内容的 hash 记信任，新装或改过的 hook 要在 codex 里 `/hooks` 确认后才会跑）；Hermes `~/.hermes/config.yaml` 的 `hooks:`（`$HERMES_HOME` 可覆盖；没有 YAML 库，Perch 在文件末尾写一段带标记的块；Hermes 用 yaml.dump 重写文件时标记会丢，所以只含 Perch 命令的 `hooks:` 段也认作 Perch 的；混了别人 hook 的 `hooks:` 段不动、安装拒绝；Hermes 对每个 (事件, 命令) 首次运行要确认，记在 `~/.hermes/shell-hooks-allowlist.json`，gateway 要 `hermes gateway restart` 才会加载）。
 以官方文档为准：https://code.claude.com/docs/en/hooks 、 https://learn.chatgpt.com/docs/hooks 、Hermes 仓库的 `website/docs/user-guide/features/hooks.md`（Shell Hooks 一节）。
+
+## 安装（#26，零配置安装的第 1 步）
+
+- **固定安装位置 `~/.perch/bin/{perch,perchd}`**：真拷贝（不是链接）、去掉隔离标记、原子替换。hook 命令和 launchd plist 永远指向这里，所以升级、挪 App / checkout 都不改 hook 文本，Codex 的信任不丢。`~/.local/bin` 里的只是给人敲的链接，永远不写进 hook。
+- **`~/.perch/agents.json`**：每个 agent 记 `status`（on / off）、实际写过的 `config` 路径、`hooks_written_at`（Perch 的 hook 内容变了才更新）、Codex 的 `trusted_at`（下一步由 App 在看到 Codex 事件后写）。没有条目 = 没问过；但没有条目却有 Perch 的 hook（v0.3 装的）算 on。文件坏了就报错、不覆盖。
+- **检测按配置目录**：依次看 agents.json 里记的路径、`$CLAUDE_CONFIG_DIR` / `$CODEX_HOME`、默认目录，取第一个目录存在的。不看 PATH 上有没有可执行文件。Hermes 不参与检测和连接（手动 `perch hooks install hermes` 照旧）；`perch uninstall` 会顺带删 Hermes 里 Perch 的 hook。
+- **状态评估是纯函数** `Setup.evaluate(snapshot, request:)`：输入 agents.json、各候选配置文件内容、已装 / 自带版本、谁在跑（CLI / App 路径）、环境变量；输出每个 agent 的状态（notDetected / notAsked / connected / outdated / needsTrust / off，外加 error）和计划（同步二进制、要写的 hook）。`perch setup` 和以后 App 的自检都按这个计划做。比较的是 Perch 自己那几条 hook 的规范形式（`HookFile.perchHooks`），别人的 hook、key 顺序、格式都不影响判断。
+- **自修复**：on 的 agent 的 Perch hook 路径或内容不对就重写，保留原来的 `--wait`；只碰 Perch 的 hook；JSON 坏了原样不动、报错；每次改之前写 `.perch-backup`。`perch setup` 显式给 `--wait` 时以它为准。
+- **二进制同步**：`perch setup` 总是拷贝（开发构建版本号相同，不能按版本判断）；App（下一步）只在装在 /Applications 或 ~/Applications、且没设 `PERCH_HOME` 时、版本不同（两个方向）才同步，否则什么都不碰。
+- `perch hooks install|uninstall` 记 on / off；install 默认让 hook 跑 `~/.perch/bin/perch`（不存在时警告）。`hooks uninstall` 之后 `perch setup` 不会再连这个 agent，除非点名。
+- **App 自检与设置 UI（#27）**：只有装在 /Applications 或 ~/Applications、没设 `PERCH_HOME` 的 App 才做（`Setup.maintainsInstall`），`.build/Perch.app` 和隔离运行既不同步也不显示任何设置 UI（卡片、设置行、Agents 子菜单都没有）。每次启动：版本不同就从 `Contents/Helpers` 同步二进制并重启 perchd；修 on 的 agent 的过期 hook。首次运行（卡片没显示过、agents.json 为空）刘海自己展开一次显示设置卡片，Connect 之前不改任何 agent 的配置。设置行在会话分组之上（`Panel.sections`），逻辑在 `PerchAppCore/Setup.swift` 的 `SetupState`，`PerchApp` 只画。Codex 信任：App 看到 codex 的 `session.updated` 且 `updated_at` 晚于 `hooks_written_at` 就写 `trusted_at`，perchd 不变。App 连的 perchd 是 `SetupEnvironment.current.socket`。
+- 测试接缝：setup 的路径都从环境变量来（`HOME`、`PERCH_HOME`、`CLAUDE_CONFIG_DIR`、`CODEX_HOME`），`PERCH_LAUNCHCTL` 可以换掉 `/bin/launchctl`（测试里是只记参数的脚本）。测试永远不碰真的 `~/.claude` / `~/.codex` / `~/.perch` / launchd。
 
 ## 安全规则（M4 必须实现，不可绕过）
 
