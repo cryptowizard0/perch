@@ -1,39 +1,34 @@
 import AppKit
 
-// Perch's app icon: a pixel bird perched on the notch (Perch's collapsed panel, with its orange status dot),
-// on the README's wallpaper gradient. Writes a macOS .iconset (16–1024 px); scripts/icon/make-icon.sh turns it
-// into packaging/Perch.icns.
+// Perch's app icon: the notch mascot (#22), a pixel cyclops in the Needs-you orange, hanging from the notch with its
+// antenna plugged in, on the README's wallpaper gradient. Writes a macOS .iconset (16–1024 px);
+// scripts/icon/make-icon.sh turns it into packaging/Perch.icns.
 // usage: swift draw-icon.swift <out.iconset>
 let args = CommandLine.arguments
 let iconset = URL(fileURLWithPath: args[1])
 
-// The bird, facing right. B body, W wing, C chest, E eye, H eye highlight, K beak, L legs, T tail.
-let bird = [
-    "................",
-    "......BBBB......",
-    ".....BBBBBB.....",
-    "....BBBBBEHB....",
-    "....BBBBBEEBKK..",
-    "....BBBBBBBBK...",
-    "...BBBBBBBBB....",
-    "..WWWBBBCCCC....",
-    "TWWWWWBCCCCC....",
-    "TTWWWWWCCCCC....",
-    ".TTWWWWCCCCC....",
-    "...WWWWCCCC.....",
-    "....BBBBBB......",
-    "......L..L......",
-    "......L..L......",
-    "................",
+// The cyclops from `Mascot` (Sources/PerchAppCore/Mascot.swift), arms stretched up to hold on. # body, w eye white, o dark.
+let cyclops = [
+    "#.....#.....#",
+    "#.....#.....#",
+    "#..#######..#",
+    "#.#########.#",
+    "#####www#####",
+    ".###wwwww###.",
+    ".###wwoww###.",
+    ".###wwwww###.",
+    ".####www####.",
+    ".###########.",
+    "..###ooo###..",
+    "..#########..",
+    "..##.....##..",
 ]
 
-struct Palette { var body, wing, chest, beak, legs, eye: NSColor }
 func hex(_ v: UInt32) -> NSColor {
     NSColor(srgbRed: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255, blue: CGFloat(v & 0xFF) / 255, alpha: 1)
 }
-// Cream bird; beak and legs in the status dot's orange.
-let p = Palette(body: hex(0xF4EBDD), wing: hex(0xC9B8A2), chest: hex(0xFFF8EE), beak: hex(0xFF9419), legs: hex(0xFF9419),
-                eye: hex(0x16161A))
+// Needs you's orange (`SessionStatus.color(.waiting)`); dark parts as in the notch.
+let orange = hex(0xFF941A), dark = hex(0x0B0B0B)
 
 let side = 1024
 let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8, samplesPerPixel: 4,
@@ -62,38 +57,27 @@ let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
                           locations: [0, 0.55, 1])!
 ctx.drawLinearGradient(gradient, start: CGPoint(x: body.minX, y: body.minY), end: CGPoint(x: body.maxX, y: body.maxY), options: [])
 
-// The perch: Perch's collapsed notch, flat on top, rounded below, with its orange status dot.
-let bar = CGRect(x: 232, y: 600, width: 560, height: 128)
+// The notch, flush with the icon's top edge, square on top and rounded below.
+let notch = CGRect(x: 262, y: 100, width: 500, height: 150)
 NSColor.black.setFill()
-NSBezierPath(roundedRect: bar, xRadius: 46, yRadius: 46).fill()
-ctx.fill(CGRect(x: bar.minX, y: bar.minY, width: bar.width, height: 46))
-let dot = CGRect(x: bar.minX + 56, y: bar.midY - 22, width: 44, height: 44)
-ctx.saveGState()
-ctx.setShadow(offset: .zero, blur: 24, color: hex(0xFF9419).withAlphaComponent(0.9).cgColor)
-hex(0xFF9419).setFill()
-NSBezierPath(ovalIn: dot).fill()
-ctx.restoreGState()
+NSBezierPath(roundedRect: notch, xRadius: 52, yRadius: 52).fill()
+ctx.fill(CGRect(x: notch.minX, y: notch.minY, width: notch.width, height: 52))
 
-// The bird, standing on the bar: crisp square cells.
-let cell: CGFloat = 26
-let birdOrigin = CGPoint(x: bar.midX - cell * 8 + cell * 1.5, y: bar.minY - cell * 15)  // legs end on the bar
+// The cyclops hanging from its lower edge: crisp square cells.
+let cell: CGFloat = 36
+let origin = CGPoint(x: notch.midX - cell * 6.5, y: notch.maxY)
 ctx.setShouldAntialias(false)
-for (y, row) in bird.enumerated() {
+for (y, row) in cyclops.enumerated() {
     for (x, ch) in row.enumerated() {
-        let color: NSColor?
+        let color: NSColor
         switch ch {
-        case "B": color = p.body
-        case "W", "T": color = p.wing
-        case "C": color = p.chest
-        case "E": color = p.eye
-        case "H": color = .white
-        case "K": color = p.beak
-        case "L": color = p.legs
-        default: color = nil
+        case "#": color = orange
+        case "w": color = .white
+        case "o": color = dark
+        default: continue
         }
-        guard let color else { continue }
         color.setFill()
-        ctx.fill(CGRect(x: birdOrigin.x + CGFloat(x) * cell, y: birdOrigin.y + CGFloat(y) * cell, width: cell, height: cell))
+        ctx.fill(CGRect(x: origin.x + CGFloat(x) * cell, y: origin.y + CGFloat(y) * cell, width: cell, height: cell))
     }
 }
 ctx.restoreGState()

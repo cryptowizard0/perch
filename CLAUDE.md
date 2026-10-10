@@ -20,7 +20,7 @@ Sources/perchd/          daemon 可执行文件入口，只做组装
 Tests/PerchCoreTests/    swift-testing（`import Testing`；只装 Command Line Tools 也能跑，XCTest 需要完整 Xcode）
 Sources/PerchApp/        刘海 App（AppKit + SwiftUI），SwiftPM 可执行 target，不需要 Xcode
 packaging/Info.plist     Perch.app 的 Info.plist（LSUIElement，无 Dock 图标）
-packaging/Perch.icns     App 图标（像素小鸟站在刘海上）；改图在 scripts/icon/draw-icon.swift，scripts/icon/make-icon.sh 重新生成并提交 .icns
+packaging/Perch.icns     App 图标（橙色像素独眼怪吊在刘海下面，2026-10-10 起；之前是像素小鸟）；改图在 scripts/icon/draw-icon.swift，scripts/icon/make-icon.sh 重新生成并提交 .icns
 scripts/bundle-app.sh    编译 PerchApp 并组装、ad-hoc 签名成 .build/Perch.app
 docs/                    PRD、里程碑、给其他 agent 用的 SKILL 片段
 Sources/perch/Hook*.swift  hook 适配器就是 CLI 子命令：`perch hook <agent>`（读 stdin）、`perch hooks install|uninstall`
