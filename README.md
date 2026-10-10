@@ -23,32 +23,35 @@ git clone https://github.com/cryptowizard0/perch.git && cd perch
 scripts/install.sh
 ```
 
-This builds everything and installs:
+This builds everything and runs `perch setup` from the build, which:
 
-- `perch` and `perchd` into `~/.local/bin` (`PREFIX=…` to change; put it on your `PATH` to use `perch` yourself), and `perchd` as a launchd agent;
-- `Perch.app` into `~/Applications` (`APPDIR=…`), which it then opens;
-- the hooks for Claude Code (`~/.claude/settings.json`) and, if you use Codex, for Codex (`~/.codex/hooks.json`). `--no-hooks` skips them.
+- copies `perch` and `perchd` into `~/.perch/bin`, the fixed location every hook and the launchd agent run, so moving or rebuilding the checkout never breaks them;
+- installs `perchd` as a launchd agent;
+- connects every agent set up on this Mac (Claude Code if `~/.claude` exists, Codex if `~/.codex` does; `$CLAUDE_CONFIG_DIR` / `$CODEX_HOME` are honoured) that you haven't disconnected, and rewrites Perch's hooks if they are out of date, keeping your `--wait`. Your choices are kept in `~/.perch/agents.json`.
 
-Re-run `scripts/install.sh` after pulling to upgrade.
+The script then links `perch` / `perchd` into `~/.local/bin` (`PREFIX=…` to change; put it on your `PATH` to use `perch` yourself) and installs `Perch.app` into `~/Applications` (`APPDIR=…`), which it then opens.
+
+Re-run `scripts/install.sh` after pulling to upgrade. It also migrates a v0.3 install (binaries and hooks in `~/.local/bin`); Codex then asks for trust once more.
+
+To leave an agent alone, `perch hooks uninstall codex`: later setups won't reconnect it until you `perch hooks install codex` or `perch setup codex`.
 
 <details>
 <summary>Uninstall</summary>
 
 ```bash
 osascript -e 'quit app id "dev.perch.app"'
-perch hooks uninstall claude-code
-perch hooks uninstall codex
-perchd uninstall
-rm ~/.local/bin/perch ~/.local/bin/perchd
-rm -rf ~/Applications/Perch.app ~/.perch     # ~/.perch holds the database and settings
+perch uninstall            # Perch's hooks, the launchd agent, ~/.perch/bin and its links; --purge also removes ~/.perch
+rm -rf ~/Applications/Perch.app
 ```
+
+Without `--purge`, `~/.perch` keeps the database, `allowlist.json` and `agents.json`, so a reinstall picks up where you left off.
 </details>
 
 ### Codex: trust the hooks
 
 **Codex skips new hooks silently until you trust them**, so until you do, Codex sessions never show up in the notch. After installing, start `codex`, type `/hooks` and trust Perch's six hooks (UserPromptSubmit, PermissionRequest, PostToolUse, Stop, Interrupt, SessionEnd), then open a new Codex session.
 
-Codex remembers trust per hook content, so do it again whenever the hooks change: after `perch hooks install codex` with a different `perch` path or `--wait`, or after moving `perch`. Claude Code needs no such step.
+Codex remembers trust per hook content, so do it again whenever the hooks change: after `perch hooks install codex` with a different `--wait`, or when `perch setup` says Codex `needs trust` (an upgrade changed the hooks). The hooks always run `~/.perch/bin/perch`, so moving the checkout or the download doesn't change them. Claude Code needs no such step.
 
 ### Prebuilt (Apple silicon)
 
@@ -56,19 +59,13 @@ Each [release](https://github.com/cryptowizard0/perch/releases) has `perch-<vers
 
 ```bash
 xattr -dr com.apple.quarantine perch-*-macos-arm64
-mkdir -p ~/.local/bin ~/Applications
-cp perch-*-macos-arm64/perch perch-*-macos-arm64/perchd ~/.local/bin/
+mkdir -p ~/Applications
 ditto perch-*-macos-arm64/Perch.app ~/Applications/Perch.app
-~/.local/bin/perchd install
-~/.local/bin/perch hooks install claude-code
-~/.local/bin/perch hooks install codex
+perch-*-macos-arm64/perch setup
 open ~/Applications/Perch.app
 ```
 
-Then trust the hooks in Codex (above).
-
-- **Clear the quarantine flag first.** Otherwise macOS blocks `perch` when an agent runs it in the background, without telling anyone.
-- **Copy the binaries to where they will stay, then install from there.** The hooks and the launchd agent remember the absolute path of the `perch` / `perchd` that installed them; running them from the unzipped folder breaks everything once that folder is gone.
+Then trust the hooks in Codex (above). `perch setup` copies `perch` / `perchd` into `~/.perch/bin` without the quarantine flag, so the unzipped folder can go afterwards; `ln -s ~/.perch/bin/perch ~/.local/bin/perch` puts `perch` on your `PATH`. (Releases up to v0.3.0 have no `perch setup`: see their own README.)
 
 ## Use
 
@@ -100,8 +97,8 @@ perch allowlist init                   # write ~/.perch/allowlist.json to edit
 | Symptom | Check |
 | --- | --- |
 | Codex sessions never appear | The hooks are not trusted yet: `/hooks` in `codex` (see [Codex: trust the hooks](#codex-trust-the-hooks)). `grep -A1 'hooks.json:permission_request' ~/.codex/config.toml` shows a `trusted_hash` once they are. |
-| Claude Code sessions never appear | Claude Code needs no trust step and picks up new hooks on its own. Type `/hooks` in `claude`: Perch's eight hooks should be listed under user settings. If not, check for `"disableAllHooks": true` in any settings file (a project's settings override yours), `allowManagedHooksOnly` in managed settings on a work machine, and that `CLAUDE_CONFIG_DIR` was the same when you ran `perch hooks install claude-code`. |
-| No session appears for any agent | `perch session ls` must list sessions; if it cannot connect, `perchd` is not running (`perchd install` again). Prebuilt: is the quarantine flag cleared (`xattr -l ~/.local/bin/perch`) and do the hooks point at a `perch` that still exists (`grep perch ~/.codex/hooks.json ~/.claude/settings.json`)? |
+| Claude Code sessions never appear | Claude Code needs no trust step and picks up new hooks on its own. Type `/hooks` in `claude`: Perch's eight hooks should be listed under user settings. If not, check for `"disableAllHooks": true` in any settings file (a project's settings override yours), `allowManagedHooksOnly` in managed settings on a work machine, and that `perch setup` connected the settings file Claude Code reads (it prints the path; `CLAUDE_CONFIG_DIR` must be the same in the shell you ran it from). |
+| No session appears for any agent | `perch session ls` must list sessions; if it cannot connect, `perchd` is not running. `perch setup` repairs the install: it reinstalls the launchd agent and rewrites hooks that point anywhere but `~/.perch/bin/perch`. |
 | A hook fails | Hooks never print anything or block the agent; failures go to `~/.perch/hook.log`. No such file usually means the hook was never run at all. |
 
 ## How it works
