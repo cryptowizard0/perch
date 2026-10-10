@@ -387,7 +387,8 @@ hermes hooks list               # 5 个都应是 allowed
 - **测试**：`SetupPanelTests`（纯）22 个；`AppSetupTests` 11 个在临时 HOME 里跑真的 `AppSetup` + `SetupModel`（launchctl 是记参数的脚本，Helpers 里的 perch 是打印版本号的脚本）：首次安装二进制并启动 perchd、换新 / 旧版本 App 双向同步并重启、开发构建什么都不碰、Connect 前不改配置、Not now 后的 found 行、修复保留 `--wait`、坏 JSON 不动、agents.json 坏了不出卡片、Connect 写不了出错误行、Agents 菜单开关、信任记录。
 - **隔离 HOME 手动验证**（`HOME=/tmp/perch-iso PERCH_LAUNCHCTL=<记参数脚本>`，App 拷到 `$HOME/Applications`，再 `PERCH_HOME=$HOME/.perch perchd run --no-http` 起一个隔离 perchd）：刘海自己展开出卡片、Connect 写了 8 + 6 个 hook（其他设置保留、有 `.perch-backup`）、一个 codex UserPromptSubmit 之后 `trusted_at` 写入；错误行 / 信任行 / 更新行 / found 行 / missing 行都截图看过。**注意**：隔离测试里手敲 `perch hooks install … --settings /tmp/…` 一定要带同一个 `HOME`，否则会把临时路径记进真的 `~/.perch/agents.json`（这次踩过）。
 - **本机验收（2026-10-10，用户）**：跑 `scripts/install.sh` 装上新 App 后，展开刘海看到 "Trust Perch's hooks: run /hooks in codex"；在 codex 里发一条消息，这行立刻消失，`agents.json` 写入 `trusted_at`（晚于 `hooks_written_at`）✅。没出首次运行卡片（agents.json 已有条目），符合设计。
-- **还待用户手动验收**：在刘海里点 Connect / Not now / Done / 行的 Connect / 右键 Dismiss / Agents 子菜单（我没法合成点击）；无刘海的胶囊形态（本机外接屏 + 合盖才能看到）；只换 `~/Applications/Perch.app`（不跑 `perch setup`）重开，`~/.perch/bin` 更新、perchd 重启（`install.sh` 先跑 `perch setup`，所以那次没走到 App 的同步）。
+- **还待用户手动验收**：在刘海里点 Connect / Not now / Done / 行的 Connect / 右键 Dismiss / Agents 子菜单（我没法合成点击）；无刘海的胶囊形态（本机外接屏 + 合盖才能看到）。
+- **换 App 同步二进制（2026-10-10，用户同意后我在本机做）**：临时把版本改成 `0.4.0-dev.2` 打包进 `~/Applications/Perch.app` 重开 → `~/.perch/bin` 变成 `0.4.0-dev.2`，hook 文件没动；**但 perchd 没起来**：`launchctl bootout` 在旧 perchd 退出前就返回，紧接着的 `bootstrap` 报 "5: Input/output error"（用一个收到 SIGTERM 后 1 秒才退出的假 job 复现），所以 job 没了。`perch setup` 也有同样的潜在问题，之前是碰巧没撞上。修复：`LaunchAgent.install` 在 bootstrap 失败时每 0.2 秒重试、最多 10 秒（`LaunchAgentInstallTests`）。修复后把版本改回 `0.4.0-dev` 再打包重开（降级方向）：`~/.perch/bin` 回到 `0.4.0-dev`、perchd 自动重启（pid 变了，日志是新版本）、会话都在 ✅。
 
 ### M2 协议扩展：`update`（已实现）
 

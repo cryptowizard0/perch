@@ -9,10 +9,14 @@ public struct LaunchAgent: Sendable {
 
     public let plistURL: URL
     public let launchctl: Launchctl
+    /// How long a reinstall keeps retrying the bootstrap while launchd is still removing the old job.
+    public let bootstrapTimeout: TimeInterval
 
-    public init(userHome: URL = SetupEnvironment.current.userHome, launchctl: Launchctl = .current) {
+    public init(userHome: URL = SetupEnvironment.current.userHome, launchctl: Launchctl = .current,
+                bootstrapTimeout: TimeInterval = 10) {
         plistURL = userHome.appendingPathComponent("Library/LaunchAgents/\(Self.label).plist")
         self.launchctl = launchctl
+        self.bootstrapTimeout = bootstrapTimeout
     }
 
     public static func logURL(home: URL) -> URL {
@@ -48,8 +52,15 @@ public struct LaunchAgent: Sendable {
         try FileManager.default.createDirectory(at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         _ = launchctl.run(["bootout", "\(Self.domain)/\(Self.label)"])  // not loaded is fine
         try plist.write(to: plistURL, options: .atomic)
-        let (status, output) = launchctl.run(["bootstrap", Self.domain, plistURL.path])
-        guard status == 0 else { throw LaunchAgentError("launchctl bootstrap failed (\(status)): \(output)") }
+        // bootout returns before the old perchd has exited; until launchd has removed the job, bootstrap fails
+        // ("5: Input/output error"). perchd exits within a second or so of SIGTERM, so keep trying for a while.
+        let deadline = Date().addingTimeInterval(bootstrapTimeout)
+        while true {
+            let (status, output) = launchctl.run(["bootstrap", Self.domain, plistURL.path])
+            if status == 0 { return }
+            guard Date() < deadline else { throw LaunchAgentError("launchctl bootstrap failed (\(status)): \(output)") }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
     }
 
     /// Unloads the agent and deletes the plist. Returns false if nothing was installed.
