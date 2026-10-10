@@ -37,8 +37,11 @@ struct SetupCommand: ParsableCommand {
         for link in try installer.linkOldBinaries() { notes.append("replaced \(link) with a link into \(env.binDirectory.path)") }
         let running = try installer.installLaunchAgent()
         notes.append("perchd: launchd agent \(installer.launchAgent.plistURL.path)\(running ? " (running)" : "")")
+        if !running && installer.launchAgent.launchctl.isSystem {
+            FileHandle.standardError.write(Data("perch: warning: perchd is not answering yet; see \(LaunchAgent.logURL(home: env.perchHome).path)\n".utf8))
+        }
 
-        let failures = installer.apply(plan, to: &file)
+        let failures = installer.perform(plan, recordingIn: &file)
         try installer.saveAgents(file)
         let statuses = Setup.evaluate(installer.snapshot(agents: file, runner: .cli, bundledVersion: PerchVersion.string,
                                                          installedVersion: nil), request: request).agents

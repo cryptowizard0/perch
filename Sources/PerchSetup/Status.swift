@@ -136,7 +136,9 @@ public enum Setup {
             for inspection in inspections where inspection.isOn {
                 if let error = inspection.status.error {
                     plan.failures.append(inspection.failure(error))
-                } else if inspection.status.state == .outdated {
+                } else if inspection.status.state == .outdated, !inspection.ours.isEmpty {
+                    // Repairs only rewrite Perch's hooks that are there: after `perch uninstall` (agents.json kept)
+                    // the app must not put them back; `perch setup` reconnects.
                     plan.changes += inspection.change(wait: inspection.wait, perch: snapshot.perchBinary).map { [$0] } ?? []
                 }
             }
@@ -184,8 +186,8 @@ public enum Setup {
         func change(wait: Int?, perch: String) -> AgentChange? {
             guard let new = try? file.installing(text, path: status.config, perch: HookFiles.shellQuote(perch),
                                                  wait: wait ?? Setup.defaultWait),
-                  let theirs = try? file.perchHooks(in: new, path: status.config) else { return nil }
-            if theirs != ours {
+                  let wanted = try? file.perchHooks(in: new, path: status.config) else { return nil }
+            if wanted != ours {
                 return AgentChange(agent: file.agent, config: status.config, text: new, hooksChanged: true)
             }
             if record?.status != .on || record?.config != status.config {
@@ -208,14 +210,14 @@ public enum Setup {
         case .unreadable(let message): problem = message
         }
         var ours = ""
-        var current = true
+        var upToDate = true
         let wait = file.wait(in: text)
         if problem == nil {
             do {
                 ours = try file.perchHooks(in: text, path: config)
                 let expected = try file.installing(text, path: config, perch: HookFiles.shellQuote(snapshot.perchBinary),
                                                    wait: wait ?? defaultWait)
-                current = try file.perchHooks(in: expected, path: config) == ours
+                upToDate = try file.perchHooks(in: expected, path: config) == ours
             } catch let failure as SetupError {
                 problem = failure.message
             } catch {
@@ -230,7 +232,7 @@ public enum Setup {
             state = .notDetected
         } else if !on {
             state = .notAsked
-        } else if problem != nil || !current {
+        } else if problem != nil || !upToDate {
             state = .outdated
         } else if file.needsTrust, !(record?.trustedAt.map { $0 >= record?.hooksWrittenAt ?? .distantPast } ?? false) {
             state = .needsTrust

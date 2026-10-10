@@ -122,6 +122,16 @@ import Testing
         #expect(result.plan.changes.isEmpty)
     }
 
+    @Test func selfCheckDoesNotPutBackHooksAfterUninstall() throws {
+        // `perch uninstall` keeps agents.json, so the agent is still on but has none of Perch's hooks.
+        let agents = AgentsFile(agents: ["claude-code": AgentRecord(status: .on, config: Self.claudePath)])
+        let files: [String: ConfigFile] = [Self.claudePath: .text(#"{"model":"opus"}"#)]
+        let check = Setup.evaluate(snapshot(agents: agents, files: files, runner: Self.app), request: .selfCheck)
+        #expect(check.plan.changes.isEmpty)
+        let setup = Setup.evaluate(snapshot(agents: agents, files: files), request: .setup())
+        #expect(setup.plan.changes.map(\.agent) == ["claude-code"])  // a reinstall picks up where it left off
+    }
+
     @Test func setupWaitReplacesTheInstalledOne() throws {
         let agents = AgentsFile(agents: ["claude-code": AgentRecord(status: .on, config: Self.claudePath)])
         let files: [String: ConfigFile] = [Self.claudePath: .text(try current(.claudeCode, wait: 45))]

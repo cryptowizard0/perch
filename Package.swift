@@ -24,7 +24,7 @@ let package = Package(
         // The daemon as a library: SQLite store, request handling, socket + HTTP servers, file mirror.
         .target(name: "PerchDaemon", dependencies: ["CSQLite", "PerchCore", "PerchClient"]),
         // Installing Perch: agent hook files, perchd's launchd agent, the fixed install location, agents.json.
-        // Does I/O, so it is not in PerchCore. Used by the CLI, perchd and the notch app.
+        // Does I/O, so it is not in PerchCore. Used by the CLI and perchd (the notch app next, #25).
         .target(name: "PerchSetup", dependencies: ["PerchCore", "PerchClient"]),
         // `perch` — the CLI. The only contract agents and humans use.
         .executableTarget(

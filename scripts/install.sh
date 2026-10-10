@@ -19,11 +19,13 @@ BIN=$(swift build -c release --show-bin-path)
 INSTALLED=${PERCH_HOME:-$HOME/.perch}/bin
 mkdir -p "$PREFIX" "$APPDIR"
 for name in perch perchd; do
-    if [ -e "$PREFIX/$name" ] && [ ! -L "$PREFIX/$name" ]; then
-        echo "$PREFIX/$name is not Perch's link; left it alone" >&2
-    else
-        ln -sfn "$INSTALLED/$name" "$PREFIX/$name"
+    if [ -e "$PREFIX/$name" ] || [ -L "$PREFIX/$name" ]; then
+        case "$(readlink "$PREFIX/$name" || true)" in
+            "$INSTALLED/$name") continue ;;
+            *) echo "$PREFIX/$name is not Perch's link; left it alone" >&2; continue ;;
+        esac
     fi
+    ln -s "$INSTALLED/$name" "$PREFIX/$name"
 done
 echo "linked perch, perchd → $PREFIX"
 

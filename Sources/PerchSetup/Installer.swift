@@ -166,7 +166,7 @@ public struct Installer {
 
     /// Writes the plan's hook changes (each file backed up first) and records them in `agents`.
     /// A file that can't be written is reported and its agent left as it was.
-    public func apply(_ plan: SetupPlan, to agents: inout AgentsFile, at now: Date = Date()) -> [AgentFailure] {
+    public func perform(_ plan: SetupPlan, recordingIn agents: inout AgentsFile, at now: Date = Date()) -> [AgentFailure] {
         var failures = plan.failures
         for change in plan.changes {
             if let text = change.text {
@@ -234,7 +234,11 @@ public struct Installer {
             guard let destination = try? fm.destinationOfSymbolicLink(atPath: link) else { continue }
             let absolute = URL(fileURLWithPath: destination, relativeTo: environment.localBin).standardizedFileURL.path
             guard absolute.hasPrefix(bin) else { continue }
-            try fm.removeItem(atPath: link)
+            do {
+                try fm.removeItem(atPath: link)
+            } catch {
+                throw SetupError("cannot remove \(link): \(error.localizedDescription)")
+            }
             report.removedLinks.append(link)
         }
         let target = purge ? environment.perchHome : environment.binDirectory
