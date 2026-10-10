@@ -4,12 +4,15 @@ import PerchCore
 
 /// perchd as a per-user launchd agent: `~/Library/LaunchAgents/dev.perch.perchd.plist`.
 /// Starts at login, restarts after a crash, logs to `~/.perch/perchd.log`.
-public enum LaunchAgent {
+public struct LaunchAgent {
     public static let label = "dev.perch.perchd"
 
-    public static var plistURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/LaunchAgents/\(label).plist")
+    public let plistURL: URL
+    public let launchctl: Launchctl
+
+    public init(userHome: URL = SetupEnvironment.current.userHome, launchctl: Launchctl = .current) {
+        plistURL = userHome.appendingPathComponent("Library/LaunchAgents/\(Self.label).plist")
+        self.launchctl = launchctl
     }
 
     public static func logURL(home: URL) -> URL {
@@ -39,30 +42,47 @@ public enum LaunchAgent {
     }
 
     /// Writes the plist and (re)loads it into the user's GUI session.
-    public static func install(plist: Data, home: URL) throws {
+    public func install(plist: Data, home: URL) throws {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         try FileManager.default.createDirectory(at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        _ = launchctl(["bootout", "\(domain)/\(label)"])  // not loaded is fine
+        _ = launchctl.run(["bootout", "\(Self.domain)/\(Self.label)"])  // not loaded is fine
         try plist.write(to: plistURL, options: .atomic)
-        let (status, output) = launchctl(["bootstrap", domain, plistURL.path])
+        let (status, output) = launchctl.run(["bootstrap", Self.domain, plistURL.path])
         guard status == 0 else { throw LaunchAgentError("launchctl bootstrap failed (\(status)): \(output)") }
     }
 
     /// Unloads the agent and deletes the plist. Returns false if nothing was installed.
     @discardableResult
-    public static func uninstall() throws -> Bool {
-        let loaded = launchctl(["bootout", "\(domain)/\(label)"]).0 == 0
+    public func uninstall() throws -> Bool {
+        let loaded = launchctl.run(["bootout", "\(Self.domain)/\(Self.label)"]).0 == 0
         let existed = FileManager.default.fileExists(atPath: plistURL.path)
         if existed { try FileManager.default.removeItem(at: plistURL) }
         return loaded || existed
     }
 
     private static var domain: String { "gui/\(getuid())" }
+}
 
-    private static func launchctl(_ args: [String]) -> (Int32, String) {
+/// `/bin/launchctl`, or the executable in `$PERCH_LAUNCHCTL` (tests: setup must never touch the real launchd).
+public struct Launchctl: Sendable {
+    public let path: String
+
+    public init(path: String) {
+        self.path = path
+    }
+
+    public static let system = Launchctl(path: "/bin/launchctl")
+
+    public static var current: Launchctl {
+        ProcessInfo.processInfo.environment["PERCH_LAUNCHCTL"].flatMap { $0.isEmpty ? nil : Launchctl(path: $0) } ?? .system
+    }
+
+    public var isSystem: Bool { path == Self.system.path }
+
+    public func run(_ args: [String]) -> (Int32, String) {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.executableURL = URL(fileURLWithPath: path)
         process.arguments = args
         let pipe = Pipe()
         process.standardOutput = pipe

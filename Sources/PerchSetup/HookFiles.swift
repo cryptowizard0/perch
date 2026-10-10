@@ -5,13 +5,21 @@ import PerchCore
 public protocol HookFile {
     var agent: String { get }
     var eventNames: [String] { get }
-    var defaultPath: String { get }
+    /// Where the agent keeps the file (see `ConfigLocation.candidates`).
+    var location: ConfigLocation { get }
     /// Printed after a successful install.
     var installNote: String? { get }
+    /// The agent runs new or changed hooks only after the user trusts them (Codex's /hooks).
+    var needsTrust: Bool { get }
     /// The file with Perch's hooks (replacing any old ones). `text` is nil when the file does not exist.
     func installing(_ text: String?, path: String, perch: String, wait: Int) throws -> String
     /// The file without Perch's hooks, and how many there were.
     func removing(_ text: String, path: String) throws -> (text: String, removed: Int)
+    /// Perch's hooks alone, in a canonical form: equal for the same hooks whatever else is in the file and in
+    /// whatever order. Empty when the file has none of Perch's hooks.
+    func perchHooks(in text: String?, path: String) throws -> String
+    /// The `--wait` Perch's PermissionRequest hook was installed with, if any.
+    func wait(in text: String?) -> Int?
 }
 
 public enum HookFiles {
@@ -30,13 +38,6 @@ public enum HookFiles {
         if FileManager.default.isExecutableFile(atPath: url.path) { return url.path }
         guard let path = Bundle.main.executablePath else { throw SetupError("cannot tell where perch is; pass --binary") }
         return path
-    }
-
-    /// `$<dirVariable>/<file>`, else `~/<defaultDir>/<file>`.
-    public static func configFile(dirVariable: String, defaultDir: String, file: String) -> String {
-        let dir = ProcessInfo.processInfo.environment[dirVariable].flatMap { $0.isEmpty ? nil : $0 }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(defaultDir).path
-        return URL(fileURLWithPath: dir).appendingPathComponent(file).path
     }
 
     public static func read(_ path: String) throws -> String? {
@@ -89,8 +90,9 @@ public struct HookSettings: HookFile {
 
     public let agent: String
     let events: [HookEvent]
-    public let defaultPath: String
+    public let location: ConfigLocation
     public var installNote: String?
+    public var needsTrust = false
 
     public var eventNames: [String] { events.map(\.name) }
 
@@ -104,7 +106,7 @@ public struct HookSettings: HookFile {
             HookEvent(name: "Stop"),
             HookEvent(name: "StopFailure"),
             HookEvent(name: "SessionEnd"),
-        ], defaultPath: HookFiles.configFile(dirVariable: "CLAUDE_CONFIG_DIR", defaultDir: ".claude", file: "settings.json"))
+        ], location: ConfigLocation(dirVariable: "CLAUDE_CONFIG_DIR", defaultDir: ".claude", file: "settings.json"))
     }
 
     /// Codex has no Notification / StopFailure / PostToolUseFailure; Interrupt covers Esc (no Stop follows).
@@ -116,8 +118,9 @@ public struct HookSettings: HookFile {
             HookEvent(name: "Stop"),
             HookEvent(name: "Interrupt", mode: .async(timeout: 3)),
             HookEvent(name: "SessionEnd", mode: .sync(timeout: 3)),
-        ], defaultPath: HookFiles.configFile(dirVariable: "CODEX_HOME", defaultDir: ".codex", file: "hooks.json"),
-        installNote: "Codex skips new or changed hooks until you trust them: start codex and review them with /hooks.")
+        ], location: ConfigLocation(dirVariable: "CODEX_HOME", defaultDir: ".codex", file: "hooks.json"),
+        installNote: "Codex skips new or changed hooks until you trust them: start codex and review them with /hooks.",
+        needsTrust: true)
     }
 
     private static func order(_ type: String) -> Int {
@@ -135,6 +138,34 @@ public struct HookSettings: HookFile {
         var root = try parse(text, path: path)
         let removed = remove(from: &root)
         return (try Self.render(root), removed)
+    }
+
+    public func perchHooks(in text: String?, path: String) throws -> String {
+        let root = try parse(text, path: path)
+        var ours: [String: Any] = [:]
+        for (event, value) in root["hooks"] as? [String: Any] ?? [:] {
+            let groups = (value as? [[String: Any]] ?? []).compactMap { group -> [String: Any]? in
+                let list = (group["hooks"] as? [[String: Any]] ?? []).filter(isPerch)
+                guard !list.isEmpty else { return nil }
+                var group = group
+                group["hooks"] = list
+                return group
+            }
+            if !groups.isEmpty { ours[event] = groups }
+        }
+        return ours.isEmpty ? "" : try Self.render(ours)
+    }
+
+    public func wait(in text: String?) -> Int? {
+        guard let text, let root = try? parse(text, path: ""),
+              let hooks = root["hooks"] as? [String: Any] else { return nil }
+        let commands = hooks.values.flatMap { ($0 as? [[String: Any]] ?? []).flatMap { $0["hooks"] as? [[String: Any]] ?? [] } }
+            .filter(isPerch).compactMap { $0["command"] as? String }
+        for command in commands {
+            let words = command.split(separator: " ")
+            if let i = words.firstIndex(of: "--wait"), i + 1 < words.count, let wait = Int(words[i + 1]) { return wait }
+        }
+        return nil
     }
 
     public func isPerch(_ hook: [String: Any]) -> Bool {
@@ -209,7 +240,8 @@ public struct HookSettings: HookFile {
 public struct HermesHooks: HookFile {
     public let agent = "hermes"
     public let eventNames = ["pre_llm_call", "post_llm_call", "on_session_end", "pre_approval_request", "post_approval_response"]
-    public var defaultPath: String { HookFiles.configFile(dirVariable: "HERMES_HOME", defaultDir: ".hermes", file: "config.yaml") }
+    public let location = ConfigLocation(dirVariable: "HERMES_HOME", defaultDir: ".hermes", file: "config.yaml")
+    public let needsTrust = false
     public let installNote: String? = """
         Hermes asks once before running a new hook: start `hermes` in a terminal and accept Perch's hooks \
         (or run it once with --accept-hooks), then `hermes gateway restart` so the gateway picks them up.
@@ -242,6 +274,17 @@ public struct HermesHooks: HookFile {
         return kept + block(perch: perch)
     }
 
+    public func perchHooks(in text: String?, path: String) throws -> String {
+        guard let text else { return "" }
+        let block = Self.blockRange(in: text).map { String(text[$0]) } ?? ""
+        let lines = Self.withoutBlock(text).text.components(separatedBy: "\n")
+        guard case .perch(let range, _) = Self.section(in: lines) else { return block }
+        return block + lines[range].joined(separator: "\n")
+    }
+
+    /// Hermes hooks never block on Perch.
+    public func wait(in text: String?) -> Int? { nil }
+
     public func removing(_ text: String, path: String) throws -> (text: String, removed: Int) {
         let (rest, inBlock) = Self.withoutBlock(text)
         var lines = rest.components(separatedBy: "\n")
@@ -268,14 +311,20 @@ public struct HermesHooks: HookFile {
 
     /// The text with Perch's marked block cut out, and how many hooks it held.
     static func withoutBlock(_ text: String) -> (text: String, removed: Int) {
+        guard let range = blockRange(in: text) else { return (text, 0) }
+        let removed = text[range].components(separatedBy: "- command:").count - 1
+        var kept = text
+        kept.removeSubrange(range)
+        return (kept, removed)
+    }
+
+    /// Perch's marked block, including the newline after its end marker.
+    static func blockRange(in text: String) -> Range<String.Index>? {
         guard let start = text.range(of: begin + "\n"),
-              let stop = text.range(of: end, range: start.upperBound..<text.endIndex) else { return (text, 0) }
+              let stop = text.range(of: end, range: start.upperBound..<text.endIndex) else { return nil }
         var upper = stop.upperBound
         if upper < text.endIndex, text[upper] == "\n" { upper = text.index(after: upper) }
-        let removed = text[start.lowerBound..<upper].components(separatedBy: "- command:").count - 1
-        var kept = text
-        kept.removeSubrange(start.lowerBound..<upper)
-        return (kept, removed)
+        return start.lowerBound..<upper
     }
 
     static func section(in lines: [String]) -> Section {
