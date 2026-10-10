@@ -10,6 +10,7 @@ struct NotchMenu {
 struct NotchView: View {
     @ObservedObject var notch: NotchModel
     @ObservedObject var queue: QueueModel
+    @ObservedObject var setup: SetupModel
     var menu: NotchMenu
 
     var body: some View {
@@ -20,12 +21,25 @@ struct NotchView: View {
                 CollapsedBar(queue: queue, notchWidth: notch.geometry?.notch?.width ?? 0)
                     .frame(height: notch.geometry?.bandHeight ?? NotchGeometry.capsuleHeight)
                 if notch.expanded {
-                    ExpandedPanel(queue: queue)
+                    ExpandedPanel(queue: queue, setup: setup)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contextMenu {
+            // Only an app that maintains the install (in an Applications folder, no PERCH_HOME) edits agent configs.
+            if !setup.state.menu.isEmpty {
+                Menu("Agents") {
+                    ForEach(setup.state.menu, id: \.agent) { toggle in
+                        Toggle(toggle.title, isOn: Binding(
+                            get: { toggle.on },
+                            set: { $0 ? setup.connect(toggle.agent) : setup.disconnect(toggle.agent) }
+                        ))
+                        .disabled(!toggle.available)
+                    }
+                }
+                Divider()
+            }
             Button("Quit Perch", action: menu.quit)
         }
     }

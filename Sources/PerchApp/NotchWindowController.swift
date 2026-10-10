@@ -16,6 +16,12 @@ final class NotchModel: ObservableObject {
         expanded = pinned
     }
 
+    /// Opens without a hover (the first-run card). It stays open until the pointer has been in and left.
+    func open() {
+        pendingHover?.cancel()
+        expanded = true
+    }
+
     /// Hover expands after a beat (so brushing past on the way to the menu bar does nothing)
     /// and collapses a little later (so a wobble at the edge does not flicker).
     func hover(_ inside: Bool) {
@@ -36,15 +42,17 @@ final class NotchWindowController {
     let panel = NotchPanel()
     let notch: NotchModel
     let queue: QueueModel
+    let setup: SetupModel
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
 
     static let expandedWidth: CGFloat = 460
 
-    init(notch: NotchModel, queue: QueueModel, menu: NotchMenu) {
+    init(notch: NotchModel, queue: QueueModel, setup: SetupModel, menu: NotchMenu) {
         self.notch = notch
         self.queue = queue
-        let host = NotchHostingView(rootView: NotchView(notch: notch, queue: queue, menu: menu))
+        self.setup = setup
+        let host = NotchHostingView(rootView: NotchView(notch: notch, queue: queue, setup: setup, menu: menu))
         host.sizingOptions = []
         host.onHover = { [weak notch] inside in notch?.hover(inside) }
         panel.contentView = host
@@ -54,10 +62,17 @@ final class NotchWindowController {
             MainActor.assumeIsolated { self?.layout() }
         })
         // Resize when the state flips, and when rows come and go while expanded.
-        notch.$expanded.removeDuplicates().dropFirst().sink { [weak self] _ in
-            DispatchQueue.main.async { self?.layout() }
+        notch.$expanded.removeDuplicates().dropFirst().sink { [weak self] expanded in
+            DispatchQueue.main.async {
+                self?.layout()
+                // agents.json or a hook file may have changed from the CLI since the last look.
+                if expanded { self?.setup.refresh() }
+            }
         }.store(in: &cancellables)
         queue.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.layout() }
+        }.store(in: &cancellables)
+        setup.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.layout() }
         }.store(in: &cancellables)
     }
@@ -82,7 +97,7 @@ final class NotchWindowController {
 
     /// Band + the list's estimated height (see `PanelLayout`; it scrolls past the cap) + padding.
     private func expandedHeight(band: CGFloat) -> CGFloat {
-        band + (queue.online ? PanelLayout.listHeight(queue.panel) : PanelLayout.messageHeight) + 16
+        band + PanelLayout.listHeight(queue.panel(setup: setup.state), online: queue.online) + 16
     }
 }
 

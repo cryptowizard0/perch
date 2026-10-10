@@ -24,7 +24,7 @@ let package = Package(
         // The daemon as a library: SQLite store, request handling, socket + HTTP servers, file mirror.
         .target(name: "PerchDaemon", dependencies: ["CSQLite", "PerchCore", "PerchClient"]),
         // Installing Perch: agent hook files, perchd's launchd agent, the fixed install location, agents.json.
-        // Does I/O, so it is not in PerchCore. Used by the CLI and perchd (the notch app next, #25).
+        // Does I/O, so it is not in PerchCore. Used by the CLI, perchd and the notch app.
         .target(name: "PerchSetup", dependencies: ["PerchCore", "PerchClient"]),
         // `perch` — the CLI. The only contract agents and humans use.
         .executableTarget(
@@ -47,12 +47,13 @@ let package = Package(
             ]
         ),
         // The notch app (AppKit + SwiftUI). Bundled into Perch.app by scripts/bundle-app.sh; no Xcode needed.
-        .executableTarget(name: "PerchApp", dependencies: ["PerchCore", "PerchClient", "PerchAppCore"]),
-        // The notch app's testable logic: geometry, queue state, reminders, the perchd connection. No AppKit.
-        .target(name: "PerchAppCore", dependencies: ["PerchCore", "PerchClient"]),
+        .executableTarget(name: "PerchApp", dependencies: ["PerchCore", "PerchClient", "PerchAppCore", "PerchSetup"]),
+        // The notch app's testable logic: geometry, queue state, reminders, the perchd connection, the self-check and
+        // setup rows. No AppKit.
+        .target(name: "PerchAppCore", dependencies: ["PerchCore", "PerchClient", "PerchSetup"]),
         .testTarget(name: "PerchCoreTests", dependencies: ["PerchCore"]),
         .testTarget(name: "PerchDaemonTests", dependencies: ["PerchCore", "PerchClient", "PerchDaemon", "PerchAppCore"]),
-        .testTarget(name: "PerchAppCoreTests", dependencies: ["PerchCore", "PerchAppCore"]),
+        .testTarget(name: "PerchAppCoreTests", dependencies: ["PerchCore", "PerchAppCore", "PerchSetup"]),
         .testTarget(name: "PerchSetupTests", dependencies: ["PerchCore", "PerchSetup"]),
     ]
 )
