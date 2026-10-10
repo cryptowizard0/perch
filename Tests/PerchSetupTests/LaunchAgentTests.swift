@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import PerchDaemon
+@testable import PerchSetup
 
 @Suite struct LaunchAgentTests {
     func decode(_ data: Data) throws -> [String: Any] {

@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import PerchClient
 import PerchCore
+import PerchSetup
 
 /// `perch hook <agent>` — the hook adapter. Claude Code / Codex / Hermes run it with the hook JSON on stdin (see HookAdapter).
 /// Contract with the agent: print nothing (SessionStart / UserPromptSubmit stdout would be added to the

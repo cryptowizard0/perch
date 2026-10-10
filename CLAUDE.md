@@ -13,7 +13,8 @@ Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd�
 Sources/PerchCore/       模型、wire protocol、路径、纯解析/渲染。所有客户端共享，不含任何 I/O
 Sources/PerchClient/     Unix socket 客户端（CLI 和刘海 App 共用）；sysctl 读进程（hook 找 agent、perchd 存活检测）
 Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd
-Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像、launchd
+Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像
+Sources/PerchSetup/      安装 Perch（库，有 I/O）：agent hook 文件读写、perchd 的 launchd agent；CLI / perchd / 刘海 App 共用
 Sources/CSQLite/         系统 libsqlite3 的最小声明（见下方 SQLite 决定）
 Sources/perch/           CLI，唯一对外契约（ArgumentParser）
 Sources/perchd/          daemon 可执行文件入口，只做组装

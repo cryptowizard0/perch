@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import PerchClient
 import PerchCore
+import PerchSetup
 
 // `perch` — the CLI. This is the ONLY contract agents and humans use; storage is a
 // daemon implementation detail. Every subcommand supports `--json`: on success stdout gets
@@ -24,6 +25,8 @@ struct Perch: ParsableCommand {
             var command = try parseAsRoot()
             try command.run()
         } catch let error as CLIError {
+            fail(error.message, code: error.code, json: wantsJSON)
+        } catch let error as SetupError {
             fail(error.message, code: error.code, json: wantsJSON)
         } catch {
             let code = exitCode(for: error)

@@ -4,6 +4,7 @@ import Foundation
 import PerchClient
 import PerchCore
 import PerchDaemon
+import PerchSetup
 
 // perchd — the Perch daemon. Single source of truth.
 // Owns the SQLite store, listens on the Unix socket (+ localhost HTTP),
