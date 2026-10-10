@@ -26,8 +26,8 @@ for name in perch perchd; do
         esac
     fi
     ln -s "$INSTALLED/$name" "$PREFIX/$name"
+    echo "linked $PREFIX/$name → $INSTALLED/$name"
 done
-echo "linked perch, perchd → $PREFIX"
 
 osascript -e 'quit app id "dev.perch.app"' >/dev/null 2>&1 || true
 APP="$APPDIR/Perch.app" scripts/bundle-app.sh >/dev/null
