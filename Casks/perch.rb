@@ -8,7 +8,7 @@
 # scripts/package-release.sh sets version and sha256.
 cask "perch" do
   version "0.4.0"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "de42366861944cb05f87dcb779ec1434b5b69067d3f6d037dfe31ad62ce4ddb3"
 
   url "https://github.com/cryptowizard0/perch/releases/download/v#{version}/perch-#{version}-macos-arm64.zip"
   name "Perch"
