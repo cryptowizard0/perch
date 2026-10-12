@@ -492,7 +492,8 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
   - Failed `failed.wav`（0.5 s）"Uh-oh… bzzt"：两个往下掉、发抖的音，然后天线短路的滋啦声。
   - Done `done.wav`（0.6 s）"Bwip! hehe ✨"：一跳的上滑音、两声咯咯笑、一个高音闪光。
 - 已知限制：专注模式 / 勿扰不会让它静音（是声音不是通知；读 Focus 状态要 `INFocusStatusCenter` + 授权，先靠总开关）；没有"你正看着那个终端就不响"。
-- 待做：维护者真实会话里听一遍、调声音；PR 合并后关 #35。
+- 2026-10-12 维护者用 `afplay` 听过三段，`APPDIR=/Applications scripts/install.sh` 装到本机，定"先这样"，开 PR。
+- 待做：PR 合并后关 #35；以后想调声音就改 `make-sounds.swift` 重新生成。
 
 ## 未决问题
 
