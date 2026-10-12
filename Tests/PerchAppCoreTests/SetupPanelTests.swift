@@ -371,3 +371,10 @@ import Testing
         #expect(noBox.card == nil && !registers)
     }
 }
+
+@Suite struct AgentNamesTests {
+    @Test func displayNames() {
+        #expect(["claude-code", "codex", "grok", "hermes", "aider"].map(AgentNames.display)
+                == ["Claude Code", "Codex", "Grok", "Hermes", "aider"])
+    }
+}

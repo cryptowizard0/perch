@@ -54,6 +54,18 @@ struct HookCLITests {
         #expect(try allItems(d) == [])
     }
 
+    /// Grok runs ~/.claude/settings.json hooks too (its Claude compatibility); those calls must not add a session.
+    @Test func grokRunningClaudeCodesHooksIsIgnored() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        var grok = env
+        grok["GROK_HOOK_EVENT"] = "user_prompt_submit"
+        let result = try cli.run(["hook", "claude-code"], stdin: event("UserPromptSubmit", #","prompt":"hi""#), env: grok)
+        #expect(result.status == 0 && result.stdout.isEmpty && result.stderr.isEmpty)
+        #expect(try d.client.send(Request(op: .sessions)).sessions == [])
+        #expect(!FileManager.default.fileExists(atPath: d.home.appendingPathComponent("hook.log").path))
+    }
+
     @Test func silentAndZeroWhenThingsGoWrong() throws {
         let home = URL(fileURLWithPath: "/tmp/perch-test-hook-\(UUID().uuidString.prefix(6))")
         defer { try? FileManager.default.removeItem(at: home) }

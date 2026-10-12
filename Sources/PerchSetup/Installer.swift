@@ -31,7 +31,7 @@ public struct Installer: Sendable {
         for file in Setup.agents {
             for path in file.location.candidates(recorded: agents[file.agent]?.config, environment: environment.variables,
                                                  userHome: environment.userHome.path) {
-                files[path] = Self.readConfig(path)
+                files[path] = Self.readConfig(path, in: file.location)
             }
         }
         return SetupSnapshot(agents: agents, files: files, environment: environment.variables,
@@ -39,8 +39,8 @@ public struct Installer: Sendable {
                              installedVersion: installedVersion, bundledVersion: bundledVersion, runner: runner)
     }
 
-    public static func readConfig(_ path: String) -> ConfigFile {
-        guard SetupEnvironment.hasDirectory(path) else { return .noDirectory }
+    public static func readConfig(_ path: String, in location: ConfigLocation) -> ConfigFile {
+        guard SetupEnvironment.isDirectory(location.agentDirectory(of: path)) else { return .noDirectory }
         do {
             return try HookFiles.read(path).map(ConfigFile.text) ?? .missing
         } catch let error as SetupError {
@@ -173,7 +173,7 @@ public struct Installer: Sendable {
         for change in plan.changes {
             if let text = change.text {
                 do {
-                    try HookFiles.write(text, to: change.config)
+                    try HookFiles.save(text, to: change.config, for: Setup.agent(change.agent))
                 } catch {
                     failures.append(AgentFailure(agent: change.agent, config: change.config,
                                                  message: "cannot write \(change.config): \(error.localizedDescription)"))
@@ -198,7 +198,7 @@ public struct Installer: Sendable {
         let config = path ?? environment.configPath(for: file, recorded: agents[file.agent]?.config)
         let text = try HookFiles.read(config)
         let (kept, removed) = try text.map { try file.removing($0, path: config) } ?? ("", 0)
-        if removed > 0 { try HookFiles.write(kept, to: config) }
+        if removed > 0 { try HookFiles.save(kept, to: config, for: file) }
         agents.turnOff(file.agent, config: config)
         return Disconnection(config: config, existed: text != nil, removed: removed)
     }
@@ -233,7 +233,7 @@ public struct Installer: Sendable {
                     guard let text = try HookFiles.read(path) else { continue }
                     let (kept, removed) = try file.removing(text, path: path)
                     guard removed > 0 else { continue }
-                    try HookFiles.write(kept, to: path)
+                    try HookFiles.save(kept, to: path, for: file)
                     report.removals.append(Removal(agent: file.agent, config: path, removed: removed))
                 } catch let error as SetupError {
                     report.failures.append(AgentFailure(agent: file.agent, config: path, message: error.message))

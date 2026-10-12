@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-12 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29"
+最后更新：2026-10-12 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中：Grok（#31 / M11）**，分支 `feat/grok`，2026-10-12 维护者真实会话验收通过，PR 待合并，见下方"M11 进度"
 
 ## 发布
 
@@ -29,6 +29,7 @@
 | M6 | Hermes 接入（改为 shell hook） | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ✅ 完成 | #15 状态机 ✅；#16 存活检测 ✅；#17 真实会话验收 ✅（2026-10-08，Hermes 一轮未测） |
 | M8 | Agent 面板 UI；刘海 todo UI 下线 | ✅ 完成 | #18 面板 ✅；#19 交互 + todo 下线 ✅；#20 验收 ✅（2026-10-08，用户确认） |
+| M11 | Grok Build（#31，v0.5 第一个新 agent） | ✅ 验收通过 | 分支 `feat/grok`，363 个测试；2026-10-12 维护者真实会话验收通过，PR 待合并（见"M11 进度"） |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -450,6 +451,35 @@ hermes hooks list               # 5 个都应是 allowed
 - `kind` 只能在 task ↔ notice 之间切；notice 转 task 时清掉 `expires_at`（否则会按 notice 的时间被 dismiss）；request 的 kind 不能改，也不能改成 request。
 - CLI：`perch update <id> [--title …] [--kind task|notice] [--due …] [--no-due] [--json]`。推迟 30 分钟 = `--due +30m`（从现在起算，不是从原 due 起算）。
 
+## M11 进度：Grok Build（#31，2026-10-12）
+
+v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#24 原来排第 7）。分支 `feat/grok`，5 个提交：
+
+| 提交 | 内容 |
+| --- | --- |
+| `7eb2ecf` | 除 `grok` 外的适配器看到 `GROK_HOOK_EVENT` 就退出（Grok 默认跑 `~/.claude/settings.json` 的 hook，payload 带 `session_id`，能解出来，会多出没有 pid 的 claude-code 会话） |
+| `e518d44` | 状态机：报告可带 `turn_id`，别的轮的 stop / failure / interrupt 丢掉（只存 `SessionRegistry` 内存，不动 schema）；新 kind `settle` |
+| `b19f450` | `perch hook grok`：`HookInput` 两种 key 名都认；`HookAdapter.grok` 映射；`AgentProcess` 认 `grok` / `agent`；`HookSettings.grok` |
+| `8773770` | 安装：`Setup.agents` 加 Grok；按 agent 目录检测（`ConfigLocation.agentDirectory`）；`HookFile.ownsFile`（不写备份、空了删文件）；setup 测试清掉 `GROK_HOME` |
+| `b923bb2` | 刘海：Grok 图标（斜线穿过的圆环）和名字 |
+
+**实测（grok 1.0.50，临时 `~/.grok/hooks/perch-spike.json` 记录 stdin / 环境 / 进程链，headless + `expect` 驱动 TUI，测完已删，`~/.grok/config.toml` 没动）：**
+- payload 是 camelCase，只有 `session_id` / `hook_event_name` / `permission_mode` / `transcript_path` / `tool_name` / `tool_input` / `tool_use_id` 有 snake_case 副本；`lastAssistantMessage`、`promptId`、`reason`、`notificationType` 只有 camelCase。prompt 字段就叫 `prompt`。
+- hook 的父进程就是 `grok`（headless 和 TUI 都是，`sh` 直接 exec 脚本）。leader 模式默认关。
+- `Notification` `permission_prompt` 和 PreToolUse 几乎同时发（60 ms），原话只有 "Tool permission requested"。本机 `permission_mode = "always-approve"`，测权限要加 `--permission-mode default`；`echo` 这类安全命令不弹框。
+- 关掉提示框（Ctrl+C）→ `StopCancelled` `permission_cancelled`；跑到一半 Ctrl+C → `user_interrupt` + `cancelTrigger: ctrl_c`；**模型还没开始就 Ctrl+C：什么都不发**（prompt 放回输入框），只有约 1 分钟后的 `idle_prompt` 能兜底。
+- 会话结束：`SessionEnd` + 一次 `Stop`（`reason: shutdown`）；关掉 pty 也发。
+- `perch hook grok` 约 7 ms（裸 `sh` 3 ms），所以前台跑 PostToolUse 没问题。
+
+**决定（2026-10-12，用户确认方案）：** runtime 停下（`max_turns` / `no_progress`）算 Failed；装 `idle_prompt` 兜底，但只改 Running / Needs you；不装 PreToolUse；Grok Bot.app 不管；轮次只存内存。
+
+**已知限制：** Needs you 不显示命令（Grok 不给）；刘海永远不能批准 Grok；开了 leader 模式时会话共用 leader 进程，pid 检测只在 leader 退出时清；Grok Bot.app 的会话不显示。
+
+**待做：**
+1. ~~真实会话验收~~ ✅ 2026-10-12 维护者本机通过：`APPDIR=/Applications scripts/install.sh` 装上这个分支（本机的 Perch 在 /Applications，zip 装的，不是 brew）→ 设置行 "Grok found · Connect" → Ghostty 里 `grok --permission-mode default` 走完 Running → Needs you → 终端批准 → Running → Done → Ctrl+C → Idle → 关 tab，断开后 `perch.json` 被删。
+2. PR 合并后关 #31。
+3. 可选的后续：装一个 PreToolUse 记下命令（每次调工具约 7 ms），让 Needs you 显示完整命令。要在状态机里加"记下待批准的命令但不改状态"的报告，先问用户。
+
 ## 未决问题
 
 | 问题 | 影响 | 状态 |
@@ -486,6 +516,7 @@ README 截图怎么重做（`scripts/readme-images/`）：
 - `link` 只能打开 URL 和绝对 / `~` 路径；tmux 等终端会话引用没有跳转按钮，等 M3 定机制。
 - #8（2026-10-08 实测，Claude Code 2.1.258，`claude --settings` 挂一个记录所有事件的 hook）：权限提示上选 No 或按 Esc，**不发任何 hook**（`idle_prompt` 等了 2.5–5 分钟也没来），transcript 里写 `[Request interrupted by user for tool use]` + `turn_duration` → 已修：perchd 监视 Running / Needs you 会话的 transcript，见到标记就转 Idle（`ClaudeTranscript` / `TranscriptWatcher`，schema v3 加 `transcript_path`）。Claude 还在思考、没输出时按 Esc：hook 和 transcript 都没有任何记录（prompt 被放回输入框）→ 没有可靠信号，会话停在 Running 直到下一条 prompt 或关 tab，记为已知限制。输出到一半按 Esc：transcript 写 `[Request interrupted by user]`（不带 "for tool use"），同一个修法能认（2026-10-08 实测变灰）。命令运行中（`sleep 30`）按 Esc 也实测变灰。Codex 有 Interrupt hook，没这个问题。用户实测（2026-10-08，重装后）：权限提示上选 No、按 Esc，刘海那行都在一两秒内从橙变灰。
 - 非 Ghostty 终端只能激活 App，定位不到 tab。Perch.app 还没有注册 `perch-terminal://` URL scheme（todo.md 里的这类链接点不开）。
+- Grok（M11）：Needs you 不显示命令（`permission_prompt` 没有）；刘海不能批准 Grok；leader 模式下会话要等 leader 退出才清；Grok Bot.app 不显示。
 - 点击 / 快捷键的 UI 路径没有自动化测试（只测了 `QueueModel` 的 open / remove / openHead / answerHead），改交互要人工回归上面的清单。
 
 ## 工作约定（来自用户和 CLAUDE.md）

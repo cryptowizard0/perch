@@ -8,6 +8,7 @@ import Testing
     static let bin = "/Users/me/.perch/bin/perch"
     static let claudePath = "/Users/me/.claude/settings.json"
     static let codexPath = "/Users/me/.codex/hooks.json"
+    static let grokPath = "/Users/me/.grok/hooks/perch.json"
     static let app = SetupRunner.app(path: "/Applications/Perch.app")
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -28,16 +29,16 @@ import Testing
 
     @Test func notDetectedWithoutAConfigDirectory() {
         let result = Setup.evaluate(snapshot(), request: .setup())
-        #expect(result.agents.map(\.agent) == ["claude-code", "codex"])
-        #expect(result.agents.map(\.state) == [.notDetected, .notDetected])
-        #expect(result.agents.map(\.config) == [Self.claudePath, Self.codexPath])
+        #expect(result.agents.map(\.agent) == ["claude-code", "codex", "grok"])
+        #expect(result.agents.map(\.state) == [.notDetected, .notDetected, .notDetected])
+        #expect(result.agents.map(\.config) == [Self.claudePath, Self.codexPath, Self.grokPath])
         #expect(result.plan.changes.isEmpty)
     }
 
     @Test func notAskedIsConnectedBySetupButNotBySelfCheck() throws {
         let files: [String: ConfigFile] = [Self.claudePath: .missing, Self.codexPath: .text("{}")]
         let check = Setup.evaluate(snapshot(files: files, runner: Self.app), request: .selfCheck)
-        #expect(check.agents.map(\.state) == [.notAsked, .notAsked])
+        #expect(check.agents.map(\.state) == [.notAsked, .notAsked, .notDetected])
         #expect(check.plan.changes.isEmpty)
 
         let setup = Setup.evaluate(snapshot(files: files), request: .setup())
@@ -219,6 +220,17 @@ import Testing
     }
 
     // MARK: Config paths
+
+    @Test func grokIsSetUpWhereItsHomeIs() {
+        let location = HookSettings.grok.location
+        #expect(location.candidates(recorded: nil, environment: ["GROK_HOME": "/g"], userHome: Self.home)
+                == ["/g/hooks/perch.json", Self.grokPath])
+        #expect(location.agentDirectory(of: Self.grokPath) == "/Users/me/.grok")
+        #expect(HookSettings.claudeCode.location.agentDirectory(of: Self.claudePath) == "/Users/me/.claude")
+        // ~/.grok exists, ~/.grok/hooks does not yet: still Grok's place.
+        #expect(location.resolve(recorded: nil, environment: ["GROK_HOME": "/g"], userHome: Self.home) { $0 == Self.grokPath }
+                == Self.grokPath)
+    }
 
     @Test func candidatesRecordedThenEnvironmentThenDefault() {
         let location = HookSettings.claudeCode.location

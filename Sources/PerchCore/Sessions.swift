@@ -103,10 +103,15 @@ public struct Session: Codable, Equatable, Identifiable, Sendable {
 /// | stop | → done with `last_message`; resolves the request |
 /// | failure | → failed with `error`; resolves the request |
 /// | interrupt | → idle; resolves the request |
+/// | settle | running / waiting → idle, other states stay; never creates a session (Grok's `idle_prompt`) |
 /// | end | removes the session; resolves the request |
+///
+/// `turn_id` names the turn a report is about, for agents that say (Grok's `promptId`). A prompt makes it the
+/// session's current turn; a stop / failure / interrupt for another turn is late (Grok reports a cancelled turn off
+/// its main loop, sometimes after the next prompt) and ignored.
 public struct SessionReport: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
-        case prompt, waiting, resume, stop, failure, interrupt, end
+        case prompt, waiting, resume, stop, failure, interrupt, settle, end
     }
 
     public var id: String
@@ -125,10 +130,13 @@ public struct SessionReport: Codable, Equatable, Sendable {
     public var pid: Int32?
     public var pidStartedAt: Date?
     public var transcriptPath: String?
+    public var turn: String?
 
     public init(id: String, kind: Kind, at: Date, source: String? = nil, title: String? = nil, cwd: String? = nil,
                 link: String? = nil, prompt: String? = nil, detail: String? = nil, keepDetail: Bool? = nil,
-                lastMessage: String? = nil, error: String? = nil, pid: Int32? = nil, pidStartedAt: Date? = nil) {
+                lastMessage: String? = nil, error: String? = nil, pid: Int32? = nil, pidStartedAt: Date? = nil,
+                turn: String? = nil) {
+        self.turn = turn
         self.id = id
         self.kind = kind
         self.at = at
@@ -151,6 +159,7 @@ public struct SessionReport: Codable, Equatable, Sendable {
         case lastMessage = "last_message"
         case pidStartedAt = "pid_started_at"
         case transcriptPath = "transcript_path"
+        case turn = "turn_id"
     }
 }
 

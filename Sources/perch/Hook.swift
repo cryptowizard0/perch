@@ -16,13 +16,14 @@ struct Hook: ParsableCommand {
     )
     static let agents = HookFiles.all.map(\.agent)
 
-    @Argument(help: "claude-code | codex | hermes") var agent: String
+    @Argument(help: "claude-code | codex | grok | hermes") var agent: String
     @Option(help: "PermissionRequest: seconds to wait for Allow / Deny in the notch before the terminal asks.")
     var wait: Double = HookAdapter.permissionWait
 
     func run() {
         let now = Date()
         guard Self.agents.contains(agent) else { return HookLog.write("unknown agent '\(agent)'") }
+        if HookAdapter.isForeign(agent: agent, environment: ProcessInfo.processInfo.environment) { return }
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let input: HookInput
         do {

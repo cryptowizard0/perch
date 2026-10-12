@@ -129,7 +129,7 @@ public struct SetupEvaluation: Equatable, Sendable {
 
 public enum Setup {
     /// The agents setup detects and connects. Hermes is not supported for now (`perch hooks install hermes` still works).
-    public static let agents: [any HookFile] = [HookSettings.claudeCode, HookSettings.codex]
+    public static let agents: [any HookFile] = [HookSettings.claudeCode, HookSettings.codex, HookSettings.grok]
     public static var agentNames: [String] { agents.map(\.agent) }
     public static let defaultWait = Int(HookAdapter.permissionWait)
 

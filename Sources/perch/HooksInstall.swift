@@ -17,12 +17,13 @@ struct HooksInstall: ParsableCommand {
         discussion: """
         claude-code: ~/.claude/settings.json ($CLAUDE_CONFIG_DIR/settings.json if set).
         codex: ~/.codex/hooks.json ($CODEX_HOME/hooks.json if set); Codex runs them only after you trust them in /hooks.
+        grok: ~/.grok/hooks/perch.json ($GROK_HOME/hooks/perch.json if set), a file of Perch's own; restart grok sessions to load it.
         hermes: ~/.hermes/config.yaml ($HERMES_HOME/config.yaml if set); Hermes asks once before running them.
         A file recorded by `perch setup` in ~/.perch/agents.json is used first. A backup is written next to the file.
         Records the agent as connected in agents.json (`perch setup` keeps its hooks up to date).
         """
     )
-    @Argument(help: "claude-code | codex | hermes") var agent: String
+    @Argument(help: "claude-code | codex | grok | hermes") var agent: String
     @Option(help: "Settings file to edit (default: the agent's user settings).") var settings: String?
     @Option(help: "perch binary the hooks run (default: ~/.perch/bin/perch, installed by `perch setup`).") var binary: String?
     @Option(help: "Seconds a permission request waits for the notch before the terminal asks.")
@@ -45,7 +46,7 @@ struct HooksInstall: ParsableCommand {
         } else if !FileManager.default.isExecutableFile(atPath: perch) {
             warn("hooks run \(perch), which does not exist yet; `perch setup` installs it.")
         }
-        try HookFiles.write(text, to: path)
+        try HookFiles.save(text, to: path, for: target)
         let changed = try target.perchHooks(in: old, path: path) != target.perchHooks(in: text, path: path)
         agents.turnOn(agent, config: path, hooksChanged: changed, at: Date())
         try installer.saveAgents(agents)
@@ -57,7 +58,7 @@ struct HooksInstall: ParsableCommand {
 
 struct HooksUninstall: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "uninstall", abstract: "Remove Perch's hooks (only Perch's) and record the agent as disconnected.")
-    @Argument(help: "claude-code | codex | hermes") var agent: String
+    @Argument(help: "claude-code | codex | grok | hermes") var agent: String
     @Option(help: "Settings file to edit (default: the agent's user settings).") var settings: String?
     @Flag(help: "Print JSON.") var json = false
 

@@ -11,6 +11,8 @@ public protocol HookFile {
     var installNote: String? { get }
     /// The agent runs new or changed hooks only after the user trusts them (Codex's /hooks).
     var needsTrust: Bool { get }
+    /// The file holds nothing but Perch's hooks (Grok's ~/.grok/hooks/perch.json): no backup, deleted once empty.
+    var ownsFile: Bool { get }
     /// The file with Perch's hooks (replacing any old ones). `text` is nil when the file does not exist.
     func installing(_ text: String?, path: String, perch: String, wait: Int) throws -> String
     /// The file without Perch's hooks, and how many there were.
@@ -22,8 +24,12 @@ public protocol HookFile {
     func wait(in text: String?) -> Int?
 }
 
+extension HookFile {
+    public var ownsFile: Bool { false }
+}
+
 public enum HookFiles {
-    public static var all: [any HookFile] { [HookSettings.claudeCode, HookSettings.codex, HermesHooks()] }
+    public static var all: [any HookFile] { [HookSettings.claudeCode, HookSettings.codex, HookSettings.grok, HermesHooks()] }
 
     public static func `for`(_ agent: String) throws -> any HookFile {
         guard let file = all.first(where: { $0.agent == agent }) else {
@@ -49,12 +55,24 @@ public enum HookFiles {
         return text
     }
 
+    /// Writes `file`'s hook file after a change: `write`, except that a file Perch owns gets no backup (it would sit
+    /// next to the agent's hook files) and is deleted once it holds nothing.
+    public static func save(_ text: String, to path: String, for file: any HookFile) throws {
+        guard file.ownsFile else { return try write(text, to: path) }
+        let root = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+        if root?.isEmpty == true {
+            if FileManager.default.fileExists(atPath: path) { try FileManager.default.removeItem(atPath: path) }
+            return
+        }
+        try write(text, to: path, backup: false)
+    }
+
     /// Backs up the old file to `<path>.perch-backup`, then replaces it atomically.
-    public static func write(_ text: String, to path: String) throws {
+    public static func write(_ text: String, to path: String, backup: Bool = true) throws {
         let url = URL(fileURLWithPath: path)
         let fm = FileManager.default
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if fm.fileExists(atPath: path) {
+        if backup, fm.fileExists(atPath: path) {
             let backup = URL(fileURLWithPath: path + ".perch-backup")
             try? fm.removeItem(at: backup)
             try fm.copyItem(at: url, to: backup)
@@ -93,6 +111,7 @@ public struct HookSettings: HookFile {
     public let location: ConfigLocation
     public var installNote: String?
     public var needsTrust = false
+    public var ownsFile = false
 
     public var eventNames: [String] { events.map(\.name) }
 
@@ -121,6 +140,26 @@ public struct HookSettings: HookFile {
         ], location: ConfigLocation(dirVariable: "CODEX_HOME", defaultDir: ".codex", file: "hooks.json"),
         installNote: "Codex skips new or changed hooks until you trust them: start codex and review them with /hooks.",
         needsTrust: true)
+    }
+
+    /// Grok Build reads every `~/.grok/hooks/*.json`, so Perch keeps its own file there; global hooks need no trust.
+    /// Grok has no async hooks (it runs them all in the foreground and logs a load error for `async`), so each one
+    /// gets a short explicit timeout; Stop / PostToolUse would otherwise default to 600 s. No PermissionRequest:
+    /// Grok has none, and the notch can never answer it.
+    public static var grok: HookSettings {
+        HookSettings(agent: "grok", events: [
+            HookEvent(name: "UserPromptSubmit", mode: .sync(timeout: 5)),
+            HookEvent(name: "Notification", matcher: (HookAdapter.waitingNotifications.sorted { order($0) < order($1) } + ["idle_prompt"])
+                .joined(separator: "|"), mode: .sync(timeout: 5)),
+            HookEvent(name: "PostToolUse", mode: .sync(timeout: 5)),
+            HookEvent(name: "PostToolUseFailure", mode: .sync(timeout: 5)),
+            HookEvent(name: "Stop", mode: .sync(timeout: 5)),
+            HookEvent(name: "StopFailure", mode: .sync(timeout: 5)),
+            HookEvent(name: "StopCancelled", mode: .sync(timeout: 5)),
+            HookEvent(name: "SessionEnd", mode: .sync(timeout: 3)),
+        ], location: ConfigLocation(dirVariable: "GROK_HOME", defaultDir: ".grok", file: "hooks/perch.json"),
+        installNote: "Grok loads hooks when a session starts: restart running grok sessions (or reload them in /hooks with r).",
+        ownsFile: true)
     }
 
     private static func order(_ type: String) -> Int {

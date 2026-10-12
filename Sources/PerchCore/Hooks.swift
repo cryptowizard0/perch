@@ -2,7 +2,9 @@ import Foundation
 
 /// What Claude Code (and Codex, same shape) sends a command hook on stdin. Only the fields Perch uses;
 /// Codex's extra fields (`turn_id`, `model`, …) and nulls are ignored. Hermes shell hooks send the same
-/// top-level fields and put the event's details in `extra`.
+/// top-level fields and put the event's details in `extra`. Grok sends camelCase (`sessionId`,
+/// `lastAssistantMessage`, …) with snake_case copies of only some keys (`session_id`, `hook_event_name`,
+/// `tool_name`, `tool_input`, `transcript_path`), so each field is read under either name.
 public struct HookInput: Decodable, Equatable, Sendable {
     public var sessionID: String
     public var event: String
@@ -21,6 +23,14 @@ public struct HookInput: Decodable, Equatable, Sendable {
     public var toolInput: [String: JSONValue]?
     /// Hermes: the event's keyword arguments.
     public var extra: Extra?
+    /// Grok: the turn an event belongs to (absent for session-level events).
+    public var promptID: String?
+    /// Grok: why a Stop / StopCancelled / SessionEnd fired (`end_turn`, `shutdown`, `user_interrupt`, …).
+    public var reason: String?
+    /// Grok StopCancelled: `user`, `runtime` or `unknown`.
+    public var cancelledBy: String?
+    /// Grok: set on the events of a subagent's own session.
+    public var subagentType: String?
 
     /// The Hermes `extra` fields Perch reads (the rest, like the whole conversation history, is skipped).
     public struct Extra: Decodable, Equatable, Sendable {
@@ -57,20 +67,55 @@ public struct HookInput: Decodable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case cwd, message, extra, prompt, error
-        case sessionID = "session_id"
+        case cwd, message, extra, prompt, error, reason
+        case sessionID = "session_id", sessionIDCamel = "sessionId"
         case event = "hook_event_name"
-        case transcriptPath = "transcript_path"
-        case notificationType = "notification_type"
-        case lastAssistantMessage = "last_assistant_message"
-        case toolName = "tool_name"
-        case toolInput = "tool_input"
+        case transcriptPath = "transcript_path", transcriptPathCamel = "transcriptPath"
+        case notificationType = "notification_type", notificationTypeCamel = "notificationType"
+        case lastAssistantMessage = "last_assistant_message", lastAssistantMessageCamel = "lastAssistantMessage"
+        case toolName = "tool_name", toolNameCamel = "toolName"
+        case toolInput = "tool_input", toolInputCamel = "toolInput"
+        case promptID = "promptId", cancelledBy, subagentType
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func string(_ key: CodingKeys, _ camel: CodingKeys) throws -> String? {
+            try c.decodeIfPresent(String.self, forKey: key) ?? c.decodeIfPresent(String.self, forKey: camel)
+        }
+        if let id = try string(.sessionID, .sessionIDCamel) {
+            sessionID = id
+        } else {
+            throw DecodingError.keyNotFound(CodingKeys.sessionID, .init(codingPath: c.codingPath, debugDescription: "no session_id"))
+        }
+        event = try c.decode(String.self, forKey: .event)
+        cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
+        transcriptPath = try string(.transcriptPath, .transcriptPathCamel)
+        notificationType = try string(.notificationType, .notificationTypeCamel)
+        message = try c.decodeIfPresent(String.self, forKey: .message)
+        lastAssistantMessage = try string(.lastAssistantMessage, .lastAssistantMessageCamel)
+        prompt = try c.decodeIfPresent(String.self, forKey: .prompt)
+        error = try c.decodeIfPresent(JSONValue.self, forKey: .error)
+        toolName = try string(.toolName, .toolNameCamel)
+        toolInput = try c.decodeIfPresent([String: JSONValue].self, forKey: .toolInput)
+            ?? c.decodeIfPresent([String: JSONValue].self, forKey: .toolInputCamel)
+        extra = try c.decodeIfPresent(Extra.self, forKey: .extra)
+        // Grok's own fields: an unexpected shape from another agent must never break decoding.
+        promptID = try? c.decodeIfPresent(String.self, forKey: .promptID)
+        reason = try? c.decodeIfPresent(String.self, forKey: .reason)
+        cancelledBy = try? c.decodeIfPresent(String.self, forKey: .cancelledBy)
+        subagentType = try? c.decodeIfPresent(String.self, forKey: .subagentType)
     }
 
     public init(sessionID: String, event: String, cwd: String? = nil, notificationType: String? = nil,
                 message: String? = nil, lastAssistantMessage: String? = nil, toolName: String? = nil,
                 toolInput: [String: JSONValue]? = nil, extra: Extra? = nil, prompt: String? = nil, error: JSONValue? = nil,
-                transcriptPath: String? = nil) {
+                transcriptPath: String? = nil, promptID: String? = nil, reason: String? = nil, cancelledBy: String? = nil,
+                subagentType: String? = nil) {
+        self.promptID = promptID
+        self.reason = reason
+        self.cancelledBy = cancelledBy
+        self.subagentType = subagentType
         self.prompt = prompt
         self.transcriptPath = transcriptPath
         self.error = error
@@ -122,6 +167,9 @@ public struct HookInput: Decodable, Equatable, Sendable {
 ///
 /// Hermes approval hooks only observe, so the notch can never answer them. Subagent and background-review
 /// turns are ignored; gateway turns (Telegram, …) are named after the platform and have no terminal link.
+///
+/// Grok Build: Claude-style event names, camelCase payloads; see `grok(_:link:now:)`. It has no PermissionRequest
+/// and its PreToolUse `allow` never skips the prompt, so the notch can never answer Grok either.
 public enum HookAdapter {
     /// Notification types that mean "an agent is blocked on the human". `idle_prompt` is left out on purpose:
     /// Stop already marks the session done, and every finished turn turning orange would dilute the signal.
@@ -135,7 +183,15 @@ public enum HookAdapter {
     /// Events that start a turn: the human just typed, so that terminal has focus.
     public static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call"]
 
+    /// Another agent running this agent's hooks. Grok runs Claude Code's hooks from ~/.claude/settings.json by default
+    /// (`[compat.claude] hooks`); its own `perch hook grok` reports its sessions, so the borrowed call says nothing.
+    /// Grok sets `GROK_HOOK_EVENT` for every hook it runs.
+    public static func isForeign(agent: String, environment: [String: String]) -> Bool {
+        agent != "grok" && environment["GROK_HOOK_EVENT"] != nil
+    }
+
     public static func requests(for input: HookInput, agent: String, link: String?, now: Date) -> [Request] {
+        if agent == "grok" { return grok(input, link: link, now: now) }
         func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> [Request] {
             [Request(op: .sessionReport, report: sessionReport(input, kind, agent: agent, link: link, now: now, fill))]
         }
@@ -178,6 +234,59 @@ public enum HookAdapter {
         if agent == "claude-code" { report.transcriptPath = input.transcriptPath.flatMap { $0.isEmpty ? nil : $0 } }
         fill(&report)
         return report
+    }
+
+    // MARK: - Grok
+
+    /// Grok Build's hook events (all run in the foreground, so the adapter must stay quick):
+    ///
+    /// | event | session report |
+    /// | --- | --- |
+    /// | UserPromptSubmit | prompt → running; its `promptId` becomes the current turn |
+    /// | Notification `permission_prompt` (and other needs-you types) | waiting with Grok's message + "Answer in the terminal" |
+    /// | Notification `idle_prompt` | settle: a session still running / waiting goes idle (turns that report no end) |
+    /// | PostToolUse / PostToolUseFailure | resume → running (the permission was answered in the terminal) |
+    /// | Stop with `reason: end_turn` | stop → done with the last reply's first line; the session-end Stop is ignored |
+    /// | StopFailure | failure → failed with the error type |
+    /// | StopCancelled | by the user (Ctrl+C, a declined or dismissed prompt): interrupt → idle; by Grok itself (`max_turns`, `no_progress`): failed |
+    /// | SessionEnd | end → removed |
+    ///
+    /// Turn-end reports carry the `promptId` (see `SessionReport.turn`): Grok sends a cancelled turn's report off its
+    /// main loop, sometimes after the next prompt. Events from a subagent's own session (`subagentType`) are ignored.
+    static func grok(_ input: HookInput, link: String?, now: Date) -> [Request] {
+        if let subagent = input.subagentType, !subagent.isEmpty { return [] }
+        func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> [Request] {
+            [Request(op: .sessionReport, report: sessionReport(input, kind, agent: "grok", link: link, now: now) {
+                $0.turn = input.promptID
+                fill(&$0)
+            })]
+        }
+        switch input.event {
+        case "UserPromptSubmit":
+            return report(.prompt) { $0.prompt = promptLine(input.prompt ?? "") }
+        case "Notification":
+            guard let type = input.notificationType else { return [] }
+            if type == "idle_prompt" { return report(.settle) }
+            guard waitingNotifications.contains(type) else { return [] }
+            // Grok only says "Tool permission requested", without the command.
+            let message = input.message.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty } ?? waitingForAnswer
+            return report(.waiting) { $0.detail = message + "\n" + answerInTerminal }
+        case "PostToolUse", "PostToolUseFailure":
+            return report(.resume)
+        case "Stop":
+            // Grok sends one more Stop when the session ends (`shutdown`, `channel_closed`); SessionEnd covers that.
+            guard input.reason == "end_turn" else { return [] }
+            return report(.stop) { $0.lastMessage = oneLine(input.lastAssistantMessage ?? "") }
+        case "StopFailure":
+            return report(.failure) { $0.error = input.errorType }
+        case "StopCancelled":
+            guard input.cancelledBy == "runtime" else { return report(.interrupt) }
+            return report(.failure) { $0.error = input.reason.flatMap { $0.nilIfEmpty } ?? "unknown" }
+        case "SessionEnd":
+            return report(.end)
+        default:
+            return []
+        }
     }
 
     // MARK: - Hermes
