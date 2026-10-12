@@ -37,12 +37,13 @@ public struct PixelIcon: Equatable, Sendable {
         switch source {
         case "claude-code", "claude": return .claudeCode
         case "codex": return .codex
+        case "grok": return .grok
         case "hermes": return .hermes
         default: return .robot
         }
     }
 
-    public static let all: [PixelIcon] = [.claudeCode, .codex, .hermes, .robot]
+    public static let all: [PixelIcon] = [.claudeCode, .codex, .grok, .hermes, .robot]
 
     /// A blocky little monster.
     public static let claudeCode = PixelIcon(name: "claude-code", rows: [
@@ -87,6 +88,22 @@ public struct PixelIcon: Equatable, Sendable {
         ".........#.....#........",
         ".........##...#.........",
         "...........###..........",
+    ])
+
+    /// A ring cut by a diagonal slash, after Grok's mark.
+    public static let grok = PixelIcon(name: "grok", rows: [
+        "....####...#",
+        "..##......#.",
+        ".#.......#..",
+        ".#......#...",
+        "#......#...#",
+        "#.....#....#",
+        "#....#.....#",
+        "#...#......#",
+        "...#......#.",
+        "..#.......#.",
+        ".#......##..",
+        "#...####....",
     ])
 
     /// A pair of wings.

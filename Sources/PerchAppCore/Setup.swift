@@ -364,6 +364,7 @@ public enum AgentNames {
         switch agent {
         case "claude-code": return "Claude Code"
         case "codex": return "Codex"
+        case "grok": return "Grok"
         case "hermes": return "Hermes"
         default: return agent
         }
