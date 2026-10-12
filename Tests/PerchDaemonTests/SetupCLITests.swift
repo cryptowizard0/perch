@@ -10,6 +10,7 @@ struct SetupCLITests {
     var bin: String { perchHome.appendingPathComponent("bin/perch").path }
     var claude: URL { home.appendingPathComponent(".claude/settings.json") }
     var codex: URL { home.appendingPathComponent(".codex/hooks.json") }
+    var grok: URL { home.appendingPathComponent(".grok/hooks/perch.json") }
     var plist: URL { home.appendingPathComponent("Library/LaunchAgents/dev.perch.perchd.plist") }
     var launchctlLog: URL { home.appendingPathComponent("launchctl.log") }
     let fm = FileManager.default
@@ -28,7 +29,7 @@ struct SetupCLITests {
     func perch(_ args: String...) throws -> CLI.Result {
         try CLI(home: perchHome).run(args, env: [
             "HOME": home.path, "PERCH_LAUNCHCTL": home.appendingPathComponent("launchctl").path,
-            "CLAUDE_CONFIG_DIR": "", "CODEX_HOME": "", "HERMES_HOME": "",
+            "CLAUDE_CONFIG_DIR": "", "CODEX_HOME": "", "HERMES_HOME": "", "GROK_HOME": "",
         ])
     }
 
@@ -77,6 +78,7 @@ struct SetupCLITests {
         #expect(lines == [
             ["agent": "claude-code", "state": "connected", "config": claude.path],
             ["agent": "codex", "state": "needsTrust", "config": codex.path],
+            ["agent": "grok", "state": "notDetected", "config": grok.path],
         ])
 
         // Real copies in the fixed location, and every hook runs them.
@@ -111,6 +113,59 @@ struct SetupCLITests {
         #expect(again.stdout.contains("codex        needs trust"))
         #expect(again.stdout.contains("/hooks"))
         #expect(try agents()["codex"]?["hooks_written_at"] as? String == written)
+    }
+
+    /// Grok is detected by ~/.grok alone (it has no ~/.grok/hooks until someone adds one); Perch writes a file of its
+    /// own there, which uninstall deletes.
+    @Test func grokGetsAHookFileOfItsOwn() throws {
+        defer { cleanUp() }
+        try fm.createDirectory(at: home.appendingPathComponent(".grok"), withIntermediateDirectories: true)
+
+        let result = try perch("setup", "grok", "--json")
+        #expect(result.status == 0, "\(result.stderr)")
+        let lines = try #require(try parse(result.stdout)["agents"] as? [[String: String]])
+        #expect(lines.first { $0["agent"] == "grok" } == ["agent": "grok", "state": "connected", "config": grok.path])
+        #expect(try commands(grok) == [
+            "UserPromptSubmit": ["\(bin) hook grok"], "Notification": ["\(bin) hook grok"], "PostToolUse": ["\(bin) hook grok"],
+            "PostToolUseFailure": ["\(bin) hook grok"], "Stop": ["\(bin) hook grok"], "StopFailure": ["\(bin) hook grok"],
+            "StopCancelled": ["\(bin) hook grok"], "SessionEnd": ["\(bin) hook grok"],
+        ])
+        // Grok runs every hook in the foreground: no `async` (it logs a load error for it), a short timeout each.
+        let hooks = try #require(try json(grok)["hooks"] as? [String: [[String: Any]]])
+        for (event, groups) in hooks {
+            for handler in groups.flatMap({ $0["hooks"] as? [[String: Any]] ?? [] }) {
+                #expect(handler["async"] == nil && handler["statusMessage"] == nil, "\(event)")
+                #expect((handler["timeout"] as? Int).map { $0 <= 5 } == true, "\(event)")
+            }
+        }
+        #expect(hooks["Notification"]?.first?["matcher"] as? String == "permission_prompt|elicitation_dialog|agent_needs_input|idle_prompt")
+        #expect(try agents()["grok"]?["status"] as? String == "on")
+
+        // Set up again: nothing changes, and no backup lands next to Grok's hook files.
+        #expect(try perch("setup", "grok").status == 0)
+        #expect(try fm.contentsOfDirectory(atPath: grok.deletingLastPathComponent().path) == ["perch.json"])
+
+        // Disconnecting deletes the file (it held nothing else); `perch uninstall` does too after reconnecting.
+        #expect(try perch("hooks", "uninstall", "grok").stdout.contains("removed 8 Perch hooks"))
+        #expect(!fm.fileExists(atPath: grok.path))
+        #expect(try perch("setup", "grok").status == 0)
+        #expect(fm.fileExists(atPath: grok.path))
+        #expect(try perch("uninstall").status == 0)
+        #expect(!fm.fileExists(atPath: grok.path))
+    }
+
+    /// Someone else's hook in Perch's file stays (with the file) when Perch's hooks go.
+    @Test func grokFileWithSomeoneElsesHookIsKept() throws {
+        defer { cleanUp() }
+        try fm.createDirectory(at: home.appendingPathComponent(".grok"), withIntermediateDirectories: true)
+        #expect(try perch("setup", "grok").status == 0)
+        var root = try json(grok)
+        var hooks = root["hooks"] as! [String: Any]
+        hooks["Stop"] = (hooks["Stop"] as! [[String: Any]]) + [["hooks": [["type": "command", "command": "other-tool notify"]]]]
+        root["hooks"] = hooks
+        try write(String(decoding: try JSONSerialization.data(withJSONObject: root), as: UTF8.self), to: grok)
+        #expect(try perch("hooks", "uninstall", "grok").status == 0)
+        #expect(try commands(grok) == ["Stop": ["other-tool notify"]])
     }
 
     @Test func invalidJSONIsLeftAloneAndFails() throws {
@@ -150,7 +205,7 @@ struct SetupCLITests {
         let result = try perch("setup", "--json")
         #expect(result.status == 0, "\(result.stderr)")
         let lines = try #require(try parse(result.stdout)["agents"] as? [[String: String]])
-        #expect(lines.map { $0["state"] } == ["connected", "off"])
+        #expect(lines.map { $0["state"] } == ["connected", "off", "notDetected"])
         #expect(try perchCommands(codex).isEmpty)
 
         // `hooks install` connects it again, by default against the fixed location.
@@ -284,7 +339,7 @@ struct SetupCLITests {
         defer { cleanUp() }
         let hermes = try perch("setup", "hermes")
         #expect(hermes.status == 64)
-        #expect(hermes.stderr == "perch: unknown agent 'hermes'; use claude-code or codex")
+        #expect(hermes.stderr == "perch: unknown agent 'hermes'; use claude-code, codex or grok")
         let wait = try perch("setup", "--wait", "1", "--json")
         #expect(wait.status == 64)
         #expect(try parse(wait.stdout)["ok"] as? Bool == false)

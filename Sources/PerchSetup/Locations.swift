@@ -26,11 +26,19 @@ public struct ConfigLocation: Equatable, Sendable {
         return paths.filter { seen.insert($0).inserted }
     }
 
-    /// The first candidate whose directory exists (the agent is set up there), else the first candidate.
+    /// The agent's own directory for one of its hook file paths: `~/.grok` for `~/.grok/hooks/perch.json`. The agent is
+    /// set up where that exists, even before the file's own folder does (Grok has no ~/.grok/hooks until someone adds one).
+    public func agentDirectory(of path: String) -> String {
+        var url = URL(fileURLWithPath: path)
+        for _ in file.split(separator: "/") { url.deleteLastPathComponent() }
+        return url.path
+    }
+
+    /// The first candidate the agent is set up at (its `agentDirectory` exists), else the first candidate.
     public func resolve(recorded: String?, environment: [String: String], userHome: String,
-                        hasDirectory: (_ path: String) -> Bool) -> String {
+                        isSetUp: (_ path: String) -> Bool) -> String {
         let paths = candidates(recorded: recorded, environment: environment, userHome: userHome)
-        return paths.first(where: hasDirectory) ?? paths[0]
+        return paths.first(where: isSetUp) ?? paths[0]
     }
 }
 
@@ -66,12 +74,13 @@ public struct SetupEnvironment: Sendable {
 
     /// Where the agent's hook file is, following `ConfigLocation.resolve`.
     public func configPath(for file: any HookFile, recorded: String?) -> String {
-        file.location.resolve(recorded: recorded, environment: variables, userHome: userHome.path, hasDirectory: Self.hasDirectory)
+        file.location.resolve(recorded: recorded, environment: variables, userHome: userHome.path) {
+            Self.isDirectory(file.location.agentDirectory(of: $0))
+        }
     }
 
-    static func hasDirectory(_ path: String) -> Bool {
+    static func isDirectory(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
-        let directory = URL(fileURLWithPath: path).deletingLastPathComponent().path
-        return FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory) && isDirectory.boolValue
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 }
