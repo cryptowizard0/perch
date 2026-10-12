@@ -135,6 +135,13 @@ public enum HookAdapter {
     /// Events that start a turn: the human just typed, so that terminal has focus.
     public static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call"]
 
+    /// Another agent running this agent's hooks. Grok runs Claude Code's hooks from ~/.claude/settings.json by default
+    /// (`[compat.claude] hooks`); its own `perch hook grok` reports its sessions, so the borrowed call says nothing.
+    /// Grok sets `GROK_HOOK_EVENT` for every hook it runs.
+    public static func isForeign(agent: String, environment: [String: String]) -> Bool {
+        agent != "grok" && environment["GROK_HOOK_EVENT"] != nil
+    }
+
     public static func requests(for input: HookInput, agent: String, link: String?, now: Date) -> [Request] {
         func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> [Request] {
             [Request(op: .sessionReport, report: sessionReport(input, kind, agent: agent, link: link, now: now, fill))]

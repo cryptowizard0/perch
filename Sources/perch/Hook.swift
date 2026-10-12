@@ -23,6 +23,7 @@ struct Hook: ParsableCommand {
     func run() {
         let now = Date()
         guard Self.agents.contains(agent) else { return HookLog.write("unknown agent '\(agent)'") }
+        if HookAdapter.isForeign(agent: agent, environment: ProcessInfo.processInfo.environment) { return }
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let input: HookInput
         do {

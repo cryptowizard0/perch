@@ -38,6 +38,14 @@ import Testing
         #expect(report.source == "claude-code" && report.title == "perch" && report.link == link)
     }
 
+    @Test func grokCallingAnotherAgentsHookIsForeign() {
+        let grok = ["GROK_HOOK_EVENT": "stop"]
+        #expect(HookAdapter.isForeign(agent: "claude-code", environment: grok))
+        #expect(HookAdapter.isForeign(agent: "codex", environment: grok))
+        #expect(!HookAdapter.isForeign(agent: "grok", environment: grok))
+        #expect(!HookAdapter.isForeign(agent: "claude-code", environment: ["GROK_SESSION_ID": "x"]))
+    }
+
     @Test func otherNotificationsAreIgnored() {
         for type in ["idle_prompt", "auth_success", "agent_completed"] {
             #expect(requests(HookInput(sessionID: "abc", event: "Notification", notificationType: type, message: "x")).isEmpty)
