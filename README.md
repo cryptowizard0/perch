@@ -10,7 +10,7 @@ The loop it is built for: **an agent is waiting for you → the notch lights up 
 - **A pixel cyclops lives in the notch** and acts out the most urgent state: it trots while an agent runs, waves at you when one needs you, and hops when one starts needing you, fails or finishes.
 - **Allow / Deny in the notch** for commands on your allowlist (`npm test`, `git status`, …). Everything else shows the full command and *Answer in the terminal*.
 - **Click a row** to go back to its terminal (the exact Ghostty tab) or its desktop app.
-- Works with **Claude Code** and **Codex**, in the terminal or their desktop apps, through their hooks. No changes to how you run them.
+- Works with **Claude Code** and **Codex** (in the terminal or their desktop apps) and **Grok** (the `grok` CLI), through their hooks. No changes to how you run them.
 
 macOS 14+. Prebuilt for Apple silicon; builds from source on any Mac. On displays without a notch it sits in a small capsule at the top of the screen.
 
@@ -35,7 +35,7 @@ Perch is ad-hoc signed, not notarized, so macOS blocks the first open ("Apple co
 
 ### 2. Connect your agents
 
-On the first open the notch opens by itself with a setup card listing the agents it found: Claude Code if `~/.claude` exists, Codex if `~/.codex` does (`$CLAUDE_CONFIG_DIR` / `$CODEX_HOME` are honoured). Click **Connect**: Perch adds its hooks to their settings, only its own, after backing the file up as `.perch-backup`. **Open at login** is checked by default. Nothing in an agent's config changes before you click Connect.
+On the first open the notch opens by itself with a setup card listing the agents it found: Claude Code if `~/.claude` exists, Codex if `~/.codex` does, Grok if `~/.grok` does (`$CLAUDE_CONFIG_DIR` / `$CODEX_HOME` / `$GROK_HOME` are honoured). Click **Connect**: Perch adds its hooks to their settings, only its own, after backing the file up as `.perch-backup`. **Open at login** is checked by default. Nothing in an agent's config changes before you click Connect.
 
 Behind the scenes the app copies `perch` and `perchd` into `~/.perch/bin`, the fixed location every hook runs, and installs `perchd` as a launchd agent. Your choices are kept in `~/.perch/agents.json`. An agent you install later shows up as *Codex found · Connect*; right-click the notch → **Agents** to connect or disconnect one.
 
@@ -44,6 +44,12 @@ Behind the scenes the app copies `perch` and `perchd` into `~/.perch/bin`, the f
 **Codex skips new hooks silently until you trust them**, so until you do, Codex sessions never show up and the notch shows *Trust Perch's hooks: run /hooks in codex*. Start `codex`, type `/hooks`, trust Perch's six hooks (UserPromptSubmit, PermissionRequest, PostToolUse, Stop, Interrupt, SessionEnd), then open a new Codex session; the row goes away on its first event.
 
 Codex remembers trust per hook content, so it asks again only when an upgrade changes Perch's hooks. Claude Code needs no such step.
+
+### Grok
+
+Perch keeps Grok's hooks in a file of its own, `~/.grok/hooks/perch.json`, and Grok runs it without asking. Grok reads hooks when a session starts, so restart running `grok` sessions after connecting (or press `r` in `/hooks`).
+
+**The notch can't approve Grok's commands.** Grok has no hook that can answer its permission prompt, so a Grok session that needs you says *Answer in the terminal*. Grok doesn't say which command it's asking about either, so the row shows *Tool permission requested* instead of the command.
 
 ### `perch` in the terminal
 
@@ -102,6 +108,7 @@ perch allowlist init                   # write ~/.perch/allowlist.json to edit
 | "Apple could not verify “Perch”…" | Expected once: **Open Anyway** in System Settings → Privacy & Security (see [Install](#1-open-it-past-gatekeeper-once)). |
 | No setup card, no setup rows, no Agents menu | The app must run from `/Applications` or `~/Applications` (macOS runs apps opened from Downloads from a hidden copy), with `PERCH_HOME` unset. The card itself appears only on the first run; afterwards use the *found · Connect* rows or right-click → **Agents**. |
 | Codex sessions never appear | The hooks are not trusted yet: `/hooks` in `codex` (see [Codex](#3-codex-trust-the-hooks-once)). `grep -A1 'hooks.json:permission_request' ~/.codex/config.toml` shows a `trusted_hash` once they are. |
+| Grok sessions never appear | Restart the `grok` session (hooks load when it starts), then check `/hooks` in `grok`: Perch's eight hooks should be listed under Global. A work machine may allow only managed hooks (`allow_managed_hooks_only`; `grok inspect` names the file that sets it). |
 | Claude Code sessions never appear | Claude Code needs no trust step and picks up new hooks on its own. Type `/hooks` in `claude`: Perch's eight hooks should be listed under user settings. If not, check for `"disableAllHooks": true` in any settings file (a project's settings override yours), `allowManagedHooksOnly` in managed settings on a work machine, and that Perch connected the settings file Claude Code reads (the card shows the path; `CLAUDE_CONFIG_DIR` must match). |
 | No session appears for any agent | An error row in the notch says what failed. `perch session ls` must list sessions; if it cannot connect, `perchd` is not running: quit Perch and open it again (it reinstalls the launchd agent if it is gone), or run `perch setup`. |
 | `perch: open Perch.app once to finish installing` | Homebrew's `perch` runs `~/.perch/bin/perch`, which the app installs on its first open. |
@@ -111,8 +118,8 @@ perch allowlist init                   # write ~/.perch/allowlist.json to edit
 ## How it works
 
 ```
-Claude Code / Codex ──hook──▶ perch hook ──▶ perchd ──events──▶ Perch.app (notch)
-                                             SQLite, ~/.perch/perchd.sock
+Claude Code / Codex / Grok ──hook──▶ perch hook ──▶ perchd ──events──▶ Perch.app (notch)
+                                                    SQLite, ~/.perch/perchd.sock
 ```
 
 - `perch` is the CLI and the hook adapter. It reports each hook event (prompt, needs you, done, failed, …) as a session update.
@@ -148,7 +155,7 @@ Expanded on hover, sessions are grouped by state, most urgent first:
 
 <p align="center"><img src="docs/images/panel-expanded.png" width="460" alt="Perch's expanded panel, close up"></p>
 
-Each row shows the agent (Claude Code's pixel monster, Codex's knot), the project, how long it has been in that state, and a second line: the prompt while running, the full command when it needs you, the error when it failed, the last reply when done.
+Each row shows the agent (Claude Code's pixel monster, Codex's knot, Grok's slashed ring), the project, how long it has been in that state, and a second line: the prompt while running, the full command when it needs you, the error when it failed, the last reply when done.
 
 ## License
 

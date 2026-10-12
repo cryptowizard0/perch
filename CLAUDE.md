@@ -6,6 +6,8 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 
 **2026-09-28 方向调整（v0.2）**：todo 暂时从刘海 UI 拿掉（底层和 CLI 不动，以后作为独立 tab 回来）；刘海只显示 agent 会话，一行一个会话，五种状态 Needs you 🟠 / Failed 🔴 / Running 🟢（呼吸）/ Done 🔵 / Idle ⚪。会话从 M7 起进 SQLite（`sessions` 表，状态机已实现，#15）。完整设计见 `docs/PRD.md` 的"v0.2 方向调整"和"Agent 面板"。
 
+**2026-10-12（v0.5，#31 / M11）**：接入 Grok Build（xAI 的 `grok` CLI），v0.5 接更多 agent（#24）的第一个。刘海永远不能批准 Grok，只提示"Answer in the terminal"。
+
 ## 仓库结构
 
 ```
@@ -66,7 +68,7 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 `id`（4 位可手打，如 `t7k2`）、`title`、`kind`（task / notice / request）、`status`（open / waiting / done / dismissed）、`source`（自由字符串）、`due_at`、`link`、`meta`、`key`、request 专用的 `options` / `response` / `expires_at`、`created_at` / `updated_at`。
 `kind` 区分 task 和 notice 是刻意的："agent 完成了"不是待办，混在一起会稀释橙色信号。
 
-M7 起有 `sessions` 表（schema v2，字段与 `Session`（`Sources/PerchCore/Sessions.swift`）一一对应）：会话状态只放这里，重启后原样恢复。hook 适配器发 `session_report`（`SessionReport`：prompt / waiting / resume / stop / failure / interrupt / end，与 agent 无关），状态机在 perchd 的 `SessionRegistry`：比该会话最后一次事件旧的报告丢弃（平局照收），被移除的会话 10 分钟内记着移除时间，旧事件不会让它复活；Done 10 分钟后变 Idle（`session_seen` 立刻变）；resume / stop / failure / interrupt / end 顺带把 `meta.session_id` 指向该会话的 request 关掉（不带回应）。白名单内的 PermissionRequest 仍发 request（经 `meta.session_id` 挂到会话）。M8（#19）起 Claude Code / Codex 的 hook 不再发 waiting / notice item，request 是它们唯一会建的 item。清理：pid 存活检测（30 秒，比对进程启动时间防复用）为主，拿不到 pid 的 24 小时无事件兜底，`perch session rm` 手动移除（#16）。`perch hook` 沿父进程链找 argv[0] 叫 `claude` / `codex` 的最近祖先（`AgentProcess`，纯函数；进程表由 `PerchClient/SystemProcesses.swift` 用 sysctl 读），每条 `session_report` 带上它的 pid 和启动时间。**按 argv[0] 认，不按内核进程名**：`~/.local/bin/claude` 是指向 `versions/2.1.x` 的符号链接，内核记的名字是 `2.1.x`。
+M7 起有 `sessions` 表（schema v2，字段与 `Session`（`Sources/PerchCore/Sessions.swift`）一一对应）：会话状态只放这里，重启后原样恢复。hook 适配器发 `session_report`（`SessionReport`：prompt / waiting / resume / stop / failure / interrupt / end，与 agent 无关），状态机在 perchd 的 `SessionRegistry`：比该会话最后一次事件旧的报告丢弃（平局照收），被移除的会话 10 分钟内记着移除时间，旧事件不会让它复活；Done 10 分钟后变 Idle（`session_seen` 立刻变）；resume / stop / failure / interrupt / end 顺带把 `meta.session_id` 指向该会话的 request 关掉（不带回应）。白名单内的 PermissionRequest 仍发 request（经 `meta.session_id` 挂到会话）。报告可以带 `turn_id`（Grok 的 `promptId`）：prompt 把它记成会话的当前轮，别的轮的 stop / failure / interrupt 直接丢掉（Grok 的取消报告可能晚于下一轮的 prompt 才到）；当前轮只存在 `SessionRegistry` 内存里，perchd 重启后退回按时间判断，不动 schema。`settle`（Grok 的 `idle_prompt`）只把 Running / Needs you 改成 Idle，Done / Failed 不动，也不新建会话。M8（#19）起 Claude Code / Codex 的 hook 不再发 waiting / notice item，request 是它们唯一会建的 item。清理：pid 存活检测（30 秒，比对进程启动时间防复用）为主，拿不到 pid 的 24 小时无事件兜底，`perch session rm` 手动移除（#16）。`perch hook` 沿父进程链找 argv[0] 叫 `claude` / `codex` 的最近祖先（`AgentProcess`，纯函数；进程表由 `PerchClient/SystemProcesses.swift` 用 sysctl 读），每条 `session_report` 带上它的 pid 和启动时间。**按 argv[0] 认，不按内核进程名**：`~/.local/bin/claude` 是指向 `versions/2.1.x` 的符号链接，内核记的名字是 `2.1.x`。
 
 ## Hook 适配（M3 / M4 / M5）
 
@@ -98,6 +100,21 @@ Hermes Agent（M6 定：它跑在本机，不在 Docker 里，所以走 shell ho
 
 Hermes 的审批 hook 只能观察，不能代答，所以刘海**永远不能批准 Hermes 的命令**，只能提示去哪里回答。审批 hook 带的是 gateway 的 `session_key`（CLI 里是 `default`，gateway 是 `agent:main:<platform>:…`），不是 session_id。
 
+Grok Build（M11，#31；按 grok 1.0.50 实测，2026-10-12）：同一个适配器 `perch hook grok`，事件名和 Claude Code 一样，payload 是 camelCase（`sessionId`、`lastAssistantMessage`、`promptId`），只有部分 key 有 snake_case 副本（`session_id`、`hook_event_name`、`tool_name`、`tool_input`、`transcript_path`），所以 `HookInput` 每个字段两种名字都认。Grok **没有 async**（写了会记一条加载错误），所有 hook 前台跑、默认超时 5 秒（Stop / PostToolUse 默认 600 秒），所以每个 hook 都写明短超时；`perch hook grok` 实测约 7 ms。**Grok 没有 PermissionRequest，PreToolUse 的 `allow` 只是"不拦"、不会跳过提示框**，所以不建 request、刘海永远不能批准 Grok。不装 PreToolUse（`permission_prompt` 的原话只有 "Tool permission requested"，没有命令；要显示完整命令就得每次调工具都前台跑一次 perch，以后再说）。
+
+| 事件 | 会话 |
+| --- | --- |
+| `UserPromptSubmit` | running（prompt 首行），`promptId` 记成当前轮；Ghostty 下记下聚焦的 terminal |
+| `Notification` `permission_prompt`（和工具调用同时发，不像 Claude Code 要等 6 秒） | waiting："Tool permission requested" + "Answer in the terminal" |
+| `Notification` `idle_prompt`（一轮结束约 1 分钟后） | settle：兜底那些不发结束事件的轮（实测：模型还没开始就按 Ctrl+C，什么都不发） |
+| `PostToolUse` / `PostToolUseFailure` | running |
+| `Stop`，`reason == "end_turn"` | done（`lastAssistantMessage` 首行）；会话结束时多发的那次（`shutdown` / `channel_closed`）丢掉 |
+| `StopFailure` | failed（`error`） |
+| `StopCancelled` | `cancelledBy: user`（Ctrl+C、拒绝或关掉提示框）→ idle；`runtime`（`max_turns`、`no_progress`）→ failed |
+| `SessionEnd`（关终端也会发） | 移除 |
+
+带 `subagentType` 的事件（子 agent 自己的会话）一律忽略。进程：hook 的父进程就是 `grok`（`~/.grok/bin/grok` 和 `agent` 都是指向带版本号二进制的链接，按 argv[0] 认这两个名字）；开了 leader 模式（`[cli] use_leader`，默认关）时会话共用 leader 进程，只能等 `SessionEnd` 或退出 leader 才清掉。**Grok 默认也跑 `~/.claude/settings.json` 里的 hook**（`[compat.claude] hooks`），payload 带 `session_id` / `hook_event_name` 能解出来，所以除了 `grok` 以外的适配器看到 `GROK_HOOK_EVENT` 就直接退出（`HookAdapter.isForeign`），不然会多出一条没有 pid 的 claude-code 会话。Grok Bot.app（桌面 App）不在范围内。
+
 会话 CLI：`perch session ls [--json]`（状态和详情）、`perch session seen <id>`（done → idle）、`perch session rm <id>`（手动移除，之后再来事件会重新出现）；`perch session start|end` 保持旧含义（start = 新一轮 running，end = 移除），Hermes 还在用。`watch` 推 `session.updated`（每次变化）、`session.ended`（移除）和 `session.started`（新一轮开始，给老客户端）。刘海（M8，#18）只显示会话（Hermes 除外：2026-10-08 起暂不支持，M9 搁置）：收起态 = 最紧急会话的状态（像素独眼小怪物，按状态换表情和动作，#22；帧逻辑在 `PerchAppCore/Mascot.swift`，绘制在 `PerchApp/MascotView.swift`）+ Running 数；展开态按状态分组，逻辑在 `PerchAppCore/Panel.swift`（`Panel` / `SessionRow`），像素图标在 `PixelIcon.swift`。Live Activity（"2 agents · 4m"）已去掉。
 
 `perch add --kind request --wait` 的约定：有人回应 → stdout 打印回应值、exit 0；过期（`--expires`）/ 被 done / 被 rm → exit 3、不打印回应。适配器只在 exit 0 时返回决定，其余一律不返回，让终端原生提示接管。
@@ -105,14 +122,14 @@ Hermes 的审批 hook 只能观察，不能代答，所以刘海**永远不能�
 返回格式（M4 按官方文档核对过）：Claude Code 是 `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny","message":"…"}}}`（`message` 只用于 deny；不是 PreToolUse 的 `permissionDecision`；exit code 2 在 PermissionRequest 不生效）。Codex（M5 核对）读同一个 JSON，所以不分支；不要返回 `updatedInput` / `updatedPermissions` / `interrupt`（Codex 目前对这些 fail closed）。
 PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permission_prompt` 要等提示框挂了约 6 秒才触发。
 **Claude Code 在权限提示上选 No 或按 Esc 时不发任何 hook**（#8 实测，2.1.258：`idle_prompt` 也不来），只在 transcript 里写 `[Request interrupted by user for tool use]` + `system/turn_duration`。所以 Claude Code 的报告带 `transcript_path`（存在会话里，schema v3），perchd 监视 Running / Needs you 会话的 transcript（`TranscriptWatcher`），末尾的消息是这个标记（`ClaudeTranscript.interruption`）就按标记时间发 `interrupt` → Idle。transcript 不是公开接口，格式变了就退回原样（会话停在原状态）。思考中、还没输出就按 Esc 时 transcript 什么都不写，会话停在 Running，直到下一条 prompt 或关 tab（已知限制）。
-配置文件：Claude Code `~/.claude/settings.json`；Codex `~/.codex/hooks.json`（`$CODEX_HOME` 可覆盖；Codex 按 hook 内容的 hash 记信任，新装或改过的 hook 要在 codex 里 `/hooks` 确认后才会跑）；Hermes `~/.hermes/config.yaml` 的 `hooks:`（`$HERMES_HOME` 可覆盖；没有 YAML 库，Perch 在文件末尾写一段带标记的块；Hermes 用 yaml.dump 重写文件时标记会丢，所以只含 Perch 命令的 `hooks:` 段也认作 Perch 的；混了别人 hook 的 `hooks:` 段不动、安装拒绝；Hermes 对每个 (事件, 命令) 首次运行要确认，记在 `~/.hermes/shell-hooks-allowlist.json`，gateway 要 `hermes gateway restart` 才会加载）。
-以官方文档为准：https://code.claude.com/docs/en/hooks 、 https://learn.chatgpt.com/docs/hooks 、Hermes 仓库的 `website/docs/user-guide/features/hooks.md`（Shell Hooks 一节）。
+配置文件：Claude Code `~/.claude/settings.json`；Grok `~/.grok/hooks/perch.json`（`$GROK_HOME` 可覆盖；Perch 独占的文件，`~/.grok/hooks/*.json` 里的全局 hook 不需要信任，Grok 在会话开始时加载，所以装完要重开 grok 或在 `/hooks` 里按 r）；Codex `~/.codex/hooks.json`（`$CODEX_HOME` 可覆盖；Codex 按 hook 内容的 hash 记信任，新装或改过的 hook 要在 codex 里 `/hooks` 确认后才会跑）；Hermes `~/.hermes/config.yaml` 的 `hooks:`（`$HERMES_HOME` 可覆盖；没有 YAML 库，Perch 在文件末尾写一段带标记的块；Hermes 用 yaml.dump 重写文件时标记会丢，所以只含 Perch 命令的 `hooks:` 段也认作 Perch 的；混了别人 hook 的 `hooks:` 段不动、安装拒绝；Hermes 对每个 (事件, 命令) 首次运行要确认，记在 `~/.hermes/shell-hooks-allowlist.json`，gateway 要 `hermes gateway restart` 才会加载）。
+以官方文档为准：https://code.claude.com/docs/en/hooks 、 https://learn.chatgpt.com/docs/hooks 、grok 自带的 `~/.grok/docs/user-guide/10-hooks.md`、Hermes 仓库的 `website/docs/user-guide/features/hooks.md`（Shell Hooks 一节）。
 
 ## 安装（#26，零配置安装的第 1 步）
 
 - **固定安装位置 `~/.perch/bin/{perch,perchd}`**：真拷贝（不是链接）、去掉隔离标记、原子替换。hook 命令和 launchd plist 永远指向这里，所以升级、挪 App / checkout 都不改 hook 文本，Codex 的信任不丢。`~/.local/bin` 里的只是给人敲的链接，永远不写进 hook。
 - **`~/.perch/agents.json`**：每个 agent 记 `status`（on / off）、实际写过的 `config` 路径、`hooks_written_at`（Perch 的 hook 内容变了才更新）、Codex 的 `trusted_at`（下一步由 App 在看到 Codex 事件后写）。没有条目 = 没问过；但没有条目却有 Perch 的 hook（v0.3 装的）算 on。文件坏了就报错、不覆盖。
-- **检测按配置目录**：依次看 agents.json 里记的路径、`$CLAUDE_CONFIG_DIR` / `$CODEX_HOME`、默认目录，取第一个目录存在的。不看 PATH 上有没有可执行文件。Hermes 不参与检测和连接（手动 `perch hooks install hermes` 照旧）；`perch uninstall` 会顺带删 Hermes 里 Perch 的 hook。
+- **检测按配置目录**：依次看 agents.json 里记的路径、`$CLAUDE_CONFIG_DIR` / `$CODEX_HOME` / `$GROK_HOME`、默认目录，取第一个 agent 目录存在的（`ConfigLocation.agentDirectory`：hook 文件路径去掉 `file` 那几级，Grok 是 `~/.grok`，因为 `~/.grok/hooks` 默认不存在）。不看 PATH 上有没有可执行文件。Perch 独占的 hook 文件（`HookFile.ownsFile`，目前只有 Grok 的）不写 `.perch-backup`（会躺在 Grok 的 hooks 目录里），Perch 的 hook 都删掉后文件也删掉（里面有别人的 hook 就留着）。Hermes 不参与检测和连接（手动 `perch hooks install hermes` 照旧）；`perch uninstall` 会顺带删 Hermes 里 Perch 的 hook。
 - **状态评估是纯函数** `Setup.evaluate(snapshot, request:)`：输入 agents.json、各候选配置文件内容、已装 / 自带版本、谁在跑（CLI / App 路径）、环境变量；输出每个 agent 的状态（notDetected / notAsked / connected / outdated / needsTrust / off，外加 error）和计划（同步二进制、要写的 hook）。`perch setup` 和以后 App 的自检都按这个计划做。比较的是 Perch 自己那几条 hook 的规范形式（`HookFile.perchHooks`），别人的 hook、key 顺序、格式都不影响判断。
 - **自修复**：on 的 agent 的 Perch hook 路径或内容不对就重写，保留原来的 `--wait`；只碰 Perch 的 hook；JSON 坏了原样不动、报错；每次改之前写 `.perch-backup`。`perch setup` 显式给 `--wait` 时以它为准。
 - **二进制同步**：`perch setup` 总是拷贝（开发构建版本号相同，不能按版本判断）；App（下一步）只在装在 /Applications 或 ~/Applications、且没设 `PERCH_HOME` 时、版本不同（两个方向）才同步，否则什么都不碰。
