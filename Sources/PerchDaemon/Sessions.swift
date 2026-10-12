@@ -120,10 +120,13 @@ public final class SessionRegistry {
         var resolves = true
         switch report.kind {
         case .prompt:
+            // The agent woke itself (a background task finished): the row keeps the human's prompt, and the clock
+            // keeps counting from it unless the session had stopped working.
+            let keep = report.keepPrompt == true
+            if !keep || ![.running, .waiting].contains(s.status) { s.turnStartedAt = at }
             enter(.running)
-            s.turnStartedAt = at
             turns[id] = report.turn
-            s.prompt = report.prompt
+            if !keep { s.prompt = report.prompt }
             s.detail = nil
             s.error = nil
             resolves = false

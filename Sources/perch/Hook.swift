@@ -106,7 +106,7 @@ struct Hook: ParsableCommand {
         }
         guard program != nil || bundle != nil else { return nil }
         var link = TerminalLink(app: program ?? "app", cwd: input.cwd, bundleID: bundle)
-        if HookAdapter.turnStarts.contains(input.event) {
+        if HookAdapter.startsTurn(input) {
             if link.app == "ghostty" { link.terminalID = Ghostty.focusedTerminal(near: input.cwd) }
             return link.string
         }

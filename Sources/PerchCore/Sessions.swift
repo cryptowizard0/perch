@@ -97,7 +97,7 @@ public struct Session: Codable, Equatable, Identifiable, Sendable {
 ///
 /// | kind | effect |
 /// | --- | --- |
-/// | prompt | → running; `prompt`, turn start; clears detail / error |
+/// | prompt | → running; `prompt`, turn start; clears detail / error. With `keep_prompt` (the agent woke itself: a background task finished), the prompt stays, and so does the turn start while the session is running / waiting |
 /// | waiting | → waiting with `detail`; with `keep_detail`, a detail already recorded while waiting stays |
 /// | resume | waiting → running (a tool ran, or the notch answered); resolves the session's request |
 /// | stop | → done with `last_message`; resolves the request |
@@ -125,6 +125,7 @@ public struct SessionReport: Codable, Equatable, Sendable {
     public var prompt: String?
     public var detail: String?
     public var keepDetail: Bool?
+    public var keepPrompt: Bool?
     public var lastMessage: String?
     public var error: String?
     public var pid: Int32?
@@ -134,8 +135,8 @@ public struct SessionReport: Codable, Equatable, Sendable {
 
     public init(id: String, kind: Kind, at: Date, source: String? = nil, title: String? = nil, cwd: String? = nil,
                 link: String? = nil, prompt: String? = nil, detail: String? = nil, keepDetail: Bool? = nil,
-                lastMessage: String? = nil, error: String? = nil, pid: Int32? = nil, pidStartedAt: Date? = nil,
-                turn: String? = nil) {
+                keepPrompt: Bool? = nil, lastMessage: String? = nil, error: String? = nil, pid: Int32? = nil,
+                pidStartedAt: Date? = nil, turn: String? = nil) {
         self.turn = turn
         self.id = id
         self.kind = kind
@@ -147,6 +148,7 @@ public struct SessionReport: Codable, Equatable, Sendable {
         self.prompt = prompt
         self.detail = detail
         self.keepDetail = keepDetail
+        self.keepPrompt = keepPrompt
         self.lastMessage = lastMessage
         self.error = error
         self.pid = pid
@@ -156,6 +158,7 @@ public struct SessionReport: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, kind, at, source, title, cwd, link, prompt, detail, error, pid
         case keepDetail = "keep_detail"
+        case keepPrompt = "keep_prompt"
         case lastMessage = "last_message"
         case pidStartedAt = "pid_started_at"
         case transcriptPath = "transcript_path"
