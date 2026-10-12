@@ -11,7 +11,7 @@ Install section as it is: every release says how to get past Gatekeeper and that
 
 Apple silicon, macOS 14+.
 
-- **Homebrew:** `brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch && brew install --cask perch` (already tapped: `brew upgrade --cask perch`).
+- **Homebrew:** `brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch && brew install --cask cryptowizard0/perch/perch` (already installed: `brew upgrade --cask cryptowizard0/perch/perch`). Use the full name: Homebrew refuses casks from a tap you haven't trusted, and the full name trusts this one.
 - **Download:** `perch-X.Y.Z-macos-arm64.zip` below. Unzip it and drag `Perch.app` into Applications (`/Applications` or `~/Applications`). To upgrade, replace the old app.
 
 Then:

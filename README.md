@@ -22,8 +22,10 @@ Apple silicon, macOS 14+. Install the app, open it once past Gatekeeper, and cli
 
 ```bash
 brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch
-brew install --cask perch
+brew install --cask cryptowizard0/perch/perch
 ```
+
+Use the full name `cryptowizard0/perch/perch`: Homebrew loads casks from a non-official tap only once you trust them, and installing by full name trusts this one.
 
 **Or download** `perch-<version>-macos-arm64.zip` from the [latest release](https://github.com/cryptowizard0/perch/releases/latest), unzip it, and drag `Perch.app` into Applications. It has to be in `/Applications` or `~/Applications`: opened from Downloads, Perch shows no setup.
 
@@ -49,13 +51,13 @@ Homebrew puts `perch` on your `PATH`. Otherwise link it: `ln -s ~/.perch/bin/per
 
 ### Upgrade
 
-Replace the app: `brew upgrade --cask perch`, or drag the new `Perch.app` over the old one. On launch it copies its `perch` / `perchd` into `~/.perch/bin`, restarts `perchd` and updates Perch's hooks. A v0.3 install (binaries and hooks in `~/.local/bin`) is migrated the same way; Codex asks for trust once more.
+Replace the app: `brew upgrade --cask cryptowizard0/perch/perch`, or drag the new `Perch.app` over the old one. On launch it copies its `perch` / `perchd` into `~/.perch/bin`, restarts `perchd` and updates Perch's hooks. A v0.3 install (binaries and hooks in `~/.local/bin`) is migrated the same way; Codex asks for trust once more.
 
 ### Uninstall
 
 Right-click the notch → **Uninstall Perch…**. It removes Perch's hooks from every agent, stops `perchd` and removes its launchd agent and `~/.perch/bin`, turns off Open at login and moves the app to the Trash. `~/.perch` keeps the database, `allowlist.json` and `agents.json`, so a reinstall picks up where you left off.
 
-With Homebrew, use `brew uninstall --cask perch` instead (the same removal); `brew uninstall --cask --zap perch` also deletes `~/.perch`. From a terminal: `perch uninstall` (`--purge` also deletes `~/.perch`), then delete the app.
+With Homebrew, use `brew uninstall --cask cryptowizard0/perch/perch` instead (the same removal); `brew uninstall --cask --zap cryptowizard0/perch/perch` also deletes `~/.perch`. From a terminal: `perch uninstall` (`--purge` also deletes `~/.perch`), then delete the app.
 
 ### From source
 

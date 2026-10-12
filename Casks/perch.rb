@@ -1,6 +1,8 @@
 # Perch's own tap is this repository:
 #   brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch
-#   brew install --cask perch
+#   brew install --cask cryptowizard0/perch/perch
+# The full name matters: Homebrew loads casks from a non-official tap only once trusted, and installing by full
+# name trusts this cask (`brew install --cask perch` is refused).
 # The app is ad-hoc signed, not notarized: macOS asks once (System Settings → Privacy & Security → Open Anyway).
 # Installing changes no agent config; that happens only when you click Connect in the notch.
 # scripts/package-release.sh sets version and sha256.

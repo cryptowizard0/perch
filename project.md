@@ -403,7 +403,8 @@ hermes hooks list               # 5 个都应是 allowed
 ## 零配置安装 #29：Homebrew、文档、验收（2026-10-12）
 
 - **homebrew/cask 政策（核对过）**：2026-09-01 起官方仓库停用过不了 Gatekeeper 的 cask（`disable! because: :fails_gatekeeper_check`），`--no-quarantine` 已删。本机 brew 7.0.6 源码里 Gatekeeper 检查（`spctl --assess`）只在 `cask/audit.rb`，安装流程不查 → 自建 tap 能装未公证 App，但一定带隔离标记。
-- **tap 放在本仓库**（用户定，不建 homebrew-perch）：`brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch` + `brew install --cask perch`；代价是 tap 克隆整个仓库（13 MB）。
+- **tap 放在本仓库**（用户定，不建 homebrew-perch）：`brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch` + `brew install --cask cryptowizard0/perch/perch`；代价是 tap 克隆整个仓库（13 MB）。
+- **tap 信任（2026-10-12 发现）**：brew 7 默认要求信任第三方 tap，短名字 `brew install --cask perch` 会被拒绝（本地 tap + 隔离 HOME 用 `brew info` 实测：短名字 "Refusing to load cask … from untrusted tap"，完整名字正常）；用完整名字安装 / 升级时 brew 自动信任这个 cask。README、cask 注释、发版说明模板都改成完整名字。
 - **隔离标记实测**：带标记的 ad-hoc `perch` 在终端执行 → SIGKILL（exit 137），去掉标记正常；bundle 外带标记的 shell 脚本能跑；但未批准的 bundle 里任何东西（包装脚本、哪怕去掉了标记的文件）都被杀，Gatekeeper 评估整个 bundle。这几次被拦时屏幕上大概弹了"无法验证"对话框，测试用的 App 随后被系统删掉了（不在废纸篓）——之后没有再试。**待用户验收确认**：Open Anyway 批准 App 之后，PATH 上的 `perch`（包装脚本）能跑。
 - **cask**（`Casks/perch.rb`，`brew style` 通过）：`app "Perch.app"`；`binary` 链包装脚本 `Contents/Resources/bin/perch`（`packaging/perch-path.sh`，`PathWrapperTests` 2 个测试）；`uninstall quit:` + `/bin/sh -c` 跑 `~/.perch/bin/perch uninstall`；`zap` 跑 `uninstall --purge` 并 trash `~/.perch` 和偏好设置。本地 tap + `file://` zip + 隔离 HOME 实测：安装、链接、uninstall 脚本收到 `uninstall`、zap 收到 `uninstall --purge`、链接删除都对。踩坑：`HOMEBREW_NO_INSTALL_FROM_API=1` 会让 brew 去克隆整个 homebrew-core，别设。
 - **`install.sh`** 改成和下载一样的路径：打包 App → `~/Applications` → 打开（首次运行走卡片，不再替用户 Connect）；已经装过（`~/.perch/bin`，或 `~/.local/bin` 里 v0.3 的真二进制）时跑 App 里的 `perch setup --upgrade`（新加的，只拷二进制、重启 perchd、修已连接 agent 的 hook，不连新的）；`APPDIR` 不是 Applications 文件夹或设了 `PERCH_HOME` 时直接报错（否则 App 什么都不装，半装状态）。
