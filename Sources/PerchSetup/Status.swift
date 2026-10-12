@@ -51,6 +51,9 @@ public enum SetupRequest: Equatable, Sendable {
     case selfCheck
     /// `perch setup [agent…] [--wait N]`: connect the named agents, or every detected one not turned off.
     case setup(agents: [String]? = nil, wait: Int? = nil)
+    /// `perch setup --upgrade` (scripts/install.sh re-run): like the self-check, but always copies the binaries
+    /// (a development build keeps its version number). Connects nothing new.
+    case upgrade
 }
 
 public enum AgentState: String, Codable, Equatable, Sendable {
@@ -143,9 +146,9 @@ public enum Setup {
         let inspections = agents.map { inspect($0, in: snapshot) }
         var plan = SetupPlan()
         switch request {
-        case .selfCheck:
-            guard maintainsInstall(snapshot) else { break }
-            plan.syncBinaries = snapshot.installedVersion != snapshot.bundledVersion
+        case .selfCheck, .upgrade:
+            guard request == .upgrade || maintainsInstall(snapshot) else { break }
+            plan.syncBinaries = request == .upgrade || snapshot.installedVersion != snapshot.bundledVersion
             for inspection in inspections where inspection.isOn {
                 if let error = inspection.status.error {
                     plan.failures.append(inspection.failure(error))

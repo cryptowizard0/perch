@@ -48,6 +48,13 @@ public struct AppSetup: Sendable {
                 problems.append(SetupProblem(agent: nil, title: "Can't install perch and perchd", detail: describe(error), lasting: true))
             }
         }
+        // A v0.3 install copied perch / perchd into ~/.local/bin: link them to the new ones, as `perch setup` does.
+        do {
+            try installer.linkOldBinaries()
+        } catch {
+            problems.append(SetupProblem(agent: nil, title: "Can't replace the old perch in \(tilde(installer.environment.localBin.path))",
+                                         detail: describe(error), lasting: true))
+        }
         if restart {
             do {
                 try installer.installLaunchAgent()

@@ -17,15 +17,20 @@ struct SetupCommand: ParsableCommand {
     @Argument(help: "Agents to connect (default: every one found and not disconnected).") var agents: [String] = []
     @Option(help: "Seconds a permission request waits for the notch before the terminal asks (default: keep, else 20).")
     var wait: Int?
+    @Flag(help: "Copy the binaries, restart perchd and repair connected agents' hooks; connect nothing new (scripts/install.sh).")
+    var upgrade = false
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
         for name in agents { _ = try Setup.agent(name) }
+        if upgrade && (!agents.isEmpty || wait != nil) {
+            throw CLIError("--upgrade connects nothing new; it takes no agent names or --wait", code: 64)
+        }
         if let wait, !(5...300).contains(wait) { throw CLIError("--wait must be between 5 and 300 seconds", code: 64) }
         let installer = Installer()
         let env = installer.environment
         var file = try installer.loadAgents()
-        let request = SetupRequest.setup(agents: agents.isEmpty ? nil : agents, wait: wait)
+        let request = upgrade ? SetupRequest.upgrade : .setup(agents: agents.isEmpty ? nil : agents, wait: wait)
         let plan = Setup.evaluate(installer.snapshot(agents: file, runner: .cli, bundledVersion: PerchVersion.string,
                                                      installedVersion: nil), request: request).plan
 

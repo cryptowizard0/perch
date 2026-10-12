@@ -12,9 +12,52 @@ The loop it is built for: **an agent is waiting for you → the notch lights up 
 - **Click a row** to go back to its terminal (the exact Ghostty tab) or its desktop app.
 - Works with **Claude Code** and **Codex**, in the terminal or their desktop apps, through their hooks. No changes to how you run them.
 
-macOS 14+, any Mac. On displays without a notch it sits in a small capsule at the top of the screen.
+macOS 14+. Prebuilt for Apple silicon; builds from source on any Mac. On displays without a notch it sits in a small capsule at the top of the screen.
 
 ## Install
+
+Apple silicon, macOS 14+. Install the app, open it once past Gatekeeper, and click **Connect** in the notch.
+
+**Homebrew**, from Perch's own tap (this repository):
+
+```bash
+brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch
+brew install --cask perch
+```
+
+**Or download** `perch-<version>-macos-arm64.zip` from the [latest release](https://github.com/cryptowizard0/perch/releases/latest), unzip it, and drag `Perch.app` into Applications. It has to be in `/Applications` or `~/Applications`: opened from Downloads, Perch shows no setup.
+
+### 1. Open it past Gatekeeper (once)
+
+Perch is ad-hoc signed, not notarized, so macOS blocks the first open ("Apple could not verify “Perch”…"). Click **Done**, then open **System Settings → Privacy & Security**, scroll to **Security** and click **Open Anyway** next to Perch (the button stays for about an hour after the blocked open), and enter your password. From then on Perch opens normally.
+
+### 2. Connect your agents
+
+On the first open the notch opens by itself with a setup card listing the agents it found: Claude Code if `~/.claude` exists, Codex if `~/.codex` does (`$CLAUDE_CONFIG_DIR` / `$CODEX_HOME` are honoured). Click **Connect**: Perch adds its hooks to their settings, only its own, after backing the file up as `.perch-backup`. **Open at login** is checked by default. Nothing in an agent's config changes before you click Connect.
+
+Behind the scenes the app copies `perch` and `perchd` into `~/.perch/bin`, the fixed location every hook runs, and installs `perchd` as a launchd agent. Your choices are kept in `~/.perch/agents.json`. An agent you install later shows up as *Codex found · Connect*; right-click the notch → **Agents** to connect or disconnect one.
+
+### 3. Codex: trust the hooks (once)
+
+**Codex skips new hooks silently until you trust them**, so until you do, Codex sessions never show up and the notch shows *Trust Perch's hooks: run /hooks in codex*. Start `codex`, type `/hooks`, trust Perch's six hooks (UserPromptSubmit, PermissionRequest, PostToolUse, Stop, Interrupt, SessionEnd), then open a new Codex session; the row goes away on its first event.
+
+Codex remembers trust per hook content, so it asks again only when an upgrade changes Perch's hooks. Claude Code needs no such step.
+
+### `perch` in the terminal
+
+Homebrew puts `perch` on your `PATH`. Otherwise link it: `ln -s ~/.perch/bin/perch ~/.local/bin/perch` (any directory on your `PATH`). Open the app once first: `~/.perch/bin` appears then, and until macOS has let Perch open, nothing inside the app runs.
+
+### Upgrade
+
+Replace the app: `brew upgrade --cask perch`, or drag the new `Perch.app` over the old one. On launch it copies its `perch` / `perchd` into `~/.perch/bin`, restarts `perchd` and updates Perch's hooks. A v0.3 install (binaries and hooks in `~/.local/bin`) is migrated the same way; Codex asks for trust once more.
+
+### Uninstall
+
+Right-click the notch → **Uninstall Perch…**. It removes Perch's hooks from every agent, stops `perchd` and removes its launchd agent and `~/.perch/bin`, turns off Open at login and moves the app to the Trash. `~/.perch` keeps the database, `allowlist.json` and `agents.json`, so a reinstall picks up where you left off.
+
+With Homebrew, use `brew uninstall --cask perch` instead (the same removal); `brew uninstall --cask --zap perch` also deletes `~/.perch`. From a terminal: `perch uninstall` (`--purge` also deletes `~/.perch`), then delete the app.
+
+### From source
 
 Needs a Swift 5.9+ toolchain: Xcode or just the Command Line Tools (`xcode-select --install`).
 
@@ -23,49 +66,7 @@ git clone https://github.com/cryptowizard0/perch.git && cd perch
 scripts/install.sh
 ```
 
-This builds everything and runs `perch setup` from the build, which:
-
-- copies `perch` and `perchd` into `~/.perch/bin`, the fixed location every hook and the launchd agent run, so moving or rebuilding the checkout never breaks them;
-- installs `perchd` as a launchd agent;
-- connects every agent set up on this Mac (Claude Code if `~/.claude` exists, Codex if `~/.codex` does; `$CLAUDE_CONFIG_DIR` / `$CODEX_HOME` are honoured) that you haven't disconnected, and rewrites Perch's hooks if they are out of date, keeping your `--wait`. Your choices are kept in `~/.perch/agents.json`.
-
-The script then links `perch` / `perchd` into `~/.local/bin` (`PREFIX=…` to change; put it on your `PATH` to use `perch` yourself) and installs `Perch.app` into `~/Applications` (`APPDIR=…`), which it then opens.
-
-Re-run `scripts/install.sh` after pulling to upgrade. It also migrates a v0.3 install (binaries and hooks in `~/.local/bin`); Codex then asks for trust once more.
-
-To leave an agent alone, `perch hooks uninstall codex`: later setups won't reconnect it until you `perch hooks install codex` or `perch setup codex`.
-
-<details>
-<summary>Uninstall</summary>
-
-```bash
-osascript -e 'quit app id "dev.perch.app"'
-perch uninstall            # Perch's hooks, the launchd agent, ~/.perch/bin and its links; --purge also removes ~/.perch
-rm -rf ~/Applications/Perch.app
-```
-
-Without `--purge`, `~/.perch` keeps the database, `allowlist.json` and `agents.json`, so a reinstall picks up where you left off.
-</details>
-
-### Codex: trust the hooks
-
-**Codex skips new hooks silently until you trust them**, so until you do, Codex sessions never show up in the notch. After installing, start `codex`, type `/hooks` and trust Perch's six hooks (UserPromptSubmit, PermissionRequest, PostToolUse, Stop, Interrupt, SessionEnd), then open a new Codex session.
-
-Codex remembers trust per hook content, so do it again whenever the hooks change: after `perch hooks install codex` with a different `--wait`, or when `perch setup` says Codex `needs trust` (an upgrade changed the hooks). The hooks always run `~/.perch/bin/perch`, so moving the checkout or the download doesn't change them. Claude Code needs no such step.
-
-### Prebuilt (Apple silicon)
-
-Each [release](https://github.com/cryptowizard0/perch/releases) has `perch-<version>-macos-arm64.zip` with `perch`, `perchd` and `Perch.app`. It is ad-hoc signed, not notarized. In the folder you unzipped it to:
-
-```bash
-xattr -dr com.apple.quarantine perch-*-macos-arm64
-mkdir -p ~/Applications
-ditto perch-*-macos-arm64/Perch.app ~/Applications/Perch.app
-perch-*-macos-arm64/perch setup
-open ~/Applications/Perch.app
-```
-
-Then trust the hooks in Codex (above). `perch setup` copies `perch` / `perchd` into `~/.perch/bin` without the quarantine flag, so the unzipped folder can go afterwards; `ln -s ~/.perch/bin/perch ~/.local/bin/perch` puts `perch` on your `PATH`. (Releases up to v0.3.0 have no `perch setup`: see their own README.)
+It builds `Perch.app` into `~/Applications` (`APPDIR=/Applications` also works) and opens it: the same first run as above, without the Gatekeeper step. It links `perch` / `perchd` into `~/.local/bin` (`PREFIX=…`). Re-run it after pulling to upgrade: a development build keeps its version number, so the script also runs the bundled `perch setup --upgrade`, which copies the new binaries, restarts `perchd` and repairs the hooks of connected agents, and connects nothing new.
 
 ## Use
 
@@ -96,9 +97,13 @@ perch allowlist init                   # write ~/.perch/allowlist.json to edit
 
 | Symptom | Check |
 | --- | --- |
-| Codex sessions never appear | The hooks are not trusted yet: `/hooks` in `codex` (see [Codex: trust the hooks](#codex-trust-the-hooks)). `grep -A1 'hooks.json:permission_request' ~/.codex/config.toml` shows a `trusted_hash` once they are. |
-| Claude Code sessions never appear | Claude Code needs no trust step and picks up new hooks on its own. Type `/hooks` in `claude`: Perch's eight hooks should be listed under user settings. If not, check for `"disableAllHooks": true` in any settings file (a project's settings override yours), `allowManagedHooksOnly` in managed settings on a work machine, and that `perch setup` connected the settings file Claude Code reads (it prints the path; `CLAUDE_CONFIG_DIR` must be the same in the shell you ran it from). |
-| No session appears for any agent | `perch session ls` must list sessions; if it cannot connect, `perchd` is not running. `perch setup` repairs the install: it reinstalls the launchd agent and rewrites hooks that point anywhere but `~/.perch/bin/perch`. |
+| "Apple could not verify “Perch”…" | Expected once: **Open Anyway** in System Settings → Privacy & Security (see [Install](#1-open-it-past-gatekeeper-once)). |
+| No setup card, no setup rows, no Agents menu | The app must run from `/Applications` or `~/Applications` (macOS runs apps opened from Downloads from a hidden copy), with `PERCH_HOME` unset. The card itself appears only on the first run; afterwards use the *found · Connect* rows or right-click → **Agents**. |
+| Codex sessions never appear | The hooks are not trusted yet: `/hooks` in `codex` (see [Codex](#3-codex-trust-the-hooks-once)). `grep -A1 'hooks.json:permission_request' ~/.codex/config.toml` shows a `trusted_hash` once they are. |
+| Claude Code sessions never appear | Claude Code needs no trust step and picks up new hooks on its own. Type `/hooks` in `claude`: Perch's eight hooks should be listed under user settings. If not, check for `"disableAllHooks": true` in any settings file (a project's settings override yours), `allowManagedHooksOnly` in managed settings on a work machine, and that Perch connected the settings file Claude Code reads (the card shows the path; `CLAUDE_CONFIG_DIR` must match). |
+| No session appears for any agent | An error row in the notch says what failed. `perch session ls` must list sessions; if it cannot connect, `perchd` is not running: quit Perch and open it again (it reinstalls the launchd agent if it is gone), or run `perch setup`. |
+| `perch: open Perch.app once to finish installing` | Homebrew's `perch` runs `~/.perch/bin/perch`, which the app installs on its first open. |
+| The notch doesn't come back after a restart | Right-click the notch → **Open at Login**; if it says *allow in System Settings*, turn Perch on under System Settings → General → Login Items. |
 | A hook fails | Hooks never print anything or block the agent; failures go to `~/.perch/hook.log`. No such file usually means the hook was never run at all. |
 
 ## How it works

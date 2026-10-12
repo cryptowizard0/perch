@@ -224,6 +224,25 @@ struct SetupCLITests {
         #expect(result.stdout.contains("codex        needs trust"))
     }
 
+    @Test func upgradeConnectsNothingNew() throws {
+        defer { cleanUp() }
+        try write(other, to: claude)
+        try write("{}", to: codex)
+        #expect(try perch("hooks", "install", "claude-code", "--binary", "/old/perch").status == 0)
+
+        let result = try perch("setup", "--upgrade")
+        #expect(result.status == 0, "\(result.stderr)")
+        #expect(fm.isExecutableFile(atPath: bin))
+        #expect(try perchCommands(claude).allSatisfy { $0.hasPrefix("\(bin) hook ") }, "repaired")
+        #expect(try String(contentsOf: codex, encoding: .utf8) == "{}", "never connected, so left alone")
+        #expect(try agents()["codex"] == nil)
+        #expect(try String(contentsOf: launchctlLog, encoding: .utf8).contains("bootstrap gui/"), "perchd restarted")
+
+        let named = try perch("setup", "--upgrade", "codex")
+        #expect(named.status == 64)
+        #expect(named.stderr == "perch: --upgrade connects nothing new; it takes no agent names or --wait")
+    }
+
     @Test func uninstallKeepsDataUnlessPurged() throws {
         defer { cleanUp() }
         try write(other, to: claude)

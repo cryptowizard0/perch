@@ -132,6 +132,21 @@ import Testing
         #expect(setup.plan.changes.map(\.agent) == ["claude-code"])  // a reinstall picks up where it left off
     }
 
+    @Test func upgradeCopiesAndRepairsButConnectsNothingNew() throws {
+        // `perch setup --upgrade` (install.sh re-run): an agent left alone on the card stays alone.
+        let old = try current(.claudeCode, perch: "/Users/me/.local/bin/perch", wait: 45)
+        let files: [String: ConfigFile] = [Self.claudePath: .text(old), Self.codexPath: .text("{}")]
+        let result = Setup.evaluate(snapshot(files: files), request: .upgrade)
+        #expect(result.plan.syncBinaries, "a development build keeps its version: copied anyway")
+        #expect(result.plan.changes.map(\.agent) == ["claude-code"])
+        #expect(result.plan.changes.first?.text == (try current(.claudeCode, wait: 45)))
+        #expect(state(result, "codex") == .notAsked)
+        // Like the app's self-check, it never puts back hooks `perch uninstall` removed.
+        let agents = AgentsFile(agents: ["claude-code": AgentRecord(status: .on, config: Self.claudePath)])
+        let gone = Setup.evaluate(snapshot(agents: agents, files: [Self.claudePath: .text("{}")]), request: .upgrade)
+        #expect(gone.plan.changes.isEmpty)
+    }
+
     @Test func setupWaitReplacesTheInstalledOne() throws {
         let agents = AgentsFile(agents: ["claude-code": AgentRecord(status: .on, config: Self.claudePath)])
         let files: [String: ConfigFile] = [Self.claudePath: .text(try current(.claudeCode, wait: 45))]
