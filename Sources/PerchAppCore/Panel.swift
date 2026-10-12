@@ -202,17 +202,21 @@ public enum PanelLayout {
 
     static func setupHeight(_ panel: Panel) -> CGFloat {
         var height: CGFloat = 0
-        if let card = panel.setupCard {
-            switch card.phase {
-            case .choosing, .connecting: height += cardChromeHeight + CGFloat(max(card.choices.count, 2)) * cardLineHeight
-            case .finished(let lines):
-                height += cardChromeHeight + lines.reduce(CGFloat(0)) { $0 + cardLineHeight + ($1.detail == nil ? 0 : lineHeight * 2) }
-            }
-        }
+        if let card = panel.setupCard { height += cardHeight(card) }
         if !panel.setupRows.isEmpty {
             height += headerHeight + panel.setupRows.reduce(CGFloat(0)) { $0 + setupRowHeight + ($1.detail == nil ? 0 : lineHeight * 2) }
         }
         return height
+    }
+
+    /// Choosing: the agents (or the two-line "none found"), then the Open at login box.
+    public static func cardHeight(_ card: SetupCard) -> CGFloat {
+        switch card.phase {
+        case .choosing, .connecting:
+            return cardChromeHeight + CGFloat(max(card.choices.count, 2) + (card.openAtLogin == nil ? 0 : 1)) * cardLineHeight
+        case .finished(let lines):
+            return cardChromeHeight + lines.reduce(CGFloat(0)) { $0 + cardLineHeight + ($1.detail == nil ? 0 : lineHeight * 2) }
+        }
     }
 
     static func sessionsHeight(_ panel: Panel) -> CGFloat {

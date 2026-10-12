@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         queue.jump = { Jumper.jump($0) }
         let notch = NotchModel()
         let controller = NotchWindowController(notch: notch, queue: queue, setup: setup, menu: NotchMenu(
+            uninstall: { [weak self] in self?.confirmUninstall() },
             quit: { NSApp.terminate(nil) }
         ))
         controller.show()
@@ -35,6 +36,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // The perchd the self-check installs: ~/.perch, or under $HOME / $PERCH_HOME when they are overridden.
         queue.connect(client: PerchClient(socketPath: SetupEnvironment.current.socket.path))
+    }
+
+    /// "Uninstall Perch…": the same uninstall as `perch uninstall` (data kept), no more opening at login, the app to
+    /// the Trash, quit. A failure that keeps Perch installed is shown and the app stays.
+    private func confirmUninstall() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Uninstall Perch?"
+        alert.informativeText = "Removes Perch's hooks from your agents, stops perchd and deletes ~/.perch/bin. "
+            + "Perch.app moves to the Trash. Your data in ~/.perch stays."
+        alert.addButton(withTitle: "Uninstall")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        setup.uninstall { outcome in
+            if let problem = outcome.problem {
+                NSApp.activate(ignoringOtherApps: true)
+                let report = NSAlert()
+                report.alertStyle = outcome.finished ? .informational : .warning
+                report.messageText = outcome.finished ? "Perch is uninstalled, with a problem" : "Couldn't uninstall Perch"
+                report.informativeText = problem
+                report.runModal()
+            }
+            if outcome.finished { NSApp.terminate(nil) }
+        }
     }
 
     private func updateQueueHotKeys() {

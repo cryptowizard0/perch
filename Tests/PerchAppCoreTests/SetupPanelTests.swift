@@ -16,9 +16,10 @@ import Testing
     }
 
     func report(_ statuses: [AgentStatus], records: AgentsFile = AgentsFile(), enabled: Bool = true,
-                repaired: [String] = [], problems: [SetupProblem] = [], failures: [AgentFailure] = []) -> SetupReport {
+                repaired: [String] = [], problems: [SetupProblem] = [], failures: [AgentFailure] = [],
+                openAtLogin: LoginItemStatus? = .notRegistered) -> SetupReport {
         SetupReport(enabled: enabled, home: Self.home, statuses: statuses, records: records, repaired: repaired,
-                    problems: problems, failures: failures)
+                    problems: problems, failures: failures, openAtLogin: enabled ? openAtLogin : nil)
     }
 
     func state(_ report: SetupReport, cardShownBefore: Bool = true) -> SetupState {
@@ -82,6 +83,8 @@ import Testing
         #expect(dev.card == nil)
         #expect(dev.rows.isEmpty)
         #expect(dev.menu.isEmpty)
+        #expect(dev.loginMenu == nil)
+        #expect(!dev.canUninstall)
     }
 
     @Test func uncheckingAnAgentLeavesItOut() throws {
@@ -284,5 +287,87 @@ import Testing
         let state = state(report([status("codex", .needsTrust)], records: records))
         #expect(state.provesTrust(codexEvent(at: t0)) == "codex")
         #expect(self.state(report([status("codex", .needsTrust)], enabled: false)).provesTrust(codexEvent(at: t0)) == nil)
+    }
+
+    // MARK: Open at login
+
+    @Test func theCardOffersOpenAtLoginCheckedByDefault() throws {
+        var state = state(report([status("claude-code", .notAsked)]), cardShownBefore: false)
+        #expect(state.card?.openAtLogin == true)
+        state.toggleCardOpenAtLogin()
+        #expect(state.card?.openAtLogin == false)
+        // Not now with the box unchecked: nothing to register.
+        let registers = state.closeCard()
+        #expect(!registers)
+        // Nothing found: the box is still there, and OK honours it.
+        var empty = self.state(report([status("claude-code", .notDetected)]), cardShownBefore: false)
+        #expect(empty.card?.openAtLogin == true)
+        let emptyRegisters = empty.closeCard()
+        #expect(emptyRegisters, "OK / Not now with the box checked registers")
+    }
+
+    @Test func theOpenAtLoginBoxIsSettledOnceConnecting() throws {
+        var state = state(report([status("codex", .notAsked)]), cardShownBefore: false)
+        #expect(state.startConnecting() == ["codex"])
+        state.toggleCardOpenAtLogin()
+        #expect(state.card?.openAtLogin == true, "no toggling while connecting")
+        state.finishConnecting(["codex"], openAtLogin: true,
+                               report: report([status("codex", .needsTrust)], openAtLogin: .enabled))
+        let done = state.closeCard()
+        #expect(!done, "Done: Connect already registered it")
+    }
+
+    @Test func theCardSaysWhetherPerchNowOpensAtLogin() throws {
+        func lines(_ login: LoginItemStatus, openAtLogin: Bool = true, problems: [SetupProblem] = []) throws -> [String] {
+            var state = state(report([status("claude-code", .notAsked)]), cardShownBefore: false)
+            _ = state.startConnecting()
+            state.finishConnecting(["claude-code"], openAtLogin: openAtLogin,
+                                   report: report([status("claude-code", .connected)], problems: problems, openAtLogin: login))
+            guard case .finished(let lines) = try #require(state.card).phase else { throw CardNotFinished() }
+            return lines.map { [$0.text, $0.detail].compactMap { $0 }.joined(separator: " / ") }
+        }
+        #expect(try lines(.enabled) == ["Connected Claude Code", "Perch opens at login"])
+        #expect(try lines(.notRegistered, openAtLogin: false) == ["Connected Claude Code"])
+        #expect(try lines(.requiresApproval) == ["Connected Claude Code",
+                                                  "Allow Perch under System Settings → General → Login Items"])
+        let problem = SetupProblem(agent: nil, title: "Can't turn on Open at Login", detail: "Operation not permitted")
+        #expect(try lines(.notRegistered, problems: [problem])
+            == ["Connected Claude Code", "Can't turn on Open at Login / Operation not permitted"])
+    }
+
+    struct CardNotFinished: Error {}
+
+    @Test func theOpenAtLoginMenuItemFollowsTheRegistration() {
+        func toggle(_ login: LoginItemStatus) -> LoginToggle? {
+            state(report([status("claude-code", .connected)], openAtLogin: login)).loginMenu
+        }
+        #expect(toggle(.enabled) == LoginToggle(title: "Open at Login", on: true, action: .unregister))
+        #expect(toggle(.notRegistered) == LoginToggle(title: "Open at Login", on: false, action: .register))
+        #expect(toggle(.notFound) == LoginToggle(title: "Open at Login", on: false, action: .register))
+        // Switched off in System Settings: only the user can allow it there, so the item opens that page.
+        #expect(toggle(.requiresApproval)
+            == LoginToggle(title: "Open at Login (allow in System Settings)", on: false, action: .openSettings))
+        #expect(state(report([status("claude-code", .connected)], openAtLogin: nil)).loginMenu == nil)
+    }
+
+    @Test func uninstallIsOfferedByAnAppThatMaintainsTheInstall() {
+        #expect(state(report([status("claude-code", .connected)])).canUninstall)
+        #expect(!state(report([status("claude-code", .connected)], enabled: false)).canUninstall)
+        #expect(!SetupState().canUninstall, "not before the self-check has said so")
+    }
+
+    @Test func theCardHasRoomForTheOpenAtLoginLine() throws {
+        let state = state(report([status("claude-code", .notAsked), status("codex", .notAsked)]), cardShownBefore: false)
+        let card = try #require(state.card)
+        #expect(PanelLayout.cardHeight(card) == PanelLayout.cardChromeHeight + 3 * PanelLayout.cardLineHeight)
+        // No login item to manage (an isolated run): no box, no line.
+        let isolated = try #require(self.state(report([status("claude-code", .notAsked), status("codex", .notAsked)],
+                                                      openAtLogin: nil), cardShownBefore: false).card)
+        #expect(isolated.openAtLogin == nil)
+        #expect(PanelLayout.cardHeight(isolated) == PanelLayout.cardChromeHeight + 2 * PanelLayout.cardLineHeight)
+        var noBox = self.state(report([status("codex", .notAsked)], openAtLogin: nil), cardShownBefore: false)
+        noBox.toggleCardOpenAtLogin()
+        let registers = noBox.closeCard()
+        #expect(noBox.card == nil && !registers)
     }
 }

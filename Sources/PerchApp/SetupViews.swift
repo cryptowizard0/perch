@@ -2,8 +2,8 @@ import PerchAppCore
 import PerchCore
 import SwiftUI
 
-/// The first-run card: the agents Perch found, each with a checkbox; Connect / Not now; then the result.
-/// Nothing in an agent's config changes before Connect.
+/// The first-run card: the agents Perch found, each with a checkbox, and "Open at login"; Connect / Not now; then
+/// the result. Nothing in an agent's config changes before Connect.
 struct SetupCardView: View {
     var card: SetupCard
     @ObservedObject var setup: SetupModel
@@ -35,27 +35,19 @@ struct SetupCardView: View {
                 .font(.system(size: 11.5))
                 .foregroundStyle(.white.opacity(0.6))
                 .fixedSize(horizontal: false, vertical: true)
+            openAtLogin
             buttons { SetupButton(title: "OK", prominent: true) { setup.closeCard() } }
         } else {
             Text("Show these agents' sessions in the notch:")
                 .font(.system(size: 11.5))
                 .foregroundStyle(.white.opacity(0.6))
             ForEach(card.choices, id: \.agent) { choice in
-                Button { setup.toggleCardChoice(choice.agent) } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: choice.checked ? "checkmark.square.fill" : "square")
-                            .font(.system(size: 13))
-                            .foregroundStyle(choice.checked ? SessionStatus.color(.done) : .white.opacity(0.5))
-                        Text(choice.title).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white.opacity(0.9))
-                        Text(setup.state.tilde(choice.config)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4))
-                            .lineLimit(1).truncationMode(.middle)
-                    }
-                    .frame(height: PanelLayout.cardLineHeight)
-                    .contentShape(Rectangle())
+                CardCheckbox(checked: choice.checked, title: choice.title, detail: setup.state.tilde(choice.config)) {
+                    setup.toggleCardChoice(choice.agent)
                 }
-                .buttonStyle(.plain)
                 .disabled(card.phase != .choosing)
             }
+            openAtLogin
             buttons {
                 if card.phase == .connecting { ProgressView().controlSize(.small).scaleEffect(0.6) }
                 SetupButton(title: "Not now") { setup.closeCard() }
@@ -67,12 +59,46 @@ struct SetupCardView: View {
         }
     }
 
+    /// About the app, not the agents: Not now / OK take it up too. Not offered in an isolated run.
+    @ViewBuilder private var openAtLogin: some View {
+        if let on = card.openAtLogin {
+            CardCheckbox(checked: on, title: "Open at login") { setup.toggleCardOpenAtLogin() }
+                .disabled(card.phase != .choosing)
+        }
+    }
+
     private func buttons(@ViewBuilder _ content: () -> some View) -> some View {
         HStack(spacing: 8) {
             Spacer()
             content()
         }
         .padding(.top, 2)
+    }
+}
+
+/// A checkbox line on the card.
+private struct CardCheckbox: View {
+    var checked: Bool
+    var title: String
+    var detail: String?
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: checked ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 13))
+                    .foregroundStyle(checked ? SessionStatus.color(.done) : .white.opacity(0.5))
+                Text(title).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white.opacity(0.9))
+                if let detail {
+                    Text(detail).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4))
+                        .lineLimit(1).truncationMode(.middle)
+                }
+            }
+            .frame(height: PanelLayout.cardLineHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

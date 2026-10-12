@@ -4,6 +4,8 @@ import SwiftUI
 
 /// Right-click menu on the notch (a row has its own).
 struct NotchMenu {
+    /// "Uninstall Perch…": asks first.
+    var uninstall: () -> Void
     var quit: () -> Void
 }
 
@@ -28,7 +30,7 @@ struct NotchView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contextMenu {
             // Only an app that maintains the install (in an Applications folder, no PERCH_HOME) edits agent configs.
-            if !setup.state.menu.isEmpty {
+            if !setup.state.menu.isEmpty && !setup.uninstalling {
                 Menu("Agents") {
                     ForEach(setup.state.menu, id: \.agent) { toggle in
                         Toggle(toggle.title, isOn: Binding(
@@ -38,6 +40,13 @@ struct NotchView: View {
                         .disabled(!toggle.available)
                     }
                 }
+                Divider()
+            }
+            if let login = setup.state.loginMenu, !setup.uninstalling {
+                Toggle(login.title, isOn: Binding(get: { login.on }, set: { _ in setup.chooseLoginToggle() }))
+            }
+            if setup.state.canUninstall && !setup.uninstalling {
+                Button("Uninstall Perch…", action: menu.uninstall)
                 Divider()
             }
             Button("Quit Perch", action: menu.quit)

@@ -11,13 +11,21 @@ public struct AppSetup: Sendable {
     /// Where the bundle keeps its `perch` and `perchd` (`Contents/Helpers`).
     public let helpers: URL
     public let bundledVersion: String
+    /// nil: no login item to manage (an isolated run under another `$HOME`).
+    public let loginItem: LoginItem?
+    /// Moves a file to the Trash (the app itself, at the end of an uninstall).
+    public let trash: @Sendable (URL) throws -> Void
 
     public init(installer: Installer = Installer(), appPath: String = Bundle.main.bundlePath,
-                helpers: URL? = nil, bundledVersion: String = PerchVersion.string) {
+                helpers: URL? = nil, bundledVersion: String = PerchVersion.string,
+                loginItem: LoginItem? = LoginItem.mainApp(forHome: SetupEnvironment.current.userHome),
+                trash: @escaping @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }) {
         self.installer = installer
         self.appPath = appPath
         self.helpers = helpers ?? URL(fileURLWithPath: appPath).appendingPathComponent("Contents/Helpers", isDirectory: true)
         self.bundledVersion = bundledVersion
+        self.loginItem = loginItem
+        self.trash = trash
     }
 
     private var home: String { installer.environment.userHome.path }
@@ -78,9 +86,10 @@ public struct AppSetup: Sendable {
     }
 
     /// Connect (the card, a row, the Agents menu): writes Perch's hooks for these agents and records them on,
-    /// like `perch setup <agent…>`. The binaries were synced at launch.
-    public func connect(_ names: [String]) -> SetupReport {
+    /// like `perch setup <agent…>`. The binaries were synced at launch. `openAtLogin`: the card's box was checked.
+    public func connect(_ names: [String], openAtLogin: Bool = false) -> SetupReport {
         var problems: [SetupProblem] = []
+        if openAtLogin { setOpenAtLogin(true, &problems) }
         guard var agents = loadAgents(&problems) else {
             var report = status(AgentsFile(), problems: problems)
             report.failures = names.map { AgentFailure(agent: $0, config: "", message: problems.first?.detail ?? "agents.json") }
@@ -108,6 +117,44 @@ public struct AppSetup: Sendable {
         return status(agents, problems: problems)
     }
 
+    /// The card's box (Not now / OK) or the menu's Open at Login item.
+    public func setOpenAtLogin(_ on: Bool) -> SetupReport {
+        var problems: [SetupProblem] = []
+        setOpenAtLogin(on, &problems)
+        let agents = loadAgents(&problems)
+        var report = status(agents ?? AgentsFile(), problems: problems)
+        report.choicesUnknown = agents == nil
+        return report
+    }
+
+    /// "Uninstall Perch…": the same uninstall as `perch uninstall` (Perch's hooks, perchd's launchd agent,
+    /// ~/.perch/bin; data kept), then no more opening at login, then the app to the Trash. The app quits when
+    /// `finished`. A hook file Perch can't clean doesn't stop the rest (like the CLI); a failure past that does,
+    /// and the app stays.
+    public func uninstall() -> UninstallOutcome {
+        guard Setup.maintainsInstall(snapshot((try? installer.loadAgents()) ?? AgentsFile(), installed: nil)) else {
+            return UninstallOutcome(finished: false, problem: "This copy of Perch doesn't manage the install; run `perch uninstall`.")
+        }
+        let removal: Installer.UninstallReport
+        do {
+            removal = try installer.uninstall(purge: false)
+        } catch {
+            return UninstallOutcome(finished: false, problem: describe(error))
+        }
+        var problems = removal.failures.map { "Perch's hooks are still in \(tilde($0.config)): \($0.message)" }
+        do {
+            try loginItem?.set(false)
+        } catch {
+            problems.append("Perch still opens at login (\(describe(error))): remove it under System Settings → General → Login Items.")
+        }
+        do {
+            try trash(URL(fileURLWithPath: appPath))
+        } catch {
+            problems.append("Couldn't move \(tilde(appPath)) to the Trash (\(describe(error))); drag it there yourself.")
+        }
+        return UninstallOutcome(finished: true, problem: problems.isEmpty ? nil : problems.joined(separator: "\n"))
+    }
+
     /// An event proved the agent runs Perch's current hooks.
     public func recordTrust(_ name: String, at time: Date) -> SetupReport {
         var problems: [SetupProblem] = []
@@ -127,7 +174,17 @@ public struct AppSetup: Sendable {
         let snapshot = snapshot(agents, installed: nil)
         guard Setup.maintainsInstall(snapshot) else { return SetupReport(enabled: false, home: home) }
         let statuses = Setup.evaluate(snapshot, request: .selfCheck).agents
-        return SetupReport(enabled: true, home: home, statuses: statuses, records: agents, problems: problems)
+        return SetupReport(enabled: true, home: home, statuses: statuses, records: agents, problems: problems,
+                           openAtLogin: loginItem?.status())
+    }
+
+    private func setOpenAtLogin(_ on: Bool, _ problems: inout [SetupProblem]) {
+        guard let loginItem else { return }
+        do {
+            try loginItem.set(on)
+        } catch {
+            problems.append(SetupProblem(agent: nil, title: SetupState.loginProblemTitle(on: on), detail: describe(error)))
+        }
     }
 
     private func loadAgents(_ problems: inout [SetupProblem]) -> AgentsFile? {
@@ -161,5 +218,18 @@ public struct AppSetup: Sendable {
     /// Setup's own errors carry a readable line; others their localized description.
     private func describe(_ error: Error) -> String {
         (error as? SetupError)?.message ?? error.localizedDescription
+    }
+}
+
+/// How "Uninstall Perch…" went.
+public struct UninstallOutcome: Equatable, Sendable {
+    /// Perch is removed and the app is in the Trash (or should be dragged there): quit.
+    public var finished: Bool
+    /// What to tell the user before quitting (or why nothing was removed), one line per problem.
+    public var problem: String?
+
+    public init(finished: Bool, problem: String?) {
+        self.finished = finished
+        self.problem = problem
     }
 }

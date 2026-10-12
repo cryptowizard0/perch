@@ -12,7 +12,7 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd（daemon）、PerchApp（刘海 App）
 Sources/PerchCore/       模型、wire protocol、路径、纯解析/渲染。所有客户端共享，不含任何 I/O
 Sources/PerchClient/     Unix socket 客户端（CLI 和刘海 App 共用）；sysctl 读进程（hook 找 agent、perchd 存活检测）
-Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd、自检和设置行（`Setup` / `AppSetup` / `SetupModel`）
+Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd、自检和设置行（`Setup` / `AppSetup` / `SetupModel`）、开机启动（`LoginItem`）
 Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像
 Sources/PerchSetup/      安装 Perch（库，有 I/O）：agent hook 文件读写、perchd 的 launchd agent、agents.json、固定安装位置、状态评估（纯函数 `Setup.evaluate`）、卸载；CLI / perchd / 刘海 App 共用
 Tests/PerchSetupTests/   状态评估的纯函数测试；`perch setup` / `uninstall` 的端到端测试在 PerchDaemonTests/SetupCLITests（临时 HOME + 假 launchctl）
@@ -112,6 +112,7 @@ PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permissi
 - **二进制同步**：`perch setup` 总是拷贝（开发构建版本号相同，不能按版本判断）；App（下一步）只在装在 /Applications 或 ~/Applications、且没设 `PERCH_HOME` 时、版本不同（两个方向）才同步，否则什么都不碰。
 - `perch hooks install|uninstall` 记 on / off；install 默认让 hook 跑 `~/.perch/bin/perch`（不存在时警告）。`hooks uninstall` 之后 `perch setup` 不会再连这个 agent，除非点名。
 - **App 自检与设置 UI（#27）**：只有装在 /Applications 或 ~/Applications、没设 `PERCH_HOME` 的 App 才做（`Setup.maintainsInstall`），`.build/Perch.app` 和隔离运行既不同步也不显示任何设置 UI（卡片、设置行、Agents 子菜单都没有）。每次启动：版本不同就从 `Contents/Helpers` 同步二进制并重启 perchd；修 on 的 agent 的过期 hook。首次运行（卡片没显示过、agents.json 为空）刘海自己展开一次显示设置卡片，Connect 之前不改任何 agent 的配置。设置行在会话分组之上（`Panel.sections`），逻辑在 `PerchAppCore/Setup.swift` 的 `SetupState`，`PerchApp` 只画。Codex 信任：App 看到 codex 的 `session.updated` 且 `updated_at` 晚于 `hooks_written_at` 就写 `trusted_at`，perchd 不变。App 连的 perchd 是 `SetupEnvironment.current.socket`。
+- **开机启动与卸载（#28）**：App 用 `SMAppService.mainApp` 注册自己（`PerchAppCore/LoginItem.swift`，不走 launchd）。首次运行卡片多一个 "Open at login" 勾选框（默认勾上），Connect 时连同 agent 一起生效；Not now / OK 也照它办（这个框管的是 App，不是 agent）。右键刘海的 "Open at Login" 显示当前注册状态（`SetupState.loginMenu`：enabled 打勾、点了注销；没注册点了注册；在系统设置里被关掉（requiresApproval）时点了打开 系统设置 → 登录项，只有用户能在那里放行）。"Uninstall Perch…" 先弹确认，然后 `AppSetup.uninstall`：和 `perch uninstall` 同一个 `Installer.uninstall(purge: false)`（保留 `~/.perch` 数据）→ 注销登录项 → App 移到废纸篓 → 退出；清不掉的 hook 文件不挡后面的步骤（和 CLI 一样，弹窗说明），再往后的失败（launchd / `~/.perch/bin` 删不掉）就停下、App 留着。两者都只在 `Setup.maintainsInstall` 的 App 里出现。登录项属于真实登录的用户、不看 `$HOME`，所以 `$HOME` 不是真实 home（隔离运行）时没有登录项（`LoginItem.mainApp(forHome:)` 返回 nil）：卡片不显示勾选框、菜单没有 Open at Login、卸载跳过注销。卸载进行中（`SetupModel.uninstalling`）Connect / 断开 / 开关登录项 / 刷新都不做，菜单只剩 Quit。测试注入假的 `LoginItem` 和 trash，永远不注册测试进程。
 - 测试接缝：setup 的路径都从环境变量来（`HOME`、`PERCH_HOME`、`CLAUDE_CONFIG_DIR`、`CODEX_HOME`），`PERCH_LAUNCHCTL` 可以换掉 `/bin/launchctl`（测试里是只记参数的脚本）。测试永远不碰真的 `~/.claude` / `~/.codex` / `~/.perch` / launchd。
 
 ## 安全规则（M4 必须实现，不可绕过）
@@ -142,5 +143,6 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 - ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。M8 起快速录入随 todo UI 下线（#19 已删），⌥⇧A / D 回答面板上第一个 request、⌥⇧O 跳到等得最久的 Needs you 会话。
 - ~~Claude 桌面 App 里的会话能否沿父进程链找到 agent 的 pid~~ 已定（M7 实测）：能。桌面 App 每个会话一个 `claude` 进程（`Claude` → `disclaimer` → `claude`），会话进程退出就移除。Codex 桌面 App（ChatGPT.app）所有会话共用一个 `codex app-server` 进程，只有退出 App 才会按 pid 清掉。
 - ~~全屏 App 下刘海面板是否可见~~ 已定（M8 实测）：可见。`NotchPanel` 是 `.fullScreenAuxiliary` + `.canJoinAllSpaces`、层级在菜单栏之上，全屏 Ghostty 里能悬停展开、能看到脉冲。
+- ~~`SMAppService` 在 ad-hoc 签名、未公证的 App 上能不能用~~ 已定（2026-10-12 实测，#28）：能。ad-hoc 签名、没有 TeamIdentifier 的测试 bundle 调 `SMAppService.mainApp.register()` 后状态 notFound → enabled，`unregister()` 后回到 notRegistered，所以不需要给 App 另装 launchd agent 兜底。注销 / 重新登录后是否真的启动、是否出现在 系统设置 → 通用 → 登录项，由用户手动验收。
 - hook 等刘海的超时：先用 20 秒（M4 定，`perch hooks install claude-code --wait N` 可改），用一周后再看。
 - ~~开源许可证~~ 已定（2026-10-08，#4）：MIT，见 `LICENSE`。借来的第三方文件保留自己的版权头和许可证（NotchDo 是 MIT，`CGSSpace.swift` 是 MPL-2.0），Boring Notch（GPL-3.0）仍然不能碰。

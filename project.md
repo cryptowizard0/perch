@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-10 · **v0.3.0 已发布**（刘海小怪物，#22 / #23）· v0.2.0 是第一阶段（M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.4.0-dev` · 进行中：零配置安装（#25），第 1 步 #26（`perch setup` / `perch uninstall`、`~/.perch/bin`、agents.json、自修复、v0.3 迁移）在分支 `feat/perch-setup`，2026-10-10 用户在本机跑 `scripts/install.sh` 验收通过（v0.3 的 hooks / launchd / `~/.local/bin` 迁到 `~/.perch/bin`，Claude Code 会话照常、Codex `/hooks` 重新信任后会话恢复）；第 2 步 #27（App 自检、首次运行设置卡片、设置行、Agents 子菜单、Codex 信任提示）同分支实现，2026-10-10 用户验收通过（见下方"零配置安装 #27"）；PR #30 等 #28 / #29 做完再合；之后 #28 开机启动 / 卸载、#29 Homebrew / 文档
+最后更新：2026-10-12 · **v0.3.0 已发布**（刘海小怪物，#22 / #23）· v0.2.0 是第一阶段（M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.4.0-dev` · 进行中：零配置安装（#25），第 1 步 #26（`perch setup` / `perch uninstall`、`~/.perch/bin`、agents.json、自修复、v0.3 迁移）在分支 `feat/perch-setup`，2026-10-10 用户在本机跑 `scripts/install.sh` 验收通过（v0.3 的 hooks / launchd / `~/.local/bin` 迁到 `~/.perch/bin`，Claude Code 会话照常、Codex `/hooks` 重新信任后会话恢复）；第 2 步 #27（App 自检、首次运行设置卡片、设置行、Agents 子菜单、Codex 信任提示）同分支实现，2026-10-10 用户验收通过（见下方"零配置安装 #27"）；PR #30 等 #28 / #29 做完再合；#28 开机启动 / 刘海里的 Uninstall 同分支已实现（2026-10-12，见下方"零配置安装 #28"，待用户手动验收）；之后 #29 Homebrew / 文档
 
 ## 发布
 
@@ -389,6 +389,16 @@ hermes hooks list               # 5 个都应是 allowed
 - **本机验收（2026-10-10，用户）**：跑 `scripts/install.sh` 装上新 App 后，展开刘海看到 "Trust Perch's hooks: run /hooks in codex"；在 codex 里发一条消息，这行立刻消失，`agents.json` 写入 `trusted_at`（晚于 `hooks_written_at`）✅。没出首次运行卡片（agents.json 已有条目），符合设计。
 - **点击验收（2026-10-10，用户在隔离 HOME 的 App 上亲手点）**：首次运行卡片 Connect → Done（写了 8 + 6 个 hook、有备份、关卡片后出信任行）、Not now、行里的 Connect、右键 Dismiss、Agents 子菜单取消 / 勾上 Codex，全部通过 ✅。#27 验收完成（无刘海胶囊形态没有单独看，展开态和有刘海时同一套布局）。
 - **换 App 同步二进制（2026-10-10，用户同意后我在本机做）**：临时把版本改成 `0.4.0-dev.2` 打包进 `~/Applications/Perch.app` 重开 → `~/.perch/bin` 变成 `0.4.0-dev.2`，hook 文件没动；**但 perchd 没起来**：`launchctl bootout` 在旧 perchd 退出前就返回，紧接着的 `bootstrap` 报 "5: Input/output error"（用一个收到 SIGTERM 后 1 秒才退出的假 job 复现），所以 job 没了。`perch setup` 也有同样的潜在问题，之前是碰巧没撞上。修复：`LaunchAgent.install` 在 bootstrap 失败时每 0.2 秒重试、最多 10 秒（`LaunchAgentInstallTests`）。修复后把版本改回 `0.4.0-dev` 再打包重开（降级方向）：`~/.perch/bin` 回到 `0.4.0-dev`、perchd 自动重启（pid 变了，日志是新版本）、会话都在 ✅。
+
+## 零配置安装 #28：开机启动与刘海里的 Uninstall（2026-10-12）
+
+- **先验证 `SMAppService`**：在 /tmp 编了一个 ad-hoc 签名（`TeamIdentifier=not set`）、bundle id `dev.perch.smtest` 的小 App，`SMAppService.mainApp.register()` → status enabled，`unregister()` → notRegistered。所以不需要 launchd 兜底，结论记在 CLAUDE.md 未决问题里。真正注销 / 重新登录的验收要用户做。
+- **代码**：`PerchAppCore/LoginItem.swift`（`LoginItemStatus`、`LoginItem`：status / register / unregister / openSettings 四个闭包，`.mainApp` 包 `SMAppService`，只有 `.app` bundle 才会注册）；`AppSetup` 多了 `loginItem` 和 `trash`（默认 `FileManager.trashItem`）、`setOpenAtLogin`、`connect(_:openAtLogin:)`、`uninstall() -> UninstallOutcome`；每份 `SetupReport` 带 `openAtLogin`（只对 maintainsInstall 的 App）。`SetupState`：卡片的 `openAtLogin`（默认 true，Connect 之后不能改）、`closeCard()` 返回要不要注册（仍在 choosing 且勾着）、`loginMenu`、`canUninstall`；Connect 之后卡片结果里多一行 "Perch opens at login" / 去系统设置放行 / "Couldn't turn on Open at Login"。`PanelLayout.cardHeight` 给勾选框多留一行。
+- **App 壳**：卡片的勾选框（`CardCheckbox`，和 agent 那几行共用）；右键菜单 Agents 下面是 "Open at Login" 开关和 "Uninstall Perch…"，再下面 Quit；确认用 `NSAlert`（先 `NSApp.activate`，面板不会成为前台）。
+- **code review 后的修正**：隔离运行（`$HOME` ≠ 真实 home）会动到真实用户的登录项（SMAppService 不看 `$HOME`），改成那时没有登录项（不显示勾选框 / 菜单项，卸载跳过注销）；卸载进行中再点 Uninstall、Connect、开关登录项都忽略（否则排在卸载后面的 Connect 会写指向已删的 `~/.perch/bin/perch` 的 hook）。已知小限制：右键菜单的登录项状态是最近一次报告的（启动、操作后、每次展开刘海时重读），在系统设置里改了之后不展开就直接右键，可能还是旧的。
+- **测试**：`SetupPanelTests` +6（纯）；`AppSetupTests` +11（临时 HOME，假 LoginItem / trash）：卡片 Connect 勾着就注册、不勾不碰、Not now 也照框办、注册失败写进卡片、菜单开关和 requiresApproval 打开设置、卸载删 hook / launchd / bin 留数据并注销 + 进废纸篓、清不掉的 hook 文件照样走完、删不掉 `~/.perch/bin` 时 App 留着且仍注册、开发构建不能卸载、隔离运行不碰登录项、卸载后其他操作都被忽略。`AppSetupTests` 原来在主线程上 inline 跑磁盘 / 进程（合计约 7 秒），加了测试后把同时跑的 `NotchLatencyTests` / `PanelApprovalTests` 挤超时；现在用 `SetupModel` 自己的后台队列 + `await settle()`，主线程空出来，全套 341 个测试 ~10 秒。
+- **截图**：隔离 HOME（`HOME=/tmp/perch-iso28 PERCH_LAUNCHCTL=<记参数脚本> PERCH_PIN_EXPANDED=1`）里卡片显示三行勾选（Claude Code / Codex / Open at login），高度合适。隔离运行会往真的 `dev.perch.app` defaults 写 `SetupCardShown`，看完删掉了。
+- **待用户手动验收**：勾着 Open at login 注销再登录 Perch 在跑、登录项里有它、菜单里取消后消失；隔离安装上点 "Uninstall Perch…" 删掉 hook / launchd / `~/.perch/bin`、留 `~/.perch`、App 进废纸篓。
 
 ### M2 协议扩展：`update`（已实现）
 

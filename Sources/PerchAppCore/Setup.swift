@@ -18,11 +18,14 @@ public struct SetupReport: Equatable, Sendable {
     public var failures: [AgentFailure]
     /// agents.json could not be read: the user's choices are unknown, so this is never a first run.
     public var choicesUnknown: Bool
+    /// Whether the app opens at login; nil when it doesn't maintain the install (no login item for a developer build).
+    public var openAtLogin: LoginItemStatus?
 
     public init(enabled: Bool, home: String, statuses: [AgentStatus] = [], records: AgentsFile = AgentsFile(),
                 repaired: [String] = [], problems: [SetupProblem] = [], failures: [AgentFailure] = [],
-                choicesUnknown: Bool = false) {
+                choicesUnknown: Bool = false, openAtLogin: LoginItemStatus? = nil) {
         self.choicesUnknown = choicesUnknown
+        self.openAtLogin = openAtLogin
         self.enabled = enabled
         self.home = home
         self.statuses = statuses
@@ -71,7 +74,8 @@ public struct SetupRow: Equatable, Sendable, Identifiable {
     public let connects: String?
 }
 
-/// The first-run card: the agents found, each checked; Connect / Not now; then what happened and the step left.
+/// The first-run card: the agents found, each checked, and "Open at login", checked; Connect / Not now; then what
+/// happened and the step left.
 public struct SetupCard: Equatable, Sendable {
     public struct Choice: Equatable, Sendable {
         public let agent: String
@@ -100,6 +104,9 @@ public struct SetupCard: Equatable, Sendable {
     }
 
     public var choices: [Choice]
+    /// Open at login: taken up by Connect, or by Not now / OK (the box is about the app, not the agents).
+    /// nil: not offered (no login item to manage, as in an isolated run).
+    public var openAtLogin: Bool?
     public var phase: Phase = .choosing
 
     public var checkedAgents: [String] { choices.filter(\.checked).map(\.agent) }
@@ -110,10 +117,11 @@ public struct SetupCard: Equatable, Sendable {
         guard report.enabled, !shownBefore, !report.choicesUnknown, report.records.agents.isEmpty,
               report.statuses.allSatisfy({ $0.state == .notAsked || $0.state == .notDetected }) else { return nil }
         return SetupCard(choices: report.statuses.filter { $0.state == .notAsked }
-            .map { Choice(agent: $0.agent, config: $0.config, checked: true) })
+            .map { Choice(agent: $0.agent, config: $0.config, checked: true) },
+                         openAtLogin: report.openAtLogin == nil ? nil : true)
     }
 
-    static func outcome(of agents: [String], _ report: SetupReport) -> [Line] {
+    static func outcome(of agents: [String], openAtLogin: Bool, _ report: SetupReport) -> [Line] {
         var lines: [Line] = []
         var next: [Line] = []
         for agent in agents {
@@ -127,7 +135,33 @@ public struct SetupCard: Equatable, Sendable {
                 next.append(Line(text: SetupState.trustText(agent), style: .next))
             }
         }
+        if openAtLogin {
+            switch report.openAtLogin {
+            case .enabled:
+                lines.append(Line(text: "Perch opens at login", style: .done))
+            case .requiresApproval:
+                next.append(Line(text: SetupState.approvalText, style: .next))
+            default:
+                let title = SetupState.loginProblemTitle(on: true)
+                lines.append(Line(text: title, detail: report.problems.first { $0.title == title }?.detail, style: .problem))
+            }
+        }
         return lines + next
+    }
+}
+
+/// The right-click menu's Open at Login item: checked when registered; switched off in System Settings, it opens
+/// that page (only the user can allow it there).
+public struct LoginToggle: Equatable, Sendable {
+    public enum Action: Equatable, Sendable { case register, unregister, openSettings }
+    public let title: String
+    public let on: Bool
+    public let action: Action
+
+    public init(title: String, on: Bool, action: Action) {
+        self.title = title
+        self.on = on
+        self.action = action
     }
 }
 
@@ -152,6 +186,7 @@ public struct SetupState: Equatable, Sendable {
     /// Row ids dismissed with right-click; only for this launch (never saved).
     public private(set) var dismissed: Set<String> = []
     public private(set) var card: SetupCard?
+    public private(set) var openAtLogin: LoginItemStatus?
     private var cardDecided = false
 
     public init() {}
@@ -164,6 +199,7 @@ public struct SetupState: Equatable, Sendable {
         home = report.home
         statuses = report.statuses
         records = report.records
+        openAtLogin = report.openAtLogin
         for agent in report.repaired where !repaired.contains(agent) { repaired.append(agent) }
         // A problem the report no longer has is fixed; the self-check's own last for the launch.
         problems = problems.filter(\.lasting)
@@ -189,14 +225,23 @@ public struct SetupState: Equatable, Sendable {
         return card.checkedAgents
     }
 
-    public mutating func finishConnecting(_ agents: [String], report: SetupReport) {
-        apply(report, cardShownBefore: true)
-        card?.phase = .finished(SetupCard.outcome(of: agents, report))
+    public mutating func toggleCardOpenAtLogin() {
+        guard card?.phase == .choosing, let on = card?.openAtLogin else { return }
+        card?.openAtLogin = !on
     }
 
-    /// Not now, or Done after Connect.
-    public mutating func closeCard() {
-        card = nil
+    /// `openAtLogin`: Connect also turned on Open at login (the card's box was checked).
+    public mutating func finishConnecting(_ agents: [String], openAtLogin: Bool = false, report: SetupReport) {
+        apply(report, cardShownBefore: true)
+        card?.phase = .finished(SetupCard.outcome(of: agents, openAtLogin: openAtLogin, report))
+    }
+
+    /// Not now / OK, or Done after Connect. True when the app should now register to open at login: the card was
+    /// still choosing with the box checked (after Connect it already did).
+    @discardableResult
+    public mutating func closeCard() -> Bool {
+        defer { card = nil }
+        return card?.phase == .choosing && card?.openAtLogin == true
     }
 
     // MARK: Rows
@@ -265,6 +310,27 @@ public struct SetupState: Equatable, Sendable {
             let on = [.connected, .outdated, .needsTrust].contains(status.state)
             return AgentToggle(agent: status.agent, on: on, available: on || status.state != .notDetected)
         }
+    }
+
+    // MARK: Open at login and uninstall
+
+    /// Only an app that maintains the install opens at login (never a developer build).
+    public var loginMenu: LoginToggle? {
+        guard enabled, let openAtLogin else { return nil }
+        switch openAtLogin {
+        case .enabled: return LoginToggle(title: "Open at Login", on: true, action: .unregister)
+        case .requiresApproval: return LoginToggle(title: "Open at Login (allow in System Settings)", on: false, action: .openSettings)
+        case .notRegistered, .notFound: return LoginToggle(title: "Open at Login", on: false, action: .register)
+        }
+    }
+
+    /// "Uninstall Perch…": only from an app that maintains the install (the one `perch setup` would also remove).
+    public var canUninstall: Bool { enabled }
+
+    static let approvalText = "Allow Perch under System Settings → General → Login Items"
+
+    static func loginProblemTitle(on: Bool) -> String {
+        on ? "Can't turn on Open at Login" : "Can't turn off Open at Login"
     }
 
     // MARK: Trust
