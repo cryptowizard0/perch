@@ -92,7 +92,7 @@
 - [x] "Uninstall Perch…" 删掉 hook / launchd / `~/.perch/bin`，保留 `~/.perch`，App 进废纸篓（#28；2026-10-12，第二台 Mac 的真实安装）
 - [x] README、CLAUDE.md、`project.md`、MILESTONES 描述新流程，不再有旧的手动步骤
 
-## M11 — Grok Build（#31，v0.5 第一个新 agent，#24）
+## M11 — Grok Build（#31，v0.5 第一个新 agent，#24）✅
 
 - [x] 实测 grok 1.0.50 的 hook：payload（camelCase + 部分 snake_case 副本）、`permission_prompt` 没有命令、`StopCancelled` 的 `reason` / `cancelledBy`、Ctrl+C 太早什么都不发、hook 的父进程就是 `grok`（2026-10-12）
 - [x] 其他适配器看到 `GROK_HOOK_EVENT` 就退出（Grok 默认也跑 `~/.claude/settings.json` 的 hook）
@@ -100,5 +100,5 @@
 - [x] 状态机：报告带 `turn_id`，别的轮的结束报告丢掉（只存内存）；`settle`（`idle_prompt` 兜底）
 - [x] 安装：`~/.grok/hooks/perch.json`（Perch 独占，不写备份，空了就删），按 `~/.grok` 检测；设置卡片 / 设置行 / Agents 菜单 / `perch setup` / `perch uninstall` 都带上 Grok
 - [x] 刘海：Grok 的像素图标（斜线穿过的圆环）和名字
-- [ ] 验收：真实 grok 会话（Ghostty）——发 prompt → Running；要权限的命令 → Needs you + "Answer in the terminal"，在终端批准后回 Running；跑完 → Done；Ctrl+C → Idle；关 tab → 消失；点行跳回那个 tab；`~/.perch/hook.log` 干净
-- [ ] 验收：设置卡片 / "Grok found · Connect" 连上 Grok，断开后 `~/.grok/hooks/perch.json` 被删掉
+- [x] 验收：真实 grok 会话（Ghostty）——发 prompt → Running；要权限的命令 → Needs you + "Answer in the terminal"，在终端批准后回 Running；跑完 → Done；Ctrl+C → Idle；关 tab → 消失；点行跳回那个 tab；`~/.perch/hook.log` 干净（2026-10-12，维护者本机，`APPDIR=/Applications scripts/install.sh` 装的这个分支）
+- [x] 验收：设置卡片 / "Grok found · Connect" 连上 Grok，断开后 `~/.grok/hooks/perch.json` 被删掉（2026-10-12，同上）
