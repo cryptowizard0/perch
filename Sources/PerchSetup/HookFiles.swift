@@ -23,7 +23,7 @@ public protocol HookFile {
 }
 
 public enum HookFiles {
-    public static var all: [any HookFile] { [HookSettings.claudeCode, HookSettings.codex, HermesHooks()] }
+    public static var all: [any HookFile] { [HookSettings.claudeCode, HookSettings.codex, HookSettings.grok, HermesHooks()] }
 
     public static func `for`(_ agent: String) throws -> any HookFile {
         guard let file = all.first(where: { $0.agent == agent }) else {
@@ -121,6 +121,25 @@ public struct HookSettings: HookFile {
         ], location: ConfigLocation(dirVariable: "CODEX_HOME", defaultDir: ".codex", file: "hooks.json"),
         installNote: "Codex skips new or changed hooks until you trust them: start codex and review them with /hooks.",
         needsTrust: true)
+    }
+
+    /// Grok Build reads every `~/.grok/hooks/*.json`, so Perch keeps its own file there; global hooks need no trust.
+    /// Grok has no async hooks (it runs them all in the foreground and logs a load error for `async`), so each one
+    /// gets a short explicit timeout; Stop / PostToolUse would otherwise default to 600 s. No PermissionRequest:
+    /// Grok has none, and the notch can never answer it.
+    public static var grok: HookSettings {
+        HookSettings(agent: "grok", events: [
+            HookEvent(name: "UserPromptSubmit", mode: .sync(timeout: 5)),
+            HookEvent(name: "Notification", matcher: (HookAdapter.waitingNotifications.sorted { order($0) < order($1) } + ["idle_prompt"])
+                .joined(separator: "|"), mode: .sync(timeout: 5)),
+            HookEvent(name: "PostToolUse", mode: .sync(timeout: 5)),
+            HookEvent(name: "PostToolUseFailure", mode: .sync(timeout: 5)),
+            HookEvent(name: "Stop", mode: .sync(timeout: 5)),
+            HookEvent(name: "StopFailure", mode: .sync(timeout: 5)),
+            HookEvent(name: "StopCancelled", mode: .sync(timeout: 5)),
+            HookEvent(name: "SessionEnd", mode: .sync(timeout: 3)),
+        ], location: ConfigLocation(dirVariable: "GROK_HOME", defaultDir: ".grok", file: "hooks/perch.json"),
+        installNote: "Grok loads hooks when a session starts: restart running grok sessions (or reload them in /hooks with r).")
     }
 
     private static func order(_ type: String) -> Int {

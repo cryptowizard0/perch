@@ -99,6 +99,58 @@ struct SessionStateTests {
         #expect(try session(d, "019a") == nil)
     }
 
+    func grok(_ name: String, _ extra: String = "") -> String {
+        #"{"hookEventName":"x","sessionId":"g1","session_id":"g1","hook_event_name":"\#(name)","cwd":"/w/perch","workspaceRoot":"/w/perch","permissionMode":"default"\#(extra)}"#
+    }
+
+    @Test func grokWalksThroughEveryState() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+
+        try hook(cli, "grok", grok("UserPromptSubmit", #","promptId":"p1","prompt":"Clean the build folder""#))
+        var s = try #require(try session(d, "g1"))
+        #expect(s.status == .running && s.source == "grok" && s.title == "perch" && s.prompt == "Clean the build folder")
+
+        // Needs you: Grok does not say which command, and only the terminal can answer.
+        try hook(cli, "grok", grok("Notification", #","notificationType":"permission_prompt","message":"Tool permission requested","level":"info""#))
+        s = try #require(try session(d, "g1"))
+        #expect(s.status == .waiting && s.detail == "Tool permission requested\nAnswer in the terminal")
+        #expect(try allItems(d) == [])
+
+        try hook(cli, "grok", grok("PostToolUse", #","toolName":"run_terminal_command","toolInput":{"command":"rm -rf build"}"#))
+        #expect(try session(d, "g1")?.status == .running)
+
+        try hook(cli, "grok", grok("Stop", #","promptId":"p1","reason":"end_turn","stopHookActive":false,"lastAssistantMessage":"Cleaned.""#))
+        s = try #require(try session(d, "g1"))
+        #expect(s.status == .done && s.lastMessage == "Cleaned.")
+
+        // Ctrl+C on the next turn, then a new prompt before Grok's late StopCancelled for the cancelled turn arrives.
+        try hook(cli, "grok", grok("UserPromptSubmit", #","promptId":"p2","prompt":"Write 400 numbers""#))
+        try hook(cli, "grok", grok("UserPromptSubmit", #","promptId":"p3","prompt":"Never mind, say hi""#))
+        try hook(cli, "grok", grok("StopCancelled", #","promptId":"p2","reason":"user_interrupt","cancelledBy":"user","cancelTrigger":"ctrl_c""#))
+        s = try #require(try session(d, "g1"))
+        #expect(s.status == .running && s.prompt == "Never mind, say hi")
+        try hook(cli, "grok", grok("StopCancelled", #","promptId":"p3","reason":"permission_rejected","cancelledBy":"user""#))
+        #expect(try session(d, "g1")?.status == .idle)
+
+        // A turn that reports no end: idle_prompt settles it. Errors are failed and stay failed.
+        try hook(cli, "grok", grok("UserPromptSubmit", #","promptId":"p4","prompt":"again""#))
+        try hook(cli, "grok", grok("Notification", #","notificationType":"idle_prompt","message":"Waiting for your next prompt","level":"info""#))
+        #expect(try session(d, "g1")?.status == .idle)
+        try hook(cli, "grok", grok("UserPromptSubmit", #","promptId":"p5","prompt":"again""#))
+        try hook(cli, "grok", grok("StopFailure", #","promptId":"p5","error":"rate_limit","lastAssistantMessage":"Rate limited""#))
+        try hook(cli, "grok", grok("Notification", #","notificationType":"idle_prompt","message":"Waiting for your next prompt","level":"info""#))
+        s = try #require(try session(d, "g1"))
+        #expect(s.status == .failed && s.error == "rate_limit")
+
+        // Closing: the session-end Stop is ignored, SessionEnd removes it.
+        try hook(cli, "grok", grok("Stop", #","reason":"shutdown","stopHookActive":false"#))
+        #expect(try session(d, "g1")?.status == .failed)
+        try hook(cli, "grok", grok("SessionEnd", #","reason":"shutdown""#))
+        #expect(try session(d, "g1") == nil)
+        #expect(!FileManager.default.fileExists(atPath: d.home.appendingPathComponent("hook.log").path))
+    }
+
     @Test func anEventForAnUnknownSessionCreatesIt() throws {
         let d = try TestDaemon()
         try hook(CLI(home: d.home), "claude-code", claude("Stop", #","last_assistant_message":"ok""#, session: "late"))

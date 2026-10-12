@@ -237,6 +237,6 @@ struct HooksInstallTests {
     @Test func unknownAgent() throws {
         let result = try cli.run("hooks", "install", "cursor", "--settings", settings.path)
         #expect(result.status == 64)
-        #expect(result.stderr == "perch: unknown agent 'cursor'; use claude-code, codex or hermes")
+        #expect(result.stderr == "perch: unknown agent 'cursor'; use claude-code, codex, grok or hermes")
     }
 }

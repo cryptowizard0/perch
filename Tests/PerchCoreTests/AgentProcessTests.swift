@@ -27,6 +27,16 @@ import Testing
         #expect(AgentProcess.find(agent: "codex", from: 900, in: processes)?.pid == 800)
     }
 
+    @Test func findsGrokUnderEitherName() {
+        // grok runs hooks itself (no leader by default): perch ← sh ← grok ← zsh. `agent` is the same binary.
+        for name in ["grok", "agent"] {
+            let processes = table([(900, 899, "perch"), (899, 800, "sh"), (800, 700, name), (700, 1, "zsh")])
+            #expect(AgentProcess.find(agent: "grok", from: 900, in: processes)?.pid == 800)
+        }
+        let claude = table([(900, 800, "perch"), (800, 700, "claude"), (700, 1, "zsh")])
+        #expect(AgentProcess.find(agent: "grok", from: 900, in: claude) == nil)
+    }
+
     @Test func theClosestAgentWins() {
         // A claude started from inside another claude's shell: the hook belongs to the inner one.
         let processes = table([(900, 800, "perch"), (800, 700, "claude"), (700, 600, "zsh"), (600, 1, "claude")])

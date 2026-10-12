@@ -380,3 +380,91 @@ import Testing
         #expect(HookAdapter.promptLine("  \n ") == nil)
     }
 }
+
+/// Grok Build's hook stdin, as grok 1.0.50 sent it (captured 2026-10-12, trimmed to what Perch reads plus a little).
+@Suite struct GrokAdapterTests {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let link = "perch-terminal://ghostty?id=T1"
+
+    func decode(_ event: String, _ fields: String) throws -> HookInput {
+        let json = #"{"hookEventName":"x","sessionId":"01a1","session_id":"01a1","hook_event_name":"\#(event)","cwd":"/w/perch","workspaceRoot":"/w/perch","timestamp":"2026-10-12T08:09:41.979803+00:00","permissionMode":"default","permission_mode":"default"\#(fields)}"#
+        return try JSONDecoder().decode(HookInput.self, from: Data(json.utf8))
+    }
+
+    func reports(_ event: String, _ fields: String = "") throws -> [SessionReport] {
+        let requests = HookAdapter.requests(for: try decode(event, fields), agent: "grok", link: link, now: now)
+        #expect(requests.allSatisfy { $0.op == .sessionReport })
+        return requests.compactMap(\.report)
+    }
+
+    @Test func decodesCamelCaseFields() throws {
+        let stop = try decode("Stop", #","transcriptPath":"/g/updates.jsonl","transcript_path":"/g/updates.jsonl","promptId":"p1","reason":"end_turn","stopHookActive":false,"lastAssistantMessage":"done","backgroundTasks":[],"sessionCrons":[]"#)
+        #expect(stop.sessionID == "01a1" && stop.event == "Stop" && stop.promptID == "p1" && stop.reason == "end_turn")
+        #expect(stop.lastAssistantMessage == "done" && stop.transcriptPath == "/g/updates.jsonl")
+        let note = try decode("Notification", #","notificationType":"permission_prompt","message":"Tool permission requested","level":"info""#)
+        #expect(note.notificationType == "permission_prompt" && note.message == "Tool permission requested")
+        let tool = try decode("PostToolUse", #","toolName":"run_terminal_command","toolInput":{"command":"ls"},"toolResult":{"type":"Bash","exit_code":0}"#)
+        #expect(tool.toolName == "run_terminal_command" && tool.toolStrings == ["command": "ls"])
+        // camelCase alone is enough.
+        let bare = try JSONDecoder().decode(HookInput.self, from: Data(#"{"sessionId":"s","hook_event_name":"SessionEnd","reason":"shutdown"}"#.utf8))
+        #expect(bare.sessionID == "s" && bare.reason == "shutdown")
+        // A non-string `reason` from some other agent does not break decoding.
+        let odd = try JSONDecoder().decode(HookInput.self, from: Data(#"{"session_id":"s","hook_event_name":"Stop","reason":{"x":1}}"#.utf8))
+        #expect(odd.reason == nil)
+    }
+
+    @Test func aTurn() throws {
+        let prompt = try reports("UserPromptSubmit", #","promptId":"p1","prompt":"Run the shell command `echo hi`\nthen reply done.""#)
+        #expect(prompt == [SessionReport(id: "01a1", kind: .prompt, at: now, source: "grok", title: "perch", cwd: "/w/perch",
+                                         link: link, prompt: "Run the shell command echo hi", turn: "p1")])
+
+        let waiting = try reports("Notification", #","notificationType":"permission_prompt","message":"Tool permission requested","level":"info""#)
+        #expect(waiting.map(\.kind) == [.waiting])
+        #expect(waiting.first?.detail == "Tool permission requested\nAnswer in the terminal" && waiting.first?.keepDetail == nil)
+
+        for event in ["PostToolUse", "PostToolUseFailure"] {
+            #expect(try reports(event, #","toolName":"run_terminal_command","toolInput":{"command":"ls"}"#).map(\.kind) == [.resume])
+        }
+
+        let stop = try reports("Stop", ###","promptId":"p1","reason":"end_turn","stopHookActive":false,"lastAssistantMessage":"## Done\nAll good""###)
+        #expect(stop.map(\.kind) == [.stop] && stop.first?.lastMessage == "Done" && stop.first?.turn == "p1")
+    }
+
+    @Test func theSessionEndStopIsIgnored() throws {
+        #expect(try reports("Stop", #","reason":"shutdown","stopHookActive":false"#).isEmpty)
+        #expect(try reports("Stop", #","reason":"channel_closed","stopHookActive":false"#).isEmpty)
+        #expect(try reports("SessionEnd", #","reason":"shutdown""#).map(\.kind) == [.end])
+    }
+
+    @Test func cancelledTurns() throws {
+        for reason in ["user_interrupt", "permission_rejected", "permission_cancelled"] {
+            let r = try reports("StopCancelled", #","promptId":"p1","reason":"\#(reason)","cancelledBy":"user""#)
+            #expect(r.map(\.kind) == [.interrupt] && r.first?.turn == "p1")
+        }
+        #expect(try reports("StopCancelled", #","promptId":"p1","reason":"unknown","cancelledBy":"unknown""#).map(\.kind) == [.interrupt])
+        for reason in ["max_turns", "no_progress"] {
+            let r = try reports("StopCancelled", #","promptId":"p1","reason":"\#(reason)","cancelledBy":"runtime""#)
+            #expect(r.map(\.kind) == [.failure] && r.first?.error == reason)
+        }
+        let failure = try reports("StopFailure", #","promptId":"p1","error":"rate_limit","errorDetails":"429","lastAssistantMessage":"Rate limited""#)
+        #expect(failure.map(\.kind) == [.failure] && failure.first?.error == "rate_limit" && failure.first?.turn == "p1")
+    }
+
+    @Test func idlePromptSettles() throws {
+        let r = try reports("Notification", #","notificationType":"idle_prompt","message":"Waiting for your next prompt","level":"info""#)
+        #expect(r.map(\.kind) == [.settle] && r.first?.turn == nil)
+        #expect(try reports("Notification", #","notificationType":"task_complete","message":"x""#).isEmpty)
+    }
+
+    @Test func subagentsAreIgnored() throws {
+        #expect(try reports("Stop", #","reason":"end_turn","lastAssistantMessage":"x","subagentType":"explore""#).isEmpty)
+        #expect(try reports("SessionEnd", #","reason":"shutdown","subagentType":"explore""#).isEmpty)
+        #expect(try reports("StopCancelled", #","reason":"max_turns","cancelledBy":"runtime","subagentType":"explore""#).isEmpty)
+    }
+
+    @Test func unhandledEvents() throws {
+        for event in ["SessionStart", "PreToolUse", "PermissionDenied", "SubagentStart", "PreCompact"] {
+            #expect(try reports(event).isEmpty)
+        }
+    }
+}

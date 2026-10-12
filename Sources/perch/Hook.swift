@@ -16,7 +16,7 @@ struct Hook: ParsableCommand {
     )
     static let agents = HookFiles.all.map(\.agent)
 
-    @Argument(help: "claude-code | codex | hermes") var agent: String
+    @Argument(help: "claude-code | codex | grok | hermes") var agent: String
     @Option(help: "PermissionRequest: seconds to wait for Allow / Deny in the notch before the terminal asks.")
     var wait: Double = HookAdapter.permissionWait
 

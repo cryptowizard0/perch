@@ -24,6 +24,8 @@ public enum AgentProcess {
     public static let names: [String: Set<String>] = [
         "claude-code": ["claude"],
         "codex": ["codex"],
+        // ~/.grok/bin/grok and ~/.grok/bin/agent both link to the versioned binary (grok-1.0.x-macos-aarch64).
+        "grok": ["grok", "agent"],
     ]
 
     /// The closest ancestor of `pid` (itself included) named like `agent`'s process, or nil.
