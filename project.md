@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-12 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中：Grok（#31 / M11）**，分支 `feat/grok`，2026-10-12 维护者真实会话验收通过，PR 待合并，见下方"M11 进度"
+最后更新：2026-10-12 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中：Grok（#31 / M11）**，分支 `feat/grok`，2026-10-12 维护者真实会话验收通过，PR 待合并，见下方"M11 进度" · **提示音 #35**，分支 `feat/chimes`，见下方"提示音 #35"
 
 ## 发布
 
@@ -51,7 +51,7 @@
 | 接哪些 agent | Claude Code + Codex；Hermes 暂不显示（2026-10-08 起暂不支持，M9 搁置） | Codex 几乎零成本，还能验证状态机与 agent 无关 |
 | 会话与 item 分工 | 状态只在会话里；item 只剩 request | 一个概念只放一处 |
 | 交互 | 点整行跳转；Allow / Deny；⌥⇧A / D / O；右键行移除；右键刘海只剩 Quit | |
-| 提醒 | 只有刘海脉冲；不发系统通知、不加提示音 | |
+| 提醒 | 刘海脉冲；2026-10-12 起加提示音（#35，进入 Needs you / Failed / Done 各一种怪兽音效，默认全开）；仍不发系统通知 | 用户要求加提示音，Done 也要 |
 | 文案 | 英文 | 和现有 UI、CLI 一致 |
 
 过渡期注意：Hermes 的 waiting / notice 仍会写进 item 表（#19 只停了 Claude Code / Codex 的），但 M8 起刘海不再显示 item（request 除外），所以 Hermes 的审批提示在 M9 前只能在终端 / Telegram 看到。
@@ -479,6 +479,20 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
 1. ~~真实会话验收~~ ✅ 2026-10-12 维护者本机通过：`APPDIR=/Applications scripts/install.sh` 装上这个分支（本机的 Perch 在 /Applications，zip 装的，不是 brew）→ 设置行 "Grok found · Connect" → Ghostty 里 `grok --permission-mode default` 走完 Running → Needs you → 终端批准 → Running → Done → Ctrl+C → Idle → 关 tab，断开后 `perch.json` 被删。
 2. PR 合并后关 #31。
 3. 可选的后续：装一个 PreToolUse 记下命令（每次调工具约 7 ms），让 Needs you 显示完整命令。要在状态机里加"记下待批准的命令但不改状态"的报告，先问用户。
+
+## 提示音 #35（2026-10-12）
+
+用户要加提示音，Done 也要响，声音要和小怪物相关。决定（用户确认）：三种状态默认全开；不发系统通知；声音自己合成。
+
+- 触发点就是脉冲：`QueueModel.handle` 里 `Panel.pulses` 为真时问 `Chime`。所以连接 / 重连时的 snapshot、Running / Idle、Hermes、状态没变都不响，启动不会一串响。
+- `PerchAppCore/Chime.swift`：`ChimeSound`（状态 → 声音、紧急程度、资源名、没有 bundle 时的系统声音 Glass / Basso / Tink）、`ChimeSettings`（user defaults：`Chimes`、`ChimeNeedsYou` / `ChimeFailed` / `ChimeDone`、`ChimeVolume` 默认 0.6，只能 `defaults write`）、`Chime`（1 秒内只放更紧急的；同一会话同一种声音 10 秒冷却；立刻播放，不为合并而等）。
+- `PerchApp/ChimePlayer.swift`：`NSSound`，启动时预载 `Contents/Resources/Sounds/*.wav`。右键刘海 → Sounds：总开关 + 每种状态一个勾，勾上时试听；所有构建都有（不是 setup）。
+- 音效：`scripts/sound/make-sounds.swift` 用代码合成（窄脉冲波当"嗓子"、滑音、颤音、固定种子的噪声，所以每次生成的文件完全一样），`scripts/sound/make-sounds.sh` 写到 `packaging/sounds/`（提交），`bundle-app.sh` 拷进 App。时长对齐小怪物的反应动作：
+  - Needs you `needs-you.wav`（0.7 s）"Mrrp? Mrrp?"：两声带卷舌颤音、往上滑的叫唤，第二声更高，一跳一声。
+  - Failed `failed.wav`（0.5 s）"Uh-oh… bzzt"：两个往下掉、发抖的音，然后天线短路的滋啦声。
+  - Done `done.wav`（0.6 s）"Bwip! hehe ✨"：一跳的上滑音、两声咯咯笑、一个高音闪光。
+- 已知限制：专注模式 / 勿扰不会让它静音（是声音不是通知；读 Focus 状态要 `INFocusStatusCenter` + 授权，先靠总开关）；没有"你正看着那个终端就不响"。
+- 待做：维护者真实会话里听一遍、调声音；PR 合并后关 #35。
 
 ## 未决问题
 

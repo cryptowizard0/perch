@@ -262,13 +262,13 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 | ⌥⇧A / ⌥⇧D | 批准 / 拒绝面板上第一个 Allow / Deny（排序最前、带 request 的 Needs you 会话）；没有就不注册，键照常打字 |
 | ⌥⇧O | 跳到等得最久的 Needs you 会话；没有就不注册 |
 | 右键某一行 | "Remove from Panel"：手动移除（进程检测失效时的逃生口） |
-| 右键刘海 | Quit Perch |
+| 右键刘海 | Sounds（提示音总开关和每种状态的开关，#35）、Quit Perch |
 
 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task、⌥⇧Space 快速录入、到期提醒）随 todo 一起从 UI 下线。
 
 ### 提醒
 
-只靠刘海脉冲（见状态表）。不发系统通知，不加提示音。全屏 App 下刘海照样可见、能展开、能看到脉冲（M8 实测）。
+刘海脉冲（见状态表），加提示音（2026-10-12 起，#35）：进入 Needs you / Failed / Done 时各播一段小怪物的声音，和它的反应动作同步——Needs you 是两声往上扬的"Mrrp? Mrrp?"（在叫你），Failed 是"Uh-oh… bzzt"（往下掉的哀叹加天线短路），Done 是"Bwip! hehe"（跳一下、咯咯笑、一点闪光）。默认全开，右键刘海 → Sounds 可以整体关掉或按状态关。1 秒内只放更紧急的一个，同一会话同一种声音 10 秒内只响一次；连接时已有的状态不响。不发系统通知。全屏 App 下刘海照样可见、能展开、能看到脉冲（M8 实测）。
 
 **实时性指标**：CLI / hook 调用到刘海更新 ≤ 200 ms，靠 daemon 推事件，不轮询。
 

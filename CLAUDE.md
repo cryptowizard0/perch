@@ -6,6 +6,8 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 
 **2026-09-28 方向调整（v0.2）**：todo 暂时从刘海 UI 拿掉（底层和 CLI 不动，以后作为独立 tab 回来）；刘海只显示 agent 会话，一行一个会话，五种状态 Needs you 🟠 / Failed 🔴 / Running 🟢（呼吸）/ Done 🔵 / Idle ⚪。会话从 M7 起进 SQLite（`sessions` 表，状态机已实现，#15）。完整设计见 `docs/PRD.md` 的"v0.2 方向调整"和"Agent 面板"。
 
+**2026-10-12（#35）**：加提示音。进入 Needs you / Failed / Done（就是刘海脉冲的那些变化）各播一段合成的小怪物声音，默认全开，右键刘海 → Sounds 可关；逻辑在 `PerchAppCore/Chime.swift`。仍不发系统通知。
+
 **2026-10-12（v0.5，#31 / M11）**：接入 Grok Build（xAI 的 `grok` CLI），v0.5 接更多 agent（#24）的第一个。刘海永远不能批准 Grok，只提示"Answer in the terminal"。
 
 ## 仓库结构
@@ -25,6 +27,7 @@ Tests/PerchCoreTests/    swift-testing（`import Testing`；只装 Command Line 
 Sources/PerchApp/        刘海 App（AppKit + SwiftUI），SwiftPM 可执行 target，不需要 Xcode
 packaging/Info.plist     Perch.app 的 Info.plist（LSUIElement，无 Dock 图标）
 packaging/Perch.icns     App 图标（橙色像素独眼怪吊在刘海下面，2026-10-10 起；之前是像素小鸟）；改图在 scripts/icon/draw-icon.swift，scripts/icon/make-icon.sh 重新生成并提交 .icns
+packaging/sounds/        提示音（#35）：needs-you / failed / done.wav，scripts/sound/make-sounds.swift 合成（小怪物的声音），scripts/sound/make-sounds.sh 重新生成并提交；bundle-app.sh 拷到 Contents/Resources/Sounds
 scripts/bundle-app.sh    编译 PerchApp 并组装、ad-hoc 签名成 .build/Perch.app；perch / perchd 放在 Contents/Helpers（App 自检从这里同步到 ~/.perch/bin），Contents/Resources/bin/perch 是 packaging/perch-path.sh
 packaging/perch-path.sh  Homebrew 链到 PATH 上的 `perch`：转去执行 ~/.perch/bin/perch，还没有时提示先打开一次 App
 Casks/perch.rb           Homebrew cask，tap 就是本仓库（`brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch`）
