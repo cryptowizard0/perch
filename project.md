@@ -421,6 +421,7 @@ hermes hooks list               # 5 个都应是 allowed
   - App 自检把 `~/.perch/bin` 从 `0.4.0-dev` 同步到 `0.4.0` 并重启 perchd，会话都在、hook 没动；
   - 批准之后 `/opt/homebrew/bin/perch --version` → `0.4.0`，`session ls` 正常。
   - 注意：这台机器上 `~/.local/bin` 在 PATH 里排在 `/opt/homebrew/bin` 前面，直接敲 `perch` 走的是 `~/.local/bin/perch` 链接；两者最后跑的都是 `~/.perch/bin/perch`。
+- **维护者确认（2026-10-12）**：换成 brew 装的 App 之后，本机验证通过：右键菜单的 Open at Login、会话照常显示。
 - **体验问题**：装完先在终端敲 `perch`，用户看到的是 Gatekeeper 的"移到废纸篓"对话框，而不是"先打开一次 App"的提示。
 - **还没做**：干净账户上的 M10 验收（设置卡片、Connect、Codex 信任行、`brew uninstall` / `--zap`、重启后开机启动、刘海里的 Uninstall）。
 
