@@ -180,7 +180,7 @@ flowchart LR
 
 **v0.2（M7）**：Claude Code / Codex 的事件改为驱动会话状态（见"Agent 面板"的状态表），不再产生 waiting / notice item；只有白名单内的 PermissionRequest 仍然发 request 等刘海。每个事件都带上 agent 进程的 pid（`perch hook` 沿父进程链找），供 perchd 做存活检测。Hermes 的映射没改；2026-10-08 起 Hermes 暂不支持（M9 搁置），只支持 Claude Code 和 Codex。
 
-安装：`perch hooks install claude-code` 写 `~/.claude/settings.json`，`perch hooks install codex` 写 `~/.codex/hooks.json`。Codex 的 hook 要在 codex 里用 `/hooks` 确认信任后才会跑。
+安装：`perch hooks install claude-code` 写 `~/.claude/settings.json`，`perch hooks install codex` 写 `~/.codex/hooks.json`（v0.4 起用户一般在刘海的设置卡片里点 Connect，写的是同样的 hook，见 #25）。Codex 的 hook 要在 codex 里用 `/hooks` 确认信任后才会跑。
 
 ~~Hermes 不走 hook，直接调 daemon 的 HTTP 接口~~。M6 改：Hermes 实际跑在本机（不在 Docker 里），有自己的 shell hook（`pre_llm_call` / `post_llm_call` / `pre_approval_request` 等），所以和 Claude Code、Codex 一样走 `perch hook hermes`。Hermes 的审批 hook 只能观察，刘海只能提示去哪里回答，不能批准。HTTP 接口保留，给够不着 Unix socket 的容器客户端。
 

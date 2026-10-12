@@ -4,6 +4,7 @@ import Foundation
 import PerchClient
 import PerchCore
 import PerchDaemon
+import PerchSetup
 
 // perchd — the Perch daemon. Single source of truth.
 // Owns the SQLite store, listens on the Unix socket (+ localhost HTTP),
@@ -99,25 +100,26 @@ struct Install: ParsableCommand {
         }
 
         let client = PerchClient(socketPath: PerchPaths.socket(in: home).path)
-        let loaded = FileManager.default.fileExists(atPath: LaunchAgent.plistURL.path)
+        let agent = LaunchAgent()
+        let loaded = FileManager.default.fileExists(atPath: agent.plistURL.path)
         if !loaded, (try? client.send(Request(op: .ping), timeout: 2))?.ok == true {
             throw Fatal("a perchd is already running outside launchd; stop it first, then install")
         }
         if executable.contains("/.build/") {
             log("note: installing \(executable) from a build directory; `swift package clean` will break the agent. "
-                + "Copy perchd somewhere stable (e.g. ~/.local/bin) and run install from there for daily use.")
+                + "For daily use, `perch setup` installs perchd into ~/.perch/bin and the agent against it.")
         }
-        try LaunchAgent.install(plist: plist, home: home)
+        try agent.install(plist: plist, home: home)
 
         for _ in 0..<30 {
             if (try? client.send(Request(op: .ping), timeout: 1))?.ok == true {
-                print("installed \(LaunchAgent.plistURL.path)")
+                print("installed \(agent.plistURL.path)")
                 print("perchd is running; log: \(LaunchAgent.logURL(home: home).path)")
                 return
             }
             Thread.sleep(forTimeInterval: 0.1)
         }
-        throw Fatal("installed \(LaunchAgent.plistURL.path), but perchd is not answering; see \(LaunchAgent.logURL(home: home).path)")
+        throw Fatal("installed \(agent.plistURL.path), but perchd is not answering; see \(LaunchAgent.logURL(home: home).path)")
     }
 }
 
@@ -125,8 +127,9 @@ struct Uninstall: ParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Stop the launchd agent and remove its plist.")
 
     func run() throws {
-        if try LaunchAgent.uninstall() {
-            print("removed \(LaunchAgent.plistURL.path); perchd stopped")
+        let agent = LaunchAgent()
+        if try agent.uninstall() {
+            print("removed \(agent.plistURL.path); perchd stopped")
         } else {
             print("perchd was not installed")
         }

@@ -24,6 +24,8 @@ public final class QueueModel: ObservableObject {
 
     /// Called after every applied update; used to measure CLI → notch latency.
     public var onApply: ((QueueConnection.Update) -> Void)?
+    /// Every session event, after it is applied (setup watches Codex's to learn its hooks are trusted).
+    public var onSession: ((SessionEvent) -> Void)?
     /// Goes to a session's link (its terminal). The app sets it; AppKit stays out of this module.
     public var jump: (String?) -> Void = { _ in }
 
@@ -39,6 +41,11 @@ public final class QueueModel: ObservableObject {
     public var headRequest: Item? { panel.headRequest }
     public var headSession: Session? { panel.headSession }
     public var panel: Panel { Panel(sessions: sessions.values, requests: state.items.values) }
+
+    /// The expanded notch's panel: the sessions with setup above them.
+    public func panel(setup: SetupState) -> Panel {
+        Panel(sessions: sessions.values, requests: state.items.values, setup: setup)
+    }
 
     public func connect(client: PerchClient = PerchClient()) {
         self.client = client
@@ -73,6 +80,7 @@ public final class QueueModel: ObservableObject {
                 pulseStatus = after?.status
                 pulse += 1
             }
+            onSession?(event)
         case .offline(let reason):
             online = false
             offlineReason = reason

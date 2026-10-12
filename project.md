@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-09 · **v0.3.0 已发布**（刘海小怪物，#22 / #23）· v0.2.0 是第一阶段（M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.4.0-dev` · 下一步候选：行尾跳转图标区分终端 / 桌面 App
+最后更新：2026-10-12 · **v0.3.0 已发布**（刘海小怪物，#22 / #23）· v0.2.0 是第一阶段（M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.4.0-dev` · 进行中：零配置安装（#25），第 1 步 #26（`perch setup` / `perch uninstall`、`~/.perch/bin`、agents.json、自修复、v0.3 迁移）在分支 `feat/perch-setup`，2026-10-10 用户在本机跑 `scripts/install.sh` 验收通过（v0.3 的 hooks / launchd / `~/.local/bin` 迁到 `~/.perch/bin`，Claude Code 会话照常、Codex `/hooks` 重新信任后会话恢复）；第 2 步 #27（App 自检、首次运行设置卡片、设置行、Agents 子菜单、Codex 信任提示）同分支实现，2026-10-10 用户验收通过（见下方"零配置安装 #27"）；PR #30 等 #28 / #29 做完再合；#28 开机启动 / 刘海里的 Uninstall 同分支已实现（2026-10-12，见下方"零配置安装 #28"，待用户手动验收）；#29 Homebrew tap（就在本仓库）/ 文档同分支已实现（2026-10-12），等发 v0.4.0 和用户在干净账户上验收
 
 ## 发布
 
@@ -12,9 +12,9 @@
 | [v0.3.0](https://github.com/cryptowizard0/perch/releases/tag/v0.3.0) | 2026-10-09 | 收起态的圆点换成像素独眼小怪物、按状态动画，进入 Needs you / Failed / Done 时有反应动作（#22，PR #23）；刘海两边按内容收窄。tag 打在 `fed12a8`（`chore: release v0.3.0`），之后 `main` 改成 `0.4.0-dev`。附 `perch-0.3.0-macos-arm64.zip` + `.sha256`（同样只有 arm64、ad-hoc 签名） |
 | [v0.2.0](https://github.com/cryptowizard0/perch/releases/tag/v0.2.0) | 2026-10-09 | 第一阶段（M1–M8）：刘海里的 agent 面板，支持 Claude Code + Codex。tag 打在 `4a1df87`（`chore: release v0.2.0`），之后 `main` 改成 `0.3.0-dev`（`cadb7d6`）。GitHub Release 附 `perch-0.2.0-macos-arm64.zip`（`perch` + `perchd` + `Perch.app`，只有 arm64、ad-hoc 签名未公证）和它的 `.sha256` |
 
-预编译包的坑（2026-10-09，用户在另一台电脑装 v0.3.0 的 zip，Codex 会话一直不出现）：**原因是没在 codex 里 `/hooks` 信任**，Codex 静默跳过未信任的 hook。README 的 Install 现在单列"Codex: trust the hooks"和"Prebuilt"两节（先清隔离标记、先把二进制放到固定位置再从那里 `perchd install` / `perch hooks install`，因为 hooks 和 launchd 记的是绝对路径），另加 Troubleshooting 表。每次发版的 release notes 都要带上"在 codex 里 `/hooks` 信任"这一句。Claude Code 没有信任这一步（按官方 hooks / permissions 文档核对，2026-10-09）：用户设置里的 hooks 直接生效、改了会被文件监视自动加载；会让它收不到的是 `disableAllHooks`（项目设置可以覆盖用户设置）、托管设置的 `allowManagedHooksOnly`、`CLAUDE_CONFIG_DIR` 不一致，以及预编译包的隔离标记 / 路径失效。Claude Code 里的 `/hooks` 是只读列表，可以用来确认 Perch 的 8 个 hook 是否生效。
+预编译包的坑（2026-10-09，用户在另一台电脑装 v0.3.0 的 zip，Codex 会话一直不出现）：**原因是没在 codex 里 `/hooks` 信任**，Codex 静默跳过未信任的 hook。当时 README 的 Install 加了单独的"Codex: trust the hooks"一节和 Troubleshooting 表（v0.4 起 Install 整体换成新流程，见下方"零配置安装 #29"）。每次发版的 release notes 都要带上"在 codex 里 `/hooks` 信任"这一句。Claude Code 没有信任这一步（按官方 hooks / permissions 文档核对，2026-10-09）：用户设置里的 hooks 直接生效、改了会被文件监视自动加载；会让它收不到的是 `disableAllHooks`（项目设置可以覆盖用户设置）、托管设置的 `allowManagedHooksOnly`、`CLAUDE_CONFIG_DIR` 不一致，以及预编译包的隔离标记 / 路径失效。Claude Code 里的 `/hooks` 是只读列表，可以用来确认 Perch 的 8 个 hook 是否生效。
 
-发版步骤（v0.2.0 这样做的）：`Sources/PerchCore/Version.swift` 去掉 `-dev` → `swift build` + `swift test` → 提交 `chore: release vX.Y.Z` → `git tag -a vX.Y.Z` → 推 main 和 tag → 在 tag 的独立 worktree 里 `swift build -c release` + `scripts/bundle-app.sh`，`ditto -c -k` 打 zip、`shasum -a 256` → `gh release create vX.Y.Z --verify-tag` 附 zip 和 sha256 → `main` 改成下一个 `-dev`。版本号只有 `Version.swift` 一处，`perch` / `perchd` 读它，`bundle-app.sh` 去掉 `-dev` 写进 Info.plist。本机只有 Command Line Tools，打不了 universal（x86_64）包。
+发版步骤（v0.4.0 起，#29）：`Sources/PerchCore/Version.swift` 去掉 `-dev` → `swift build` + `swift test` → 提交 `chore: release vX.Y.Z` → `git tag -a vX.Y.Z` → 推 main 和 tag → 在 tag 的独立 worktree 里跑 `scripts/package-release.sh`（`dist/perch-X.Y.Z-macos-arm64.zip` 只含 Perch.app，加 `.sha256`，并改好 `Casks/perch.rb` 的 version / sha256）→ 照 `docs/RELEASE-NOTES-TEMPLATE.md` 写 notes（Gatekeeper 的 Open Anyway 和 Codex `/hooks` 两步每次都要有）→ `gh release create vX.Y.Z --verify-tag --notes-file … dist/*.zip dist/*.sha256` → 把 worktree 里改好的 `Casks/perch.rb` 提交到 main（`chore(cask): perch X.Y.Z`；cask 在 release 发布之前指向的 zip 不存在）→ `main` 改成下一个 `-dev`。v0.2.0 / v0.3.0 是手动 `bundle-app.sh` + `ditto` 打的，zip 里还有 perch / perchd。版本号只有 `Version.swift` 一处，`perch` / `perchd` 读它，`bundle-app.sh` 去掉 `-dev` 写进 Info.plist。本机只有 Command Line Tools，打不了 universal（x86_64）包。
 
 ## 总览
 
@@ -373,6 +373,46 @@ hermes hooks list               # 5 个都应是 allowed
 - `PerchApp/MascotView.swift`：`TimelineView(.animation(minimumInterval:paused:))` + `Canvas`，不抗锯齿；fps 为 0 的状态（Failed / Done / 没有会话 / 离线）暂停不重绘。反应由 `QueueModel.pulse` 触发、用 `pulseStatus` 的样子和颜色（取代原来的光环），`@Environment(\.accessibilityReduceMotion)` 下只画 `Mascot.still`。
 - 收起态两边的宽度（原来固定 40pt）改成按左边内容算、两边对称（用户嫌宽，2026-10-09）：`NotchGeometry.collapsedWing` = 边距 7 + 小怪物 15 +（间距 3 + Running 数 / 离线图标）+ 4，只有小怪物 26pt、一位数字 37pt、离线 44pt、两位数字 45pt（数字 7.9pt、离线图标 15pt 是实测的）。Running 数从 0 变成 1 时整条会变宽，展开 / 收起本来就是这样换 frame 的。`StatusDot` 只剩展开态每行用（呼吸保留，光环 / 离线参数删掉）。
 - 截图验收（隔离 perchd + debug App，`screencapture -l` 截窗口，自写 CGImage 最近邻放大看像素）：六种状态、Needs you 和 Done 的反应、"等你时另一个会话跑完"先蓝色跳再回橙色、离线都对；连拍 8 张：Running 6 种帧、Needs you 4 种、Idle 3 种，Failed / Done 1 种。"减少动态效果"没法在本机切换（系统设置），靠单测覆盖。
+
+## 零配置安装 #27：App 自检与刘海里的设置（2026-10-10）
+
+- **打包**：`scripts/bundle-app.sh` 把 `perch` / `perchd` 放进 `Perch.app/Contents/Helpers`（不放 `Contents/MacOS`：大小写不敏感的盘上 `perch` 和 `Perch` 同名），先签 helper 再签 App。
+- **自检**（`PerchAppCore/AppSetup.swift`，同步 I/O，`SetupModel` 放到后台串行队列跑）：只在 App 位于 `/Applications` / `~/Applications` 且没设 `PERCH_HOME` 时干活（`Setup.maintainsInstall`）。版本不同（两个方向）就把 Helpers 里的二进制拷进 `~/.perch/bin` 并重装 launchd（= 重启 perchd）；launchd plist 不在也重装；on 的 agent 的 Perch hook 过期就重写（`perch uninstall` 之后 hook 没了的不自动放回，行里给 Connect）。agents.json 坏了：只同步二进制，不修 hook，显示错误行。
+- **App 连的 perchd** 改成 `SetupEnvironment.current.socket`（`$PERCH_HOME` 或 `$HOME/.perch`），和自检装 perchd 的位置一致。正常启动时等于原来的 `~/.perch`；好处是 `HOME=/tmp/x` 的隔离运行完全隔离（`FileManager.homeDirectoryForCurrentUser` 不看 `$HOME`）。
+- **纯逻辑**（`PerchAppCore/Setup.swift` 的 `SetupState`，测试在 `SetupPanelTests`）：
+  - 首次运行卡片：开发构建以外、卡片没显示过（user defaults `SetupCardShown`，显示时就记下，所以只自动展开一次）、agents.json 没有条目、没有 agent 是 on。列出 notAsked 的 agent（都勾上）；一个都没找到时卡片只说"还没找到"+ OK。Connect 之后显示每个 agent 的结果和剩下的一步（Codex：`/hooks`），Done 关掉。卡片在时不显示设置行。
+  - 设置行（会话分组上面，`Panel.sections`）：错误（读不了的 hook 文件 "Can't read ~/…"、写失败、二进制 / perchd 装不上、agents.json 坏了）→ 信任 → "<Agent> found" / "Perch's hooks for <Agent> are missing"（带 Connect）→ "Updated Perch's hooks for <Agent>"。off / notDetected / connected 没有行。右键 Dismiss 只对本次启动有效。错误行跟着最新的报告走（修好后下次展开就消失）；自检自己发现的（二进制 / perchd 装不上、修复写失败）留到下次启动。
+  - 右键刘海的 Agents 子菜单（开发构建没有）：勾 = connected / outdated / needsTrust；勾上 = 和 `perch setup <agent>` 一样，取消 = 和 `perch hooks uninstall` 一样（共用 `Installer.disconnect`）。没检测到的 agent 灰掉。展开刘海时重读一次 agents.json 和 hook 文件（CLI 可能改过）。
+  - Codex 信任：App 看到 codex 的 `session.updated`，且会话的 `updated_at`（上报时间，perchd 自己的 done → idle / seen 不改它）晚于 `hooks_written_at`（没有写入时间时任何事件都算）→ 立刻去掉信任行、把 `trusted_at` 写进 agents.json。perchd 不变。
+- **测试**：`SetupPanelTests`（纯）22 个；`AppSetupTests` 11 个在临时 HOME 里跑真的 `AppSetup` + `SetupModel`（launchctl 是记参数的脚本，Helpers 里的 perch 是打印版本号的脚本）：首次安装二进制并启动 perchd、换新 / 旧版本 App 双向同步并重启、开发构建什么都不碰、Connect 前不改配置、Not now 后的 found 行、修复保留 `--wait`、坏 JSON 不动、agents.json 坏了不出卡片、Connect 写不了出错误行、Agents 菜单开关、信任记录。
+- **隔离 HOME 手动验证**（`HOME=/tmp/perch-iso PERCH_LAUNCHCTL=<记参数脚本>`，App 拷到 `$HOME/Applications`，再 `PERCH_HOME=$HOME/.perch perchd run --no-http` 起一个隔离 perchd）：刘海自己展开出卡片、Connect 写了 8 + 6 个 hook（其他设置保留、有 `.perch-backup`）、一个 codex UserPromptSubmit 之后 `trusted_at` 写入；错误行 / 信任行 / 更新行 / found 行 / missing 行都截图看过。**注意**：隔离测试里手敲 `perch hooks install … --settings /tmp/…` 一定要带同一个 `HOME`，否则会把临时路径记进真的 `~/.perch/agents.json`（这次踩过）。
+- **本机验收（2026-10-10，用户）**：跑 `scripts/install.sh` 装上新 App 后，展开刘海看到 "Trust Perch's hooks: run /hooks in codex"；在 codex 里发一条消息，这行立刻消失，`agents.json` 写入 `trusted_at`（晚于 `hooks_written_at`）✅。没出首次运行卡片（agents.json 已有条目），符合设计。
+- **点击验收（2026-10-10，用户在隔离 HOME 的 App 上亲手点）**：首次运行卡片 Connect → Done（写了 8 + 6 个 hook、有备份、关卡片后出信任行）、Not now、行里的 Connect、右键 Dismiss、Agents 子菜单取消 / 勾上 Codex，全部通过 ✅。#27 验收完成（无刘海胶囊形态没有单独看，展开态和有刘海时同一套布局）。
+- **换 App 同步二进制（2026-10-10，用户同意后我在本机做）**：临时把版本改成 `0.4.0-dev.2` 打包进 `~/Applications/Perch.app` 重开 → `~/.perch/bin` 变成 `0.4.0-dev.2`，hook 文件没动；**但 perchd 没起来**：`launchctl bootout` 在旧 perchd 退出前就返回，紧接着的 `bootstrap` 报 "5: Input/output error"（用一个收到 SIGTERM 后 1 秒才退出的假 job 复现），所以 job 没了。`perch setup` 也有同样的潜在问题，之前是碰巧没撞上。修复：`LaunchAgent.install` 在 bootstrap 失败时每 0.2 秒重试、最多 10 秒（`LaunchAgentInstallTests`）。修复后把版本改回 `0.4.0-dev` 再打包重开（降级方向）：`~/.perch/bin` 回到 `0.4.0-dev`、perchd 自动重启（pid 变了，日志是新版本）、会话都在 ✅。
+
+## 零配置安装 #28：开机启动与刘海里的 Uninstall（2026-10-12）
+
+- **先验证 `SMAppService`**：在 /tmp 编了一个 ad-hoc 签名（`TeamIdentifier=not set`）、bundle id `dev.perch.smtest` 的小 App，`SMAppService.mainApp.register()` → status enabled，`unregister()` → notRegistered。所以不需要 launchd 兜底，结论记在 CLAUDE.md 未决问题里。真正注销 / 重新登录的验收要用户做。
+- **代码**：`PerchAppCore/LoginItem.swift`（`LoginItemStatus`、`LoginItem`：status / register / unregister / openSettings 四个闭包，`.mainApp` 包 `SMAppService`，只有 `.app` bundle 才会注册）；`AppSetup` 多了 `loginItem` 和 `trash`（默认 `FileManager.trashItem`）、`setOpenAtLogin`、`connect(_:openAtLogin:)`、`uninstall() -> UninstallOutcome`；每份 `SetupReport` 带 `openAtLogin`（只对 maintainsInstall 的 App）。`SetupState`：卡片的 `openAtLogin`（默认 true，Connect 之后不能改）、`closeCard()` 返回要不要注册（仍在 choosing 且勾着）、`loginMenu`、`canUninstall`；Connect 之后卡片结果里多一行 "Perch opens at login" / 去系统设置放行 / "Couldn't turn on Open at Login"。`PanelLayout.cardHeight` 给勾选框多留一行。
+- **App 壳**：卡片的勾选框（`CardCheckbox`，和 agent 那几行共用）；右键菜单 Agents 下面是 "Open at Login" 开关和 "Uninstall Perch…"，再下面 Quit；确认用 `NSAlert`（先 `NSApp.activate`，面板不会成为前台）。
+- **code review 后的修正**：隔离运行（`$HOME` ≠ 真实 home）会动到真实用户的登录项（SMAppService 不看 `$HOME`），改成那时没有登录项（不显示勾选框 / 菜单项，卸载跳过注销）；卸载进行中再点 Uninstall、Connect、开关登录项都忽略（否则排在卸载后面的 Connect 会写指向已删的 `~/.perch/bin/perch` 的 hook）。已知小限制：右键菜单的登录项状态是最近一次报告的（启动、操作后、每次展开刘海时重读），在系统设置里改了之后不展开就直接右键，可能还是旧的。
+- **测试**：`SetupPanelTests` +6（纯）；`AppSetupTests` +11（临时 HOME，假 LoginItem / trash）：卡片 Connect 勾着就注册、不勾不碰、Not now 也照框办、注册失败写进卡片、菜单开关和 requiresApproval 打开设置、卸载删 hook / launchd / bin 留数据并注销 + 进废纸篓、清不掉的 hook 文件照样走完、删不掉 `~/.perch/bin` 时 App 留着且仍注册、开发构建不能卸载、隔离运行不碰登录项、卸载后其他操作都被忽略。`AppSetupTests` 原来在主线程上 inline 跑磁盘 / 进程（合计约 7 秒），加了测试后把同时跑的 `NotchLatencyTests` / `PanelApprovalTests` 挤超时；现在用 `SetupModel` 自己的后台队列 + `await settle()`，主线程空出来，全套 341 个测试 ~10 秒。
+- **截图**：隔离 HOME（`HOME=/tmp/perch-iso28 PERCH_LAUNCHCTL=<记参数脚本> PERCH_PIN_EXPANDED=1`）里卡片显示三行勾选（Claude Code / Codex / Open at login），高度合适。隔离运行会往真的 `dev.perch.app` defaults 写 `SetupCardShown`，看完删掉了。
+- **待用户手动验收**：勾着 Open at login 注销再登录 Perch 在跑、登录项里有它、菜单里取消后消失；隔离安装上点 "Uninstall Perch…" 删掉 hook / launchd / `~/.perch/bin`、留 `~/.perch`、App 进废纸篓。
+
+## 零配置安装 #29：Homebrew、文档、验收（2026-10-12）
+
+- **homebrew/cask 政策（核对过）**：2026-09-01 起官方仓库停用过不了 Gatekeeper 的 cask（`disable! because: :fails_gatekeeper_check`），`--no-quarantine` 已删。本机 brew 7.0.6 源码里 Gatekeeper 检查（`spctl --assess`）只在 `cask/audit.rb`，安装流程不查 → 自建 tap 能装未公证 App，但一定带隔离标记。
+- **tap 放在本仓库**（用户定，不建 homebrew-perch）：`brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch` + `brew install --cask cryptowizard0/perch/perch`；代价是 tap 克隆整个仓库（13 MB）。
+- **tap 信任（2026-10-12 发现）**：brew 7 默认要求信任第三方 tap，短名字 `brew install --cask perch` 会被拒绝（本地 tap + 隔离 HOME 用 `brew info` 实测：短名字 "Refusing to load cask … from untrusted tap"，完整名字正常）；用完整名字安装 / 升级时 brew 自动信任这个 cask。README、cask 注释、发版说明模板都改成完整名字。
+- **隔离标记实测**：带标记的 ad-hoc `perch` 在终端执行 → SIGKILL（exit 137），去掉标记正常；bundle 外带标记的 shell 脚本能跑；但未批准的 bundle 里任何东西（包装脚本、哪怕去掉了标记的文件）都被杀，Gatekeeper 评估整个 bundle。这几次被拦时屏幕上大概弹了"无法验证"对话框，测试用的 App 随后被系统删掉了（不在废纸篓）——之后没有再试。**待用户验收确认**：Open Anyway 批准 App 之后，PATH 上的 `perch`（包装脚本）能跑。
+- **cask**（`Casks/perch.rb`，`brew style` 通过）：`app "Perch.app"`；`binary` 链包装脚本 `Contents/Resources/bin/perch`（`packaging/perch-path.sh`，`PathWrapperTests` 2 个测试）；`uninstall quit:` + `/bin/sh -c` 跑 `~/.perch/bin/perch uninstall`；`zap` 跑 `uninstall --purge` 并 trash `~/.perch` 和偏好设置。本地 tap + `file://` zip + 隔离 HOME 实测：安装、链接、uninstall 脚本收到 `uninstall`、zap 收到 `uninstall --purge`、链接删除都对。踩坑：`HOMEBREW_NO_INSTALL_FROM_API=1` 会让 brew 去克隆整个 homebrew-core，别设。
+- **`install.sh`** 改成和下载一样的路径：打包 App → `~/Applications` → 打开（首次运行走卡片，不再替用户 Connect）；已经装过（`~/.perch/bin`，或 `~/.local/bin` 里 v0.3 的真二进制）时跑 App 里的 `perch setup --upgrade`（新加的，只拷二进制、重启 perchd、修已连接 agent 的 hook，不连新的）；`APPDIR` 不是 Applications 文件夹或设了 `PERCH_HOME` 时直接报错（否则 App 什么都不装，半装状态）。
+- **code review 后的修正**：brew 在 upgrade / reinstall 时也会跑 uninstall 的 `script`（brew 7 源码：`UPGRADE_REINSTALL_SKIP_DIRECTIVES = [:signal]`），原来的 cask 每次 `brew upgrade` 都会 `perch uninstall` 断开所有 agent；现在脚本看父进程命令行跳过 upgrade / reinstall，本地 tap 实测 upgrade / reinstall 不调、uninstall 调。zap 去掉了永远不会生效的脚本。`linkOldBinaries` 每次启动都做、失败单独报。`package-release.sh` 检查版本号非空、arm64、cask 真的改上了。
+- **待验收时留意**：`brew uninstall` 不注销登录项（只有刘海里的 Uninstall 会），App 删掉后 系统设置 → 登录项 里是否还留着一条。
+- **App 自检**同步二进制时也做 `linkOldBinaries`（v0.3 换 App 就能升级，`aV03InstallIsMigratedByReplacingTheApp`）。
+- **文档**：README 的 Install（Homebrew / 下载 → Gatekeeper → Connect → Codex 信任）、perch 在终端、升级、卸载（菜单 / brew / CLI）、源码安装、Troubleshooting 全部重写；`docs/RELEASE-NOTES-TEMPLATE.md`；`scripts/package-release.sh`；MILESTONES 新增 M10。
+- **还没做**：发 v0.4.0（cask 的 sha256 现在是占位，release 之前 `brew install` 会 404）；M10 的手动验收（干净账户）。
 
 ### M2 协议扩展：`update`（已实现）
 
