@@ -83,11 +83,11 @@
 - [x] App 自检、首次运行设置卡片、设置行、Agents 子菜单、Codex 信任提示（#27，2026-10-10 用户验收）
 - [x] 开机启动（`SMAppService`，ad-hoc 签名可用）和刘海里的 "Uninstall Perch…"（#28）
 - [x] Homebrew cask（tap 就是本仓库）、README / 发版说明模板 / `install.sh` 改成新流程（#29）
-- [ ] 干净的 macOS 用户账户上，预编译 zip 端到端可用：过 Gatekeeper → 打开 → 设置卡片 → Connect → Claude Code 会话出现在刘海
-- [ ] Codex：出现信任行；在 codex 里 `/hooks` 并开新会话后，Codex 会话出现、信任行消失
+- [ ] 干净的 macOS 用户账户上，预编译 zip 端到端可用：过 Gatekeeper → 打开 → 设置卡片 → Connect → Claude Code 会话出现在刘海（卡片 → Connect → 会话：✅ Intel 上源码安装；Gatekeeper：✅ 本机 brew 安装；zip 全流程未测）
+- [x] Codex：出现信任行；在 codex 里 `/hooks` 并开新会话后，Codex 会话出现、信任行消失（2026-10-12，第二台 Mac）
 - [ ] `brew install --cask` 从 tap 安装 → `perch` 在 PATH 上（Open Anyway 之后能跑：✅ 2026-10-12 维护者本机）→ 打开 App 出设置卡片；`brew uninstall` 删掉 hook 和 perchd；`--zap` 连 `~/.perch` 一起删
 - [ ] 装着 v0.3 的机器只换 App 就能升级，除了 Codex 重新信任一次没有别的手动步骤
-- [ ] 先装 Perch 后装 Codex，出现 "Codex found · Connect"
-- [ ] 重启后刘海回来（开机启动）；勾着 Open at login 注销再登录 Perch 在跑、出现在 登录项，菜单里取消后消失（#28）
-- [ ] 隔离安装上 "Uninstall Perch…" 删掉 hook / launchd / `~/.perch/bin`，保留 `~/.perch`，App 进废纸篓（#28）
-- [ ] README、CLAUDE.md、`project.md`、MILESTONES 描述新流程，不再有旧的手动步骤（已改，待维护者确认）
+- [x] 先装 Perch 后装 Codex，出现 "Codex found · Connect"（2026-10-12，第二台 Mac）
+- [x] 重启后刘海回来（开机启动）；勾着 Open at login 注销再登录 Perch 在跑、出现在 登录项，菜单里取消后消失（#28；2026-10-12，第二台 Mac）
+- [x] "Uninstall Perch…" 删掉 hook / launchd / `~/.perch/bin`，保留 `~/.perch`，App 进废纸篓（#28；2026-10-12，第二台 Mac 的真实安装）
+- [x] README、CLAUDE.md、`project.md`、MILESTONES 描述新流程，不再有旧的手动步骤
