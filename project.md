@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-12 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · #28 验收通过、已关闭（2026-10-12）；待办：M10 剩下的 #29 验收（Apple silicon 上的预编译 zip 全流程、真实的 `brew uninstall` / `--zap`、v0.3 换 App 升级），之后关 #29 / #25；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29"
+最后更新：2026-10-12 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29"
 
 ## 发布
 
@@ -430,7 +430,14 @@ hermes hooks list               # 5 个都应是 allowed
   - 刘海里的 Uninstall Perch… 删掉 hook / launchd / `~/.perch/bin`，保留 `~/.perch`，App 进废纸篓；
   - 补测"后装 Codex"出现 "Codex found · Connect"（藏起 `~/.codex` 重装后放回）。
   - 源码安装测不到 Gatekeeper / zip / brew。
-- **还没验证（M10 剩下的）**：
+- **维护者本机的最终验收（2026-10-12）**：先把 `~/.perch` 备份到 `~/perch-backup-20261012`。
+  - **真实的 `brew uninstall`**：删了 Claude Code 8 条 / Codex 6 条 hook、launchd agent、`~/.perch/bin` 和 `~/.local/bin` 的链接，保留了 `~/.perch`。
+  - **`brew install` 后不打开就 `brew uninstall --zap`**：uninstall 脚本什么都没做（没有 `~/.perch/bin`），`~/.perch` 和偏好设置 plist 进了废纸篓，`defaults` 里 `dev.perch.app` 域也没了。
+  - **Chrome 下载的 zip**（带隔离标记）→ 拖进"应用程序"→ 仍要打开 → 设置卡片 → Connect：8 + 6 条 hook、`~/.perch/bin` 是 0.4.0、perchd 在跑；Codex 的 `trusted_at` 晚于写 hook 的时间。
+  - 卸载后登录项里会不会留一条，没有报告。
+  - v0.3 换 App 升级不测（维护者定）。
+  - #29 / #25 关闭。
+- **当时还没验证的**：
   - 干净账户上用预编译 zip 走完整流程（Gatekeeper 只在维护者本机的 brew 安装上走过，卡片只在源码安装上看过）；
   - 真实环境的 `brew uninstall` / `--zap`（目前只在本地 tap + 隔离 HOME + 假 perch 上测过）；
   - 真正装着 v0.3 的机器只换 App 升级（目前只有单元测试，以及本机 `0.4.0-dev` → `0.4.0` 的替换）。
