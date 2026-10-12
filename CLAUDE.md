@@ -79,7 +79,7 @@ M7 起有 `sessions` 表（schema v2，字段与 `Session`（`Sources/PerchCore/
 
 | 事件 | 会话 | 阻塞 agent |
 | --- | --- | --- |
-| `UserPromptSubmit` | running（本轮 prompt 首行）；Ghostty 下记下当前聚焦的 terminal id | 否 |
+| `UserPromptSubmit` | running（本轮 prompt 首行）；Ghostty 下记下当前聚焦的 terminal id。Claude Code 自己注入的 `<task-notification>`（后台任务跑完）也触发它：报告带 `keep_prompt`，保留人上一条 prompt，会话还在 Running / Needs you 时计时也不重置，不重新记 terminal（#32） | 否 |
 | `Notification`（matcher `permission_prompt` / `elicitation_dialog` / `agent_needs_input`；**不接 `idle_prompt`**） | waiting（agent 的原话；`permission_prompt` 不覆盖已记下的命令） | 否 |
 | `Stop` | done（`last_assistant_message` 首行） | 否 |
 | `StopFailure` / `Interrupt`（Codex） / `SessionEnd` | failed（记 `error`）/ idle / 移除 | 否 |

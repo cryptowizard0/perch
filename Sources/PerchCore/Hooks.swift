@@ -181,7 +181,24 @@ public enum HookAdapter {
     public static func waitingKey(agent: String, session: String) -> String { "\(agent):\(session)" }
     public static func noticeKey(agent: String, session: String) -> String { "\(agent):\(session):done" }
     /// Events that start a turn: the human just typed, so that terminal has focus.
-    public static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call"]
+    static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call"]
+
+    /// Whether the human just typed into this event's terminal. A prompt Claude Code injects on its own (a background
+    /// task finishing) fires UserPromptSubmit too, while focus may be anywhere.
+    public static func startsTurn(_ input: HookInput) -> Bool {
+        turnStarts.contains(input.event) && !isInjected(input.prompt ?? "")
+    }
+
+    /// `keep_prompt` for a prompt report: set only when the agent injected the prompt.
+    static func keepsPrompt(_ input: HookInput) -> Bool? {
+        isInjected(input.prompt ?? "") ? true : nil
+    }
+
+    /// A prompt the agent sent itself rather than the human: Claude Code's `<task-notification>`, which wakes the model
+    /// when a background command or agent finishes.
+    static func isInjected(_ prompt: String) -> Bool {
+        prompt.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<task-notification>")
+    }
 
     /// Another agent running this agent's hooks. Grok runs Claude Code's hooks from ~/.claude/settings.json by default
     /// (`[compat.claude] hooks`); its own `perch hook grok` reports its sessions, so the borrowed call says nothing.
@@ -197,7 +214,7 @@ public enum HookAdapter {
         }
         switch input.event {
         case "UserPromptSubmit":
-            return report(.prompt) { $0.prompt = promptLine(input.prompt ?? "") }
+            return report(.prompt) { $0.prompt = promptLine(input.prompt ?? ""); $0.keepPrompt = keepsPrompt(input) }
         case "Notification":
             guard let type = input.notificationType, waitingNotifications.contains(type) else { return [] }
             // A late `permission_prompt` keeps the full command PermissionRequest recorded (keep_detail).
@@ -263,7 +280,7 @@ public enum HookAdapter {
         }
         switch input.event {
         case "UserPromptSubmit":
-            return report(.prompt) { $0.prompt = promptLine(input.prompt ?? "") }
+            return report(.prompt) { $0.prompt = promptLine(input.prompt ?? ""); $0.keepPrompt = keepsPrompt(input) }
         case "Notification":
             guard let type = input.notificationType else { return [] }
             if type == "idle_prompt" { return report(.settle) }
@@ -426,8 +443,9 @@ public enum HookAdapter {
 
     /// The first meaningful line of the agent's last message, without markdown decoration, capped.
     /// A prompt's first line as the notch shows it. Claude Code hands shell-mode (`!cmd`) and slash-command prompts
-    /// over in tags; those read as what was typed: `$ cmd`, `/name args`.
+    /// over in tags; those read as what was typed: `$ cmd`, `/name args`. An injected prompt (`isInjected`) has no line.
     static func promptLine(_ prompt: String) -> String? {
+        if isInjected(prompt) { return nil }
         func tag(_ name: String) -> String? {
             guard let open = prompt.range(of: "<\(name)>"),
                   let close = prompt.range(of: "</\(name)>", range: open.upperBound..<prompt.endIndex) else { return nil }

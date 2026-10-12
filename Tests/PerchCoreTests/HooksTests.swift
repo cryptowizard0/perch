@@ -379,6 +379,36 @@ import Testing
         #expect(HookAdapter.promptLine("Why does <div> collapse?") == "Why does <div> collapse?")
         #expect(HookAdapter.promptLine("  \n ") == nil)
     }
+
+    /// What Claude Code 2.1 injects when a background command finishes (#32): no line, so the human's prompt stays.
+    static let taskNotification = """
+        <task-notification>
+        <task-id>bz7bon2oc</task-id>
+        <tool-use-id>toolu_01AbC</tool-use-id>
+        <output-file>/private/tmp/claude-501/-Users-me-work-perch/tasks/bz7bon2oc.output</output-file>
+        <status>completed</status>
+        <summary>Background command "swift test" completed (exit code 0)</summary>
+        </task-notification>
+        """
+
+    @Test func backgroundTaskNotificationsHaveNoLine() throws {
+        #expect(HookAdapter.promptLine(Self.taskNotification) == nil)
+        #expect(HookAdapter.promptLine("\n" + Self.taskNotification) == nil)
+        // Mentioning the tag is still a prompt.
+        #expect(HookAdapter.promptLine("Why does <task-notification> show up?") == "Why does <task-notification> show up?")
+
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "session_id": "s1", "cwd": "/w/perch", "hook_event_name": "UserPromptSubmit", "prompt": Self.taskNotification,
+        ])
+        let input = try JSONDecoder().decode(HookInput.self, from: payload)
+        let report = try #require(HookAdapter.requests(for: input, agent: "claude-code", link: nil, now: Date()).first?.report)
+        #expect(report.kind == .prompt && report.prompt == nil && report.keepPrompt == true)
+        // Nobody typed: the terminal in focus right now is not this session's.
+        #expect(!HookAdapter.startsTurn(input))
+        let typed = try JSONDecoder().decode(HookInput.self, from: Data(#"{"session_id":"s1","hook_event_name":"UserPromptSubmit","prompt":"go"}"#.utf8))
+        #expect(HookAdapter.startsTurn(typed))
+        #expect(HookAdapter.requests(for: typed, agent: "claude-code", link: nil, now: Date()).first?.report?.keepPrompt == nil)
+    }
 }
 
 /// Grok Build's hook stdin, as grok 1.0.50 sent it (captured 2026-10-12, trimmed to what Perch reads plus a little).

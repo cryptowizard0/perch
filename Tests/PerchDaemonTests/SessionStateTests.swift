@@ -66,6 +66,11 @@ struct SessionStateTests {
         s = try #require(try session(d, "s1"))
         #expect(s.status == .running && s.error == nil && s.prompt == "retry")
 
+        // A background task finishing wakes the model with an injected prompt: the row keeps the human's (#32).
+        try hook(cli, "claude-code", claude("UserPromptSubmit", #","prompt":"<task-notification>\n<task-id>bz7bon2oc</task-id>\n<status>completed</status>\n<summary>Background command \"swift test\" completed (exit code 0)</summary>\n</task-notification>""#))
+        s = try #require(try session(d, "s1"))
+        #expect(s.status == .running && s.prompt == "retry")
+
         try hook(cli, "claude-code", claude("SessionEnd", #","reason":"prompt_input_exit""#))
         #expect(try session(d, "s1") == nil)
     }
@@ -285,9 +290,32 @@ struct SessionRequestTests {
 @Suite struct SessionOrderTests {
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
-    func report(_ d: TestDaemon, _ kind: SessionReport.Kind, at offset: TimeInterval, detail: String? = nil) throws -> Response {
+    func report(_ d: TestDaemon, _ kind: SessionReport.Kind, at offset: TimeInterval, detail: String? = nil,
+                prompt: String? = nil, keepPrompt: Bool? = nil) throws -> Response {
         try d.client.send(Request(op: .sessionReport, report: SessionReport(id: "s1", kind: kind, at: t0.addingTimeInterval(offset),
-                                                                          source: "claude-code", title: "perch", detail: detail)))
+                                                                          source: "claude-code", title: "perch", prompt: prompt,
+                                                                          detail: detail, keepPrompt: keepPrompt)))
+    }
+
+    /// An injected prompt (a background task finished, #32) keeps the human's prompt. The clock keeps counting from
+    /// it while the session is still working, and restarts once the session had stopped.
+    @Test func anInjectedPromptKeepsTheHumansPrompt() throws {
+        let d = try TestDaemon(now: { Date(timeIntervalSince1970: 1_800_000_100) })
+        _ = try report(d, .prompt, at: 0, prompt: "Open an issue and start a branch")
+        _ = try report(d, .prompt, at: 10, keepPrompt: true)
+        var s = try #require(try d.client.send(Request(op: .sessions)).sessions?.first)
+        #expect(s.status == .running && s.prompt == "Open an issue and start a branch" && s.turnStartedAt == t0)
+
+        _ = try report(d, .stop, at: 20)
+        _ = try report(d, .prompt, at: 30, keepPrompt: true)
+        s = try #require(try d.client.send(Request(op: .sessions)).sessions?.first)
+        #expect(s.status == .running && s.prompt == "Open an issue and start a branch")
+        #expect(s.turnStartedAt == t0.addingTimeInterval(30))
+
+        // A typed prompt still replaces it.
+        _ = try report(d, .prompt, at: 40, prompt: "Next")
+        s = try #require(try d.client.send(Request(op: .sessions)).sessions?.first)
+        #expect(s.prompt == "Next" && s.turnStartedAt == t0.addingTimeInterval(40))
     }
 
     @Test func olderReportsAreIgnored() throws {
