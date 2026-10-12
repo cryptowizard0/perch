@@ -3,12 +3,13 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-12 · **v0.3.0 已发布**（刘海小怪物，#22 / #23）· v0.2.0 是第一阶段（M1–M8）· M7 / M8 由用户在真实会话上验收通过（#17 / #20）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置，2026-10-08 用户定）· `main` 现在是 `0.4.0-dev` · 进行中：零配置安装（#25），第 1 步 #26（`perch setup` / `perch uninstall`、`~/.perch/bin`、agents.json、自修复、v0.3 迁移）在分支 `feat/perch-setup`，2026-10-10 用户在本机跑 `scripts/install.sh` 验收通过（v0.3 的 hooks / launchd / `~/.local/bin` 迁到 `~/.perch/bin`，Claude Code 会话照常、Codex `/hooks` 重新信任后会话恢复）；第 2 步 #27（App 自检、首次运行设置卡片、设置行、Agents 子菜单、Codex 信任提示）同分支实现，2026-10-10 用户验收通过（见下方"零配置安装 #27"）；PR #30 等 #28 / #29 做完再合；#28 开机启动 / 刘海里的 Uninstall 同分支已实现（2026-10-12，见下方"零配置安装 #28"，待用户手动验收）；#29 Homebrew tap（就在本仓库）/ 文档同分支已实现（2026-10-12），等发 v0.4.0 和用户在干净账户上验收
+最后更新：2026-10-12 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 待办：M10 的手动验收（干净账户上走 zip 和 Homebrew 两条路径，#28 / #29 的 HITL 项，见 `docs/MILESTONES.md`），验收后关 #28 / #29 / #25；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29"
 
 ## 发布
 
 | 版本 | 日期 | 内容 |
 | --- | --- | --- |
+| [v0.4.0](https://github.com/cryptowizard0/perch/releases/tag/v0.4.0) | 2026-10-12 | 零配置安装（#25 / #26–#29，PR #30）：拖进 Applications 或 `brew install --cask cryptowizard0/perch/perch` → 打开过 Gatekeeper → 刘海里的设置卡片 Connect；App 自检维护 `~/.perch/bin` / perchd / hook；开机启动；刘海里的 Uninstall；`perch setup` / `perch uninstall`。tag 打在 `8540c56`（`chore: release v0.4.0`），用 `scripts/package-release.sh` 打包，zip 只含 Perch.app（sha256 `de423668…`），cask 改版本在 `42f6005`，之后 `main` 改成 `0.5.0-dev`。发版说明照 `docs/RELEASE-NOTES-TEMPLATE.md` |
 | [v0.3.0](https://github.com/cryptowizard0/perch/releases/tag/v0.3.0) | 2026-10-09 | 收起态的圆点换成像素独眼小怪物、按状态动画，进入 Needs you / Failed / Done 时有反应动作（#22，PR #23）；刘海两边按内容收窄。tag 打在 `fed12a8`（`chore: release v0.3.0`），之后 `main` 改成 `0.4.0-dev`。附 `perch-0.3.0-macos-arm64.zip` + `.sha256`（同样只有 arm64、ad-hoc 签名） |
 | [v0.2.0](https://github.com/cryptowizard0/perch/releases/tag/v0.2.0) | 2026-10-09 | 第一阶段（M1–M8）：刘海里的 agent 面板，支持 Claude Code + Codex。tag 打在 `4a1df87`（`chore: release v0.2.0`），之后 `main` 改成 `0.3.0-dev`（`cadb7d6`）。GitHub Release 附 `perch-0.2.0-macos-arm64.zip`（`perch` + `perchd` + `Perch.app`，只有 arm64、ad-hoc 签名未公证）和它的 `.sha256` |
 
