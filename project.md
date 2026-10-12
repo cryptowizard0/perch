@@ -406,14 +406,23 @@ hermes hooks list               # 5 个都应是 allowed
 - **homebrew/cask 政策（核对过）**：2026-09-01 起官方仓库停用过不了 Gatekeeper 的 cask（`disable! because: :fails_gatekeeper_check`），`--no-quarantine` 已删。本机 brew 7.0.6 源码里 Gatekeeper 检查（`spctl --assess`）只在 `cask/audit.rb`，安装流程不查 → 自建 tap 能装未公证 App，但一定带隔离标记。
 - **tap 放在本仓库**（用户定，不建 homebrew-perch）：`brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch` + `brew install --cask cryptowizard0/perch/perch`；代价是 tap 克隆整个仓库（13 MB）。
 - **tap 信任（2026-10-12 发现）**：brew 7 默认要求信任第三方 tap，短名字 `brew install --cask perch` 会被拒绝（本地 tap + 隔离 HOME 用 `brew info` 实测：短名字 "Refusing to load cask … from untrusted tap"，完整名字正常）；用完整名字安装 / 升级时 brew 自动信任这个 cask。README、cask 注释、发版说明模板都改成完整名字。
-- **隔离标记实测**：带标记的 ad-hoc `perch` 在终端执行 → SIGKILL（exit 137），去掉标记正常；bundle 外带标记的 shell 脚本能跑；但未批准的 bundle 里任何东西（包装脚本、哪怕去掉了标记的文件）都被杀，Gatekeeper 评估整个 bundle。这几次被拦时屏幕上大概弹了"无法验证"对话框，测试用的 App 随后被系统删掉了（不在废纸篓）——之后没有再试。**待用户验收确认**：Open Anyway 批准 App 之后，PATH 上的 `perch`（包装脚本）能跑。
+- **隔离标记实测**：带标记的 ad-hoc `perch` 在终端执行 → SIGKILL（exit 137），去掉标记正常；bundle 外带标记的 shell 脚本能跑；但未批准的 bundle 里任何东西（包装脚本、哪怕去掉了标记的文件）都被杀，Gatekeeper 评估整个 bundle。这几次被拦时屏幕上大概弹了"无法验证"对话框，测试用的 App 随后被系统删掉了（不在废纸篓）——之后没有再试。**已确认（2026-10-12，维护者本机用真实的 v0.4.0 cask）**：Open Anyway 批准 App 之后，PATH 上的 `perch`（包装脚本）能跑。
 - **cask**（`Casks/perch.rb`，`brew style` 通过）：`app "Perch.app"`；`binary` 链包装脚本 `Contents/Resources/bin/perch`（`packaging/perch-path.sh`，`PathWrapperTests` 2 个测试）；`uninstall quit:` + `/bin/sh -c` 跑 `~/.perch/bin/perch uninstall`；`zap` 跑 `uninstall --purge` 并 trash `~/.perch` 和偏好设置。本地 tap + `file://` zip + 隔离 HOME 实测：安装、链接、uninstall 脚本收到 `uninstall`、zap 收到 `uninstall --purge`、链接删除都对。踩坑：`HOMEBREW_NO_INSTALL_FROM_API=1` 会让 brew 去克隆整个 homebrew-core，别设。
 - **`install.sh`** 改成和下载一样的路径：打包 App → `~/Applications` → 打开（首次运行走卡片，不再替用户 Connect）；已经装过（`~/.perch/bin`，或 `~/.local/bin` 里 v0.3 的真二进制）时跑 App 里的 `perch setup --upgrade`（新加的，只拷二进制、重启 perchd、修已连接 agent 的 hook，不连新的）；`APPDIR` 不是 Applications 文件夹或设了 `PERCH_HOME` 时直接报错（否则 App 什么都不装，半装状态）。
 - **code review 后的修正**：brew 在 upgrade / reinstall 时也会跑 uninstall 的 `script`（brew 7 源码：`UPGRADE_REINSTALL_SKIP_DIRECTIVES = [:signal]`），原来的 cask 每次 `brew upgrade` 都会 `perch uninstall` 断开所有 agent；现在脚本看父进程命令行跳过 upgrade / reinstall，本地 tap 实测 upgrade / reinstall 不调、uninstall 调。zap 去掉了永远不会生效的脚本。`linkOldBinaries` 每次启动都做、失败单独报。`package-release.sh` 检查版本号非空、arm64、cask 真的改上了。
 - **待验收时留意**：`brew uninstall` 不注销登录项（只有刘海里的 Uninstall 会），App 删掉后 系统设置 → 登录项 里是否还留着一条。
 - **App 自检**同步二进制时也做 `linkOldBinaries`（v0.3 换 App 就能升级，`aV03InstallIsMigratedByReplacingTheApp`）。
 - **文档**：README 的 Install（Homebrew / 下载 → Gatekeeper → Connect → Codex 信任）、perch 在终端、升级、卸载（菜单 / brew / CLI）、源码安装、Troubleshooting 全部重写；`docs/RELEASE-NOTES-TEMPLATE.md`；`scripts/package-release.sh`；MILESTONES 新增 M10。
-- **还没做**：发 v0.4.0（cask 的 sha256 现在是占位，release 之前 `brew install` 会 404）；M10 的手动验收（干净账户）。
+- **v0.4.0 已发布**（2026-10-12）。
+- **维护者本机 brew 验收（2026-10-12）**：tap 早在 PR #30 合并前就克隆过，停在旧 `main`、没有 cask，而且已经 tap 过时再跑 `brew tap` 不会更新（`git -C <tap> pull` 或 `brew update` 才行）。之后的步骤：
+  - `brew install --cask cryptowizard0/perch/perch` 输出 "Trusted cask"，App 进了 `/Applications`，`perch` 链到 `/opt/homebrew/bin`；
+  - 批准之前 `/opt/homebrew/bin/perch --version` 被杀（`killed`），并弹出"未打开 Perch / 移到废纸篓"对话框；
+  - `open` App → 系统设置 Open Anyway → 隔离标记从 `0381` 变成 `03c1`（用户已批准位 0x40）；
+  - App 自检把 `~/.perch/bin` 从 `0.4.0-dev` 同步到 `0.4.0` 并重启 perchd，会话都在、hook 没动；
+  - 批准之后 `/opt/homebrew/bin/perch --version` → `0.4.0`，`session ls` 正常。
+  - 注意：这台机器上 `~/.local/bin` 在 PATH 里排在 `/opt/homebrew/bin` 前面，直接敲 `perch` 走的是 `~/.local/bin/perch` 链接；两者最后跑的都是 `~/.perch/bin/perch`。
+- **体验问题**：装完先在终端敲 `perch`，用户看到的是 Gatekeeper 的"移到废纸篓"对话框，而不是"先打开一次 App"的提示。
+- **还没做**：干净账户上的 M10 验收（设置卡片、Connect、Codex 信任行、`brew uninstall` / `--zap`、重启后开机启动、刘海里的 Uninstall）。
 
 ### M2 协议扩展：`update`（已实现）
 
