@@ -8,7 +8,9 @@ import PerchCore
 /// Hooks run asynchronously, so events can arrive out of order. Every report carries the time it was observed;
 /// one older than the last event seen for that session is ignored (ties are applied: times travel as whole
 /// seconds, and events of one second usually arrive in order). A removed session remembers its removal time for
-/// a while, so a straggler from before does not bring it back.
+/// a while, so a straggler from before does not bring it back. Agents that name their turns (Grok) are also
+/// ordered by turn: a turn-end report for anything but the session's current turn is late and ignored. The
+/// current turn is only kept in memory; after a restart the time rule alone decides.
 ///
 /// Sessions also end without an event (a closed terminal tab sends no SessionEnd): `reap()` removes those whose
 /// agent process is gone, and those without a known process after `silenceLifetime` without events.
@@ -31,6 +33,8 @@ public final class SessionRegistry {
 
     let store: Store
     private var removedAt: [String: Date] = [:]
+    /// Each session's current turn, for agents that name their turns (`SessionReport.turn`).
+    private var turns: [String: String] = [:]
     var now: () -> Date
     let probe: ProcessProbe
 
@@ -80,9 +84,15 @@ public final class SessionRegistry {
         // A hook that outlived its agent (a PermissionRequest still waiting when the process died) speaks for a
         // session that is over: it must not bring it back.
         if report.kind != .end, let pid = report.pid, !isAlive(pid: pid, startedAt: report.pidStartedAt) { return ignored }
+        if let turn = report.turn, [.stop, .failure, .interrupt].contains(report.kind), let current = turns[id], current != turn {
+            return ignored
+        }
+        // "The agent is idle" says nothing about a session Perch never saw.
+        if report.kind == .settle, existing == nil { return ignored }
 
         if report.kind == .end {
             removedAt[id] = max(removedAt[id] ?? .distantPast, at)
+            turns[id] = nil
             var outcome = Outcome(response: Response(ok: true, sessions: []), resolveRequestsOf: id)
             if let existing {
                 try store.deleteSession(id: id)
@@ -112,6 +122,7 @@ public final class SessionRegistry {
         case .prompt:
             enter(.running)
             s.turnStartedAt = at
+            turns[id] = report.turn
             s.prompt = report.prompt
             s.detail = nil
             s.error = nil
@@ -138,6 +149,11 @@ public final class SessionRegistry {
         case .interrupt:
             enter(.idle)
             s.detail = nil
+        case .settle:
+            if s.status == .running || s.status == .waiting {
+                enter(.idle)
+                s.detail = nil
+            }
         case .end:
             break
         }
@@ -169,6 +185,7 @@ public final class SessionRegistry {
     private func delete(_ s: Session) throws -> SessionEvent {
         try store.deleteSession(id: s.id)
         removedAt[s.id] = Service.wholeSeconds(now())
+        turns[s.id] = nil
         return SessionEvent(type: .ended, session: s, at: now())
     }
 

@@ -100,6 +100,10 @@ import Testing
         let report = #"{"op":"session_report","report":{"id":"abc","kind":"waiting","at":"2027-01-15T08:00:00Z","detail":"npm test","keep_detail":true}}"#
         let decoded = try PerchJSON.decoder.decode(Request.self, from: Data(report.utf8))
         #expect(decoded.report == SessionReport(id: "abc", kind: .waiting, at: t0, detail: "npm test", keepDetail: true))
+
+        let settle = #"{"op":"session_report","report":{"id":"abc","kind":"settle","at":"2027-01-15T08:00:00Z","turn_id":"p1"}}"#
+        let settled = try PerchJSON.decoder.decode(Request.self, from: Data(settle.utf8))
+        #expect(settled.report == SessionReport(id: "abc", kind: .settle, at: t0, turn: "p1"))
     }
 
     @Test func statusPriority() {

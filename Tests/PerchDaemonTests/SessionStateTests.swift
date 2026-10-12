@@ -254,6 +254,59 @@ struct SessionRequestTests {
         #expect(try d.client.send(Request(op: .sessions)).sessions?.first?.status == .running)
     }
 
+    func report(_ d: TestDaemon, _ kind: SessionReport.Kind, at offset: TimeInterval, turn: String?) throws -> Response {
+        try d.client.send(Request(op: .sessionReport, report: SessionReport(id: "s1", kind: kind, at: t0.addingTimeInterval(offset),
+                                                                          source: "grok", title: "perch", turn: turn)))
+    }
+
+    /// Grok reports a cancelled turn off its main loop, sometimes after the next prompt: newer by the clock, but late.
+    @Test func aTurnEndForAnEarlierTurnIsIgnored() throws {
+        let d = try TestDaemon(now: { Date(timeIntervalSince1970: 1_800_000_100) })
+        _ = try report(d, .prompt, at: 0, turn: "p1")
+        _ = try report(d, .prompt, at: 5, turn: "p2")
+        for kind in [SessionReport.Kind.interrupt, .stop, .failure] {
+            let late = try report(d, kind, at: 6, turn: "p1")
+            #expect(late.ok && late.sessions == [])
+        }
+        #expect(try onlySession(d).status == .running)
+
+        // The current turn's end, and one without a turn (a session-level report), still count.
+        _ = try report(d, .interrupt, at: 7, turn: "p2")
+        #expect(try onlySession(d).status == .idle)
+        _ = try report(d, .prompt, at: 8, turn: "p3")
+        _ = try report(d, .stop, at: 9, turn: nil)
+        #expect(try onlySession(d).status == .done)
+        // A turn never seen starting (Grok: an interrupted bash-mode command) is taken as it comes.
+        _ = try report(d, .end, at: 10, turn: nil)
+        _ = try report(d, .interrupt, at: 11, turn: "p9")
+        #expect(try onlySession(d).status == .idle)
+    }
+
+    @Test func settleOnlyIdlesABusySession() throws {
+        let d = try TestDaemon(now: { Date(timeIntervalSince1970: 1_800_000_100) })
+        _ = try report(d, .settle, at: 0, turn: nil)
+        #expect(try d.client.send(Request(op: .sessions)).sessions == [])
+
+        _ = try report(d, .prompt, at: 1, turn: "p1")
+        _ = try report(d, .settle, at: 2, turn: nil)
+        #expect(try onlySession(d).status == .idle)
+
+        _ = try report(d, .prompt, at: 3, turn: "p2")
+        _ = try report(d, .waiting, at: 4, detail: "Tool permission requested")
+        _ = try report(d, .settle, at: 5, turn: nil)
+        var s = try onlySession(d)
+        #expect(s.status == .idle && s.detail == nil)
+
+        for end in [SessionReport.Kind.stop, .failure] {
+            _ = try report(d, .prompt, at: 6, turn: "p3")
+            _ = try report(d, end, at: 7, turn: "p3")
+            let before = try onlySession(d).status
+            _ = try report(d, .settle, at: 8, turn: nil)
+            s = try onlySession(d)
+            #expect(s.status == before && [.done, .failed].contains(s.status))
+        }
+    }
+
     @Test func aPermissionPromptKeepsTheCommand() throws {
         let d = try TestDaemon(now: { Date(timeIntervalSince1970: 1_800_000_100) })
         _ = try report(d, .waiting, at: 0, detail: "rm -rf build/")
