@@ -21,6 +21,10 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var sessions: [String: Session] = [:]
     /// The last failed action, shown briefly in the expanded notch.
     @Published public private(set) var flash: String?
+    /// Which pulses also play a sound (#35). The Sounds menu edits it; the app keeps it in its user defaults.
+    @Published public var chimes = ChimeSettings() {
+        didSet { chime.settings = chimes }
+    }
 
     /// Called after every applied update; used to measure CLI → notch latency.
     public var onApply: ((QueueConnection.Update) -> Void)?
@@ -28,7 +32,10 @@ public final class QueueModel: ObservableObject {
     public var onSession: ((SessionEvent) -> Void)?
     /// Goes to a session's link (its terminal). The app sets it; AppKit stays out of this module.
     public var jump: (String?) -> Void = { _ in }
+    /// Plays a chime. The app sets it, like `jump`.
+    public var onChime: (ChimeSound) -> Void = { _ in }
 
+    private var chime = Chime()
     private var connection: QueueConnection?
     private var client = PerchClient()
     private var ticker: Timer?
@@ -80,6 +87,7 @@ public final class QueueModel: ObservableObject {
                 pulseStatus = after?.status
                 pulse += 1
             }
+            if let sound = chime.sound(from: before, to: after, now: Date()) { onChime(sound) }
             onSession?(event)
         case .offline(let reason):
             online = false
