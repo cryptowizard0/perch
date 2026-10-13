@@ -16,9 +16,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var denyHotKey: GlobalHotKey?
     private var jumpHotKey: GlobalHotKey?
     private var queueWatch: AnyCancellable?
+    private let chimePlayer = ChimePlayer()
+    private var chimesWatch: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         queue.jump = { Jumper.jump($0) }
+        queue.chimes = ChimeSettings(defaults: .standard)
+        queue.onChime = { [weak self] sound in
+            guard let self else { return }
+            chimePlayer.play(sound, volume: queue.chimes.volume)
+        }
+        chimesWatch = queue.$chimes.dropFirst().sink { $0.save(to: .standard) }
         let notch = NotchModel()
         let controller = NotchWindowController(notch: notch, queue: queue, setup: setup, menu: NotchMenu(
             uninstall: { [weak self] in self?.confirmUninstall() },

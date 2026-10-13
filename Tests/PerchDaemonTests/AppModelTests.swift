@@ -88,6 +88,28 @@ extension AppModelTests {
         #expect(model.panel.signal == .idle)
     }
 
+    @Test func chimesFollowSessionEventsNotTheSnapshot() async throws {
+        let d = try TestDaemon()
+        try report(d, "a", .waiting, detail: "npm test")
+        let model = QueueModel()
+        var played: [ChimeSound] = []
+        model.onChime = { played.append($0) }
+        model.connect(client: d.client)
+        defer { model.disconnect() }
+        try await until { model.online && model.sessions["a"] != nil }
+        // Already waiting when Perch connected: no sound on launch.
+        #expect(played.isEmpty)
+
+        try report(d, "b", .waiting, detail: "rm -rf build/")
+        try await until { model.sessions["b"]?.status == .waiting }
+        #expect(played == [.needsYou])
+
+        model.chimes.enabled = false
+        try report(d, "c", .waiting, detail: "git push")
+        try await until { model.sessions["c"]?.status == .waiting }
+        #expect(model.pulse == 2 && played == [.needsYou])
+    }
+
     @Test func itemsNoLongerPulse() async throws {
         let d = try TestDaemon()
         let model = QueueModel()

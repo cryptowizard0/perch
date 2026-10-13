@@ -29,6 +29,22 @@ struct NotchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contextMenu {
+            // Not setup, so every build has it (#35). Turning a state on plays it.
+            Menu("Sounds") {
+                Toggle("Play Sounds", isOn: $queue.chimes.enabled)
+                Divider()
+                ForEach(ChimeSound.allCases, id: \.self) { sound in
+                    Toggle(sound.title, isOn: Binding(
+                        get: { queue.chimes.sounds.contains(sound) },
+                        set: { on in
+                            queue.chimes.set(sound, on: on)
+                            if on { queue.onChime(sound) }
+                        }
+                    ))
+                    .disabled(!queue.chimes.enabled)
+                }
+            }
+            Divider()
             // Only an app that maintains the install (in an Applications folder, no PERCH_HOME) edits agent configs.
             if !setup.state.menu.isEmpty && !setup.uninstalling {
                 Menu("Agents") {

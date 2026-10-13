@@ -26,6 +26,8 @@ cp "$BIN/PerchApp" "$APP/Contents/MacOS/Perch"
 cp "$BIN/perch" "$BIN/perchd" "$APP/Contents/Helpers/"
 cp packaging/Perch.icns "$APP/Contents/Resources/Perch.icns"  # redraw with scripts/icon/make-icon.sh
 cp packaging/perch-path.sh "$APP/Contents/Resources/bin/perch"
+mkdir -p "$APP/Contents/Resources/Sounds"
+cp packaging/sounds/*.wav "$APP/Contents/Resources/Sounds/"  # regenerate with scripts/sound/make-sounds.sh
 sed "s/__VERSION__/$SHORT/g" packaging/Info.plist > "$APP/Contents/Info.plist"
 plutil -lint -s "$APP/Contents/Info.plist"
 # Nested code first, then the bundle (which seals it).
