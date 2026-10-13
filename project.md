@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-12 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中：Grok（#31 / M11）**，分支 `feat/grok`，2026-10-12 维护者真实会话验收通过，PR 待合并，见下方"M11 进度" · **提示音 #35**，分支 `feat/chimes`，见下方"提示音 #35"
+最后更新：2026-10-13 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35"
 
 ## 发布
 
@@ -29,7 +29,7 @@
 | M6 | Hermes 接入（改为 shell hook） | ✅ 完成 | 用户确认验收通过（2026-09-28） |
 | M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ✅ 完成 | #15 状态机 ✅；#16 存活检测 ✅；#17 真实会话验收 ✅（2026-10-08，Hermes 一轮未测） |
 | M8 | Agent 面板 UI；刘海 todo UI 下线 | ✅ 完成 | #18 面板 ✅；#19 交互 + todo 下线 ✅；#20 验收 ✅（2026-10-08，用户确认） |
-| M11 | Grok Build（#31，v0.5 第一个新 agent） | ✅ 验收通过 | 分支 `feat/grok`，363 个测试；2026-10-12 维护者真实会话验收通过，PR 待合并（见"M11 进度"） |
+| M11 | Grok Build（#31，v0.5 第一个新 agent） | ✅ 完成 | 363 个测试；2026-10-12 维护者真实会话验收通过，PR #33 合并为 `1f83a18`，#31 已关（见"M11 进度"） |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -477,7 +477,7 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
 
 **待做：**
 1. ~~真实会话验收~~ ✅ 2026-10-12 维护者本机通过：`APPDIR=/Applications scripts/install.sh` 装上这个分支（本机的 Perch 在 /Applications，zip 装的，不是 brew）→ 设置行 "Grok found · Connect" → Ghostty 里 `grok --permission-mode default` 走完 Running → Needs you → 终端批准 → Running → Done → Ctrl+C → Idle → 关 tab，断开后 `perch.json` 被删。
-2. PR 合并后关 #31。
+2. ~~PR 合并后关 #31~~ ✅ 2026-10-12 PR #33 合并（`1f83a18`），#31 已关。
 3. 可选的后续：装一个 PreToolUse 记下命令（每次调工具约 7 ms），让 Needs you 显示完整命令。要在状态机里加"记下待批准的命令但不改状态"的报告，先问用户。
 
 ## 提示音 #35（2026-10-12）
@@ -493,7 +493,7 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
   - Done `done.wav`（0.6 s）"Bwip! hehe ✨"：一跳的上滑音、两声咯咯笑、一个高音闪光。
 - 已知限制：专注模式 / 勿扰不会让它静音（是声音不是通知；读 Focus 状态要 `INFocusStatusCenter` + 授权，先靠总开关）；没有"你正看着那个终端就不响"。
 - 2026-10-12 维护者用 `afplay` 听过三段，`APPDIR=/Applications scripts/install.sh` 装到本机，定"先这样"，开 PR。
-- 待做：PR 合并后关 #35；以后想调声音就改 `make-sounds.swift` 重新生成。
+- ✅ 2026-10-13 PR #36 squash 合并为 `6c8c3e2`，#35 已关。以后想调声音就改 `make-sounds.swift` 重新生成。
 
 ## 未决问题
 
