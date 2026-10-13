@@ -12,11 +12,13 @@ The loop it is built for: **an agent is waiting for you → the notch lights up 
 - **Click a row** to go back to its terminal (the exact Ghostty tab) or its desktop app.
 - Works with **Claude Code** and **Codex** (in the terminal or their desktop apps) and **Grok** (the `grok` CLI), through their hooks. No changes to how you run them.
 
-macOS 14+. Prebuilt for Apple silicon; builds from source on any Mac. On displays without a notch it sits in a small capsule at the top of the screen.
+macOS 14+. Prebuilt for Apple silicon; builds from source on any Mac, Intel included. On displays without a notch it sits in a small capsule at the top of the screen.
+
+**Installing with an AI agent?** Tell it: *"Install Perch on this Mac by following https://github.com/cryptowizard0/perch#install-with-an-ai-agent"*.
 
 ## Install
 
-Apple silicon, macOS 14+. Install the app, open it once past Gatekeeper, and click **Connect** in the notch.
+Apple silicon, macOS 14+. Install the app, open it once past Gatekeeper, and click **Connect** in the notch. On an Intel Mac, install [from source](#from-source).
 
 **Homebrew**, from Perch's own tap (this repository):
 
@@ -75,6 +77,95 @@ scripts/install.sh
 ```
 
 It builds `Perch.app` into `~/Applications` (`APPDIR=/Applications` also works) and opens it: the same first run as above, without the Gatekeeper step. It links `perch` / `perchd` into `~/.local/bin` (`PREFIX=…`). Re-run it after pulling to upgrade: a development build keeps its version number, so the script also runs the bundled `perch setup --upgrade`, which copies the new binaries, restarts `perchd` and repairs the hooks of connected agents, and connects nothing new.
+
+This is the only way onto an Intel Mac: the release zip and the Homebrew cask are Apple silicon only. A source build runs natively on whichever Mac built it.
+
+## Install with an AI agent
+
+Steps for a coding agent (Claude Code, Codex, Grok, …) installing Perch for its user. Every step is a shell command with a checkable result. The few things only a person can do are marked **👤 Ask the user**: stop there and wait.
+
+### 0. Look at the Mac
+
+```bash
+sw_vers -productVersion                                    # 14.0 or later, or stop: Perch needs macOS 14
+uname -m                                                   # arm64 = Apple silicon, x86_64 = Intel
+ls -d ~/.claude ~/.codex ~/.grok 2>/dev/null               # the agents Perch can connect
+ls -d /Applications/Perch.app ~/Applications/Perch.app 2>/dev/null   # already installed? go to "Upgrade"
+```
+
+### 1. Pick a path
+
+| `uname -m` | Path | 👤 steps |
+| --- | --- | --- |
+| `arm64` | **A. Homebrew** (the release build), if `brew` is installed and the user prefers it | Open Anyway once, then Connect |
+| `arm64` or `x86_64` | **B. From source** | none, if the Command Line Tools are installed |
+
+On `x86_64` only path B works: the cask refuses Intel (`depends_on arch: :arm64`) and the release zip is `arm64` only. Intel Macs have no notch, so tell the user to look for Perch's capsule at the top centre of the screen.
+
+### 2A. Homebrew (Apple silicon)
+
+```bash
+brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch
+brew install --cask cryptowizard0/perch/perch    # the full name: Homebrew refuses the short one from an untrusted tap
+```
+
+**👤 Ask the user** to do both of these, then wait:
+
+1. Open Perch from Applications. macOS says *"Apple could not verify “Perch”…"*: click **Done**, open **System Settings → Privacy & Security**, click **Open Anyway** next to Perch, and enter the password.
+2. Perch opens. In the card that drops out of the notch (or the capsule at the top of a screen without one), click **Connect**.
+
+Until step 1 is done, macOS kills every program inside Perch.app (exit 137), so don't run anything from the app before then. Don't remove the quarantine attribute yourself: approving an unnotarized app is the user's decision. Then go to step 3.
+
+### 2B. From source (Apple silicon or Intel)
+
+```bash
+xcode-select -p    # prints a path when a Swift toolchain is installed
+```
+
+If it fails, **👤 ask the user** to run `xcode-select --install` and finish the dialog it opens. The full Xcode isn't needed.
+
+```bash
+git clone https://github.com/cryptowizard0/perch.git && cd perch
+APP=~/Applications/Perch.app scripts/bundle-app.sh     # builds and assembles the app, takes a few minutes, doesn't open it
+~/Applications/Perch.app/Contents/Helpers/perch setup --json
+open ~/Applications/Perch.app
+```
+
+Keep this order: `perch setup` before the first `open`. Setup copies `perch` / `perchd` into `~/.perch/bin`, installs `perchd` as a launchd agent, and connects every agent found (name some to connect only those: `perch setup claude-code codex`). The app then sees the choice already made and shows no setup card. `APP=/Applications/Perch.app` also works. Anywhere else, the app maintains nothing.
+
+This path doesn't turn on **Open at login**. Tell the user: right-click the notch → **Open at Login**.
+
+### 3. Check
+
+```bash
+~/.perch/bin/perch --version                                        # prints the version
+launchctl print gui/$(id -u)/dev.perch.perchd | grep -m1 'state ='  # state = running
+~/.perch/bin/perch session ls --json                                # {"ok":true,"sessions":[…]}
+cat ~/.perch/agents.json                                            # "status" : "on" for each connected agent
+pgrep -x Perch                                                      # the app is running
+```
+
+`perch setup --json` (path B) printed each agent's `state`: `connected`; `needsTrust` (Codex, see below); `notDetected` (not on this Mac); or with `"ok": false`, an `error` to report to the user. Path B can re-run it any time.
+
+### 4. Hand back to the user
+
+Tell them what's left, since only they can do it:
+
+- **Codex** (`needsTrust`, or path A connected Codex): Codex ignores new hooks until trusted. Start `codex`, type `/hooks`, trust Perch's six hooks, then open a new Codex session.
+- **Grok**: restart running `grok` sessions; hooks load when a session starts.
+- **Claude Code**: nothing to do. Running sessions pick the hooks up on their own.
+- Hover the notch to see the panel. The next prompt in any connected agent shows up as a row.
+
+### Upgrade, uninstall
+
+- Path A: `brew upgrade --cask cryptowizard0/perch/perch`. Path B: `git pull && scripts/install.sh` in the checkout (add `APPDIR=/Applications` if the app lives there). It quits the app, rebuilds it, repairs the hooks, connects nothing new, and reopens the app.
+- Uninstall: `~/.perch/bin/perch uninstall --json` (keeps the data in `~/.perch`; `--purge` deletes it), then delete `Perch.app`. Homebrew installs: `brew uninstall --cask cryptowizard0/perch/perch`.
+
+### Don't
+
+- Don't edit Perch's hooks into `~/.claude/settings.json`, `~/.codex/hooks.json` or `~/.grok/hooks/perch.json` by hand. Use `perch setup` / `perch hooks install <agent>`, which back the file up and touch only Perch's own entries.
+- Don't set `PERCH_HOME`. It's for development, and an app running with it installs nothing.
+- Don't connect Hermes: it isn't supported in the panel right now.
 
 ## Use
 
