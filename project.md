@@ -3,12 +3,13 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-14 · **v0.4.1 已发布**（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.1`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39"
+最后更新：2026-10-14 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39"
 
 ## 发布
 
 | 版本 | 日期 | 内容 |
 | --- | --- | --- |
+| [v0.4.2](https://github.com/cryptowizard0/perch/releases/tag/v0.4.2) | 2026-10-14 | 事件横幅、小怪物第二段反应和闲时彩蛋（#39，PR #40）。用户定发 0.4.2。tag 打在 `cece3b8`（`chore: release v0.4.2`），zip sha256 `38856d71…`，cask 改版本在随后的 `chore(cask): perch 0.4.2`；`main` 停在 `0.4.2` |
 | [v0.4.1](https://github.com/cryptowizard0/perch/releases/tag/v0.4.1) | 2026-10-14 | Grok Build（#31，PR #33）、提示音（#35，PR #36）、选显示器（#37，PR #38）、后台任务通知不再盖掉 prompt（#32，PR #34）。用户定发 0.4.1（不是 0.5.0），tag 打在 `a58f016`（`chore: release v0.4.1`），zip sha256 `79290e52…`，cask 改版本在随后的 `chore(cask): perch 0.4.1`；`main` 先改回 `0.5.0-dev`，用户看到 `install.sh` 装出来是 0.5.0-dev，定版本统一用 0.4.1，`main` 就停在 `0.4.1` |
 | [v0.4.0](https://github.com/cryptowizard0/perch/releases/tag/v0.4.0) | 2026-10-12 | 零配置安装（#25 / #26–#29，PR #30）：拖进 Applications 或 `brew install --cask cryptowizard0/perch/perch` → 打开过 Gatekeeper → 刘海里的设置卡片 Connect；App 自检维护 `~/.perch/bin` / perchd / hook；开机启动；刘海里的 Uninstall；`perch setup` / `perch uninstall`。tag 打在 `8540c56`（`chore: release v0.4.0`），用 `scripts/package-release.sh` 打包，zip 只含 Perch.app（sha256 `de423668…`），cask 改版本在 `42f6005`，之后 `main` 改成 `0.5.0-dev`。发版说明照 `docs/RELEASE-NOTES-TEMPLATE.md` |
 | [v0.3.0](https://github.com/cryptowizard0/perch/releases/tag/v0.3.0) | 2026-10-09 | 收起态的圆点换成像素独眼小怪物、按状态动画，进入 Needs you / Failed / Done 时有反应动作（#22，PR #23）；刘海两边按内容收窄。tag 打在 `fed12a8`（`chore: release v0.3.0`），之后 `main` 改成 `0.4.0-dev`。附 `perch-0.3.0-macos-arm64.zip` + `.sha256`（同样只有 arm64、ad-hoc 签名） |
@@ -515,7 +516,7 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
 - **反应**（`Mascot.swift`）：前半段和原来一样（和提示音对齐），后面再接一段。Needs you 1.3 秒：两跳之后头右边冒 "!"、天线快闪。Failed 1.6 秒：抖完侧躺在地上（精灵转 90°）、冒烟，再一跳站起来。Done 1.5 秒：跳完撒三色彩纸（`Ink.confetti0…2`），左右手轮流举。反应和彩蛋可以画到画布外 `Mascot.margin` = 6pt（刘海高 32pt 上下有空；22pt 的胶囊会裁掉一点烟和彩纸）。
 - **闲时彩蛋**：Idle 或没有会话（且 perchd 在线）时，每 240 秒随机来一个：打哈欠伸懒腰 2.4 秒、醒来左右张望 2.6 秒、吹鼻涕泡 2.8 秒（泡泡破了被吓醒一下）。时间和种类是参考时钟的纯函数（`Mascot.nextQuirk(after:)`，按周期号做 hash），没有状态、可以测；`MascotView` 用 `.task` 睡到下一次，播的时候按 14fps 重绘，平时 Asleep 照旧 0fps。"减少动态效果"下不播。
 - 验证：392 个测试通过。隔离 perchd + debug App 截图（本机内建屏没刘海可用，是 5K 屏的胶囊）：Needs you / Done 横幅、长回复滚到末尾后收起（截到收窄中间那一帧）、Failed 侧躺、打哈欠都对。跑全量测试时偶发过一次 signal 11（重跑通过，没复现，看起来和这次改动无关）。
-- ✅ 2026-10-14 维护者用 `scripts/install.sh` 装到 ~/Applications 实测通过；PR #40 squash 合并为 `a4262c3`，#39 已关，还没发版。
+- ✅ 2026-10-14 维护者用 `scripts/install.sh` 装到 ~/Applications 实测通过；PR #40 squash 合并为 `a4262c3`，#39 已关，随 v0.4.2 发布。
 
 ## 未决问题
 
