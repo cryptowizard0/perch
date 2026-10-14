@@ -44,6 +44,15 @@ struct NotchView: View {
                     .disabled(!queue.chimes.enabled)
                 }
             }
+            Menu("Display") {
+                Toggle("Automatic", isOn: displayBinding(.automatic))
+                Toggle("Main Display", isOn: displayBinding(.main))
+                Divider()
+                ForEach(DisplayMenu.displays(choice: notch.display, screens: notch.screens), id: \.title) { item in
+                    Toggle(item.title, isOn: displayBinding(item.choice, checked: item.checked))
+                        .disabled(!item.enabled)
+                }
+            }
             Divider()
             // Only an app that maintains the install (in an Applications folder, no PERCH_HOME) edits agent configs.
             if !setup.state.menu.isEmpty && !setup.uninstalling {
@@ -67,6 +76,13 @@ struct NotchView: View {
             }
             Button("Quit Perch", action: menu.quit)
         }
+    }
+}
+
+extension NotchView {
+    /// A Display menu item: checked when it is the choice; choosing it again does nothing (no un-checking).
+    private func displayBinding(_ choice: DisplayChoice, checked: Bool? = nil) -> Binding<Bool> {
+        Binding(get: { checked ?? (notch.display == choice) }, set: { _ in notch.display = choice })
     }
 }
 

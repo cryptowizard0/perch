@@ -31,9 +31,12 @@ extension NotchGeometry {
         self.init(screenFrame: screen.frame, visibleFrame: screen.visibleFrame, safeAreaTop: screen.safeAreaInsets.top,
                   auxiliaryTopLeft: screen.auxiliaryTopLeftArea, auxiliaryTopRight: screen.auxiliaryTopRightArea)
     }
+}
 
-    /// The built-in display if it has a notch (wherever it is in the arrangement), else the menu-bar screen.
-    static func preferredScreen() -> NSScreen? {
-        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.screens.first
+extension DisplayScreen {
+    init(screen: NSScreen) {
+        let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? 0
+        let uuid = CGDisplayCreateUUIDFromDisplayID(number).map { CFUUIDCreateString(nil, $0.takeRetainedValue()) as String }
+        self.init(id: uuid ?? "\(number)", name: screen.localizedName, hasNotch: screen.safeAreaInsets.top > 0)
     }
 }
