@@ -3,12 +3,13 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-13 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）进行中，分支 `feat/display-picker`，见下方"选显示器 #37"
+最后更新：2026-10-14 · **v0.4.1 已发布**（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布
 
 ## 发布
 
 | 版本 | 日期 | 内容 |
 | --- | --- | --- |
+| [v0.4.1](https://github.com/cryptowizard0/perch/releases/tag/v0.4.1) | 2026-10-14 | Grok Build（#31，PR #33）、提示音（#35，PR #36）、选显示器（#37，PR #38）、后台任务通知不再盖掉 prompt（#32，PR #34）。用户定发 0.4.1（不是 0.5.0），tag 打在 `a58f016`（`chore: release v0.4.1`），zip sha256 `79290e52…`，cask 改版本在随后的 `chore(cask): perch 0.4.1`，之后 `main` 改回 `0.5.0-dev` |
 | [v0.4.0](https://github.com/cryptowizard0/perch/releases/tag/v0.4.0) | 2026-10-12 | 零配置安装（#25 / #26–#29，PR #30）：拖进 Applications 或 `brew install --cask cryptowizard0/perch/perch` → 打开过 Gatekeeper → 刘海里的设置卡片 Connect；App 自检维护 `~/.perch/bin` / perchd / hook；开机启动；刘海里的 Uninstall；`perch setup` / `perch uninstall`。tag 打在 `8540c56`（`chore: release v0.4.0`），用 `scripts/package-release.sh` 打包，zip 只含 Perch.app（sha256 `de423668…`），cask 改版本在 `42f6005`，之后 `main` 改成 `0.5.0-dev`。发版说明照 `docs/RELEASE-NOTES-TEMPLATE.md` |
 | [v0.3.0](https://github.com/cryptowizard0/perch/releases/tag/v0.3.0) | 2026-10-09 | 收起态的圆点换成像素独眼小怪物、按状态动画，进入 Needs you / Failed / Done 时有反应动作（#22，PR #23）；刘海两边按内容收窄。tag 打在 `fed12a8`（`chore: release v0.3.0`），之后 `main` 改成 `0.4.0-dev`。附 `perch-0.3.0-macos-arm64.zip` + `.sha256`（同样只有 arm64、ad-hoc 签名） |
 | [v0.2.0](https://github.com/cryptowizard0/perch/releases/tag/v0.2.0) | 2026-10-09 | 第一阶段（M1–M8）：刘海里的 agent 面板，支持 Claude Code + Codex。tag 打在 `4a1df87`（`chore: release v0.2.0`），之后 `main` 改成 `0.3.0-dev`（`cadb7d6`）。GitHub Release 附 `perch-0.2.0-macos-arm64.zip`（`perch` + `perchd` + `Perch.app`，只有 arm64、ad-hoc 签名未公证）和它的 `.sha256` |
@@ -502,6 +503,7 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
 - 右键刘海 → Display：Automatic（默认，原来的规则：有刘海的屏，没有就 `NSScreen.screens.first`）、Main Display（带菜单栏的那块，换工位接不同显示器时有用）、每块连着的屏一项（`localizedName`，同名的加 " (2)"）。钉住的屏没连上时菜单里留一项 "<名字> (not connected)"（打勾、灰掉），面板退回 Automatic，插回来（`didChangeScreenParametersNotification` 重新布局）就回去。所有构建都有（不是 setup）。
 - 存在 App 的 user defaults：`Display` = `automatic` / `main` / 显示器 UUID（`CGDisplayCreateUUIDFromDisplayID`，重启、重插都不变；`CGDirectDisplayID` 会变），`DisplayName` 记名字。缺失或读不懂 = Automatic。
 - `PerchAppCore/Display.swift`（纯逻辑，`DisplayTests`）：`DisplayChoice`（选屏、读写 defaults）、`DisplayScreen`、`DisplayMenu`。`NotchModel` 持有选择和当前屏幕列表，`NotchWindowController.layout()` 按它选屏，`AppDelegate` 读写 defaults。
+- ✅ 2026-10-14 维护者手动点过菜单、重启后保持；PR #38 squash 合并为 `7a88ea3`，#37 已关，随 v0.4.1 发布。
 - 2026-10-14 实测（`-Display <值>` 参数，只对那次进程生效）：Automatic / 内建屏 UUID → 内建屏刘海；`main` / U2701B 的 UUID → U2701B 菜单栏正中的胶囊；没连接的 UUID → 退回 Automatic。右键菜单本身要人工点（不能合成鼠标事件）。
 
 ## 未决问题
