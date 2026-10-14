@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var queueWatch: AnyCancellable?
     private let chimePlayer = ChimePlayer()
     private var chimesWatch: AnyCancellable?
+    private var displayWatch: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         queue.jump = { Jumper.jump($0) }
@@ -28,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         chimesWatch = queue.$chimes.dropFirst().sink { $0.save(to: .standard) }
         let notch = NotchModel()
+        notch.display = DisplayChoice(defaults: .standard)
+        displayWatch = notch.$display.dropFirst().sink { $0.save(to: .standard) }
         let controller = NotchWindowController(notch: notch, queue: queue, setup: setup, menu: NotchMenu(
             uninstall: { [weak self] in self?.confirmUninstall() },
             quit: { NSApp.terminate(nil) }

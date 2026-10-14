@@ -7,6 +7,10 @@ import SwiftUI
 @MainActor
 final class NotchModel: ObservableObject {
     @Published var geometry: NotchGeometry?
+    /// Right-click → Display (#37); the app delegate loads and saves it.
+    @Published var display: DisplayChoice = .automatic
+    /// The connected displays, for that menu; refreshed on every layout.
+    @Published var screens: [DisplayScreen] = []
     @Published private(set) var expanded = false
     private var pendingHover: DispatchWorkItem?
     /// Dev aid: `PERCH_PIN_EXPANDED=1` keeps the notch open (screenshots, layout work without a mouse).
@@ -61,6 +65,9 @@ final class NotchWindowController {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.layout() }
         })
+        notch.$display.removeDuplicates().dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.layout() }
+        }.store(in: &cancellables)
         // Resize when the state flips, and when rows come and go while expanded.
         notch.$expanded.removeDuplicates().dropFirst().sink { [weak self] expanded in
             DispatchQueue.main.async {
@@ -82,10 +89,13 @@ final class NotchWindowController {
         panel.orderFrontRegardless()
     }
 
-    /// Re-reads the screens (plugged in, unplugged, resolution or arrangement changed) and resizes.
+    /// Re-reads the screens (plugged in, unplugged, resolution or arrangement changed), picks the chosen one and resizes.
     func layout() {
-        guard let screen = NotchGeometry.preferredScreen() else { return panel.orderOut(nil) }
-        let geometry = NotchGeometry(screen: screen)
+        let screens = NSScreen.screens
+        let displays = screens.map(DisplayScreen.init(screen:))
+        if notch.screens != displays { notch.screens = displays }
+        guard let index = notch.display.screen(in: displays) else { return panel.orderOut(nil) }
+        let geometry = NotchGeometry(screen: screens[index])
         if notch.geometry != geometry { notch.geometry = geometry }
         let wing = NotchGeometry.collapsedWing(runningCount: queue.panel.runningCount, online: queue.online)
         let frame = notch.expanded
