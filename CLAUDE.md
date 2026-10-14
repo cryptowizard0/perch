@@ -10,6 +10,8 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 
 **2026-10-14（#37）**：多屏时选面板放在哪块屏。右键刘海 → Display：Automatic（默认，有刘海的内建屏，没有就主显示器）/ Main Display（带菜单栏的那块）/ 某块具体的屏（按显示器 UUID 记在 defaults 的 `Display` / `DisplayName`，没连上时退回 Automatic）。没刘海的屏上是菜单栏里的胶囊；逻辑在 `PerchAppCore/Display.swift`。
 
+**2026-10-14（#39）**：收起态右翼平时空着；进入 Needs you / Failed / Done（脉冲那一刻）时伸出来几秒，显示项目名 + 一行（命令 / 错误 / 回复首行），太长滚一遍就停，不做常驻滚动（`PerchAppCore/Banner.swift`）。进入反应多一段（"!"、摔倒冒烟、彩纸），Idle / 没会话时每 4 分钟左右一个小彩蛋（哈欠、张望、鼻涕泡），都在 `Mascot.swift`。
+
 **2026-10-12（v0.5，#31 / M11）**：接入 Grok Build（xAI 的 `grok` CLI），v0.5 接更多 agent（#24）的第一个。刘海永远不能批准 Grok，只提示"Answer in the terminal"。
 
 ## 仓库结构
