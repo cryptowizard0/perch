@@ -19,6 +19,8 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var pulseStatus: SessionStatus?
     /// Agent sessions by id, in any state (Hermes too; `panel` leaves those out).
     @Published public private(set) var sessions: [String: Session] = [:]
+    /// The collapsed notch's event banner, while one shows (see `Banner`).
+    @Published public private(set) var banner: Banner?
     /// The last failed action, shown briefly in the expanded notch.
     @Published public private(set) var flash: String?
     /// Which pulses also play a sound (#35). The Sounds menu edits it; the app keeps it in its user defaults.
@@ -34,8 +36,16 @@ public final class QueueModel: ObservableObject {
     public var jump: (String?) -> Void = { _ in }
     /// Plays a chime. The app sets it, like `jump`.
     public var onChime: (ChimeSound) -> Void = { _ in }
+    /// A banner's title and text, laid out, in points: how long it stays depends on whether it has to scroll.
+    public var measureBanner: (Banner) -> Double = { _ in 0 }
+    /// False while the notch is expanded: the list says it all, so banners are dropped, not saved for later.
+    public var showsBanners = true {
+        didSet { if !showsBanners { setBanner(nil) } }
+    }
 
     private var chime = Chime()
+    private var banners = BannerState()
+    private var bannerTimer: Timer?
     private var connection: QueueConnection?
     private var client = PerchClient()
     private var ticker: Timer?
@@ -88,11 +98,13 @@ public final class QueueModel: ObservableObject {
                 pulse += 1
             }
             if let sound = chime.sound(from: before, to: after, now: Date()) { onChime(sound) }
+            if showsBanners, banners.update(id: event.session.id, from: before, to: after) { setBanner(banners.current) }
             onSession?(event)
         case .offline(let reason):
             online = false
             offlineReason = reason
             sessions = [:]
+            setBanner(nil)
         }
         refresh()
         onApply?(update)
@@ -146,6 +158,22 @@ public final class QueueModel: ObservableObject {
             }
             guard let failure else { return }
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.show(failure) } }
+        }
+    }
+
+    /// Shows `new` (nil: none) and times it out.
+    private func setBanner(_ new: Banner?) {
+        if new == nil { banners.clear() }
+        bannerTimer?.invalidate()
+        bannerTimer = nil
+        if banner != new { banner = new }
+        guard let new else { return }
+        let duration = Banner.duration(contentWidth: measureBanner(new))
+        bannerTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.banners.dismiss(new.id) else { return }
+                self.setBanner(nil)
+            }
         }
     }
 

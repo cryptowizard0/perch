@@ -12,6 +12,10 @@ final class NotchModel: ObservableObject {
     /// The connected displays, for that menu; refreshed on every layout.
     @Published var screens: [DisplayScreen] = []
     @Published private(set) var expanded = false
+    /// The collapsed band's wings as drawn. The right one grows while a banner shows; the controller animates it,
+    /// keeping the window wide enough for the black shape to grow and shrink inside it.
+    @Published var leftWing: CGFloat = 26
+    @Published var rightWing: CGFloat = 26
     private var pendingHover: DispatchWorkItem?
     /// Dev aid: `PERCH_PIN_EXPANDED=1` keeps the notch open (screenshots, layout work without a mouse).
     private let pinned = ProcessInfo.processInfo.environment["PERCH_PIN_EXPANDED"] == "1"
@@ -49,6 +53,10 @@ final class NotchWindowController {
     let setup: SetupModel
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
+    /// While the right wing shrinks, the window keeps its old width until the shape has finished.
+    private var shrinkingFrom: CGFloat?
+    private var shrinkDone: DispatchWorkItem?
+    static let wingAnimation = 0.3
 
     static let expandedWidth: CGFloat = 460
 
@@ -70,6 +78,8 @@ final class NotchWindowController {
         }.store(in: &cancellables)
         // Resize when the state flips, and when rows come and go while expanded.
         notch.$expanded.removeDuplicates().dropFirst().sink { [weak self] expanded in
+            // The list says it all: no banner while it is open, none saved for after.
+            self?.queue.showsBanners = !expanded
             DispatchQueue.main.async {
                 self?.layout()
                 // agents.json or a hook file may have changed from the CLI since the last look.
@@ -97,12 +107,43 @@ final class NotchWindowController {
         guard let index = notch.display.screen(in: displays) else { return panel.orderOut(nil) }
         let geometry = NotchGeometry(screen: screens[index])
         if notch.geometry != geometry { notch.geometry = geometry }
-        let wing = NotchGeometry.collapsedWing(runningCount: queue.panel.runningCount, online: queue.online)
+        let left = NotchGeometry.collapsedWing(runningCount: queue.panel.runningCount, online: queue.online)
+        let right = queue.banner.map { CGFloat(Banner.wing(contentWidth: BannerView.contentWidth($0))) } ?? left
+        if notch.leftWing != left { notch.leftWing = left }
+        if notch.expanded {
+            endShrink()
+            if notch.rightWing != right { notch.rightWing = right }
+        } else if notch.rightWing != right {
+            let old = notch.rightWing
+            let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: Self.wingAnimation)) { notch.rightWing = right }
+            if right < old && !reduceMotion {
+                // Narrow the window once the shape is in; a banner coming back meanwhile cancels that.
+                shrinkingFrom = max(shrinkingFrom ?? 0, old)
+                shrinkDone?.cancel()
+                let work = DispatchWorkItem { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.shrinkingFrom = nil
+                        self?.layout()
+                    }
+                }
+                shrinkDone = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.wingAnimation + 0.05, execute: work)
+            } else {
+                endShrink()
+            }
+        }
         let frame = notch.expanded
             ? geometry.expandedFrame(size: CGSize(width: Self.expandedWidth, height: expandedHeight(band: geometry.bandHeight)))
-            : geometry.collapsedFrame(leftWing: wing, rightWing: wing)
+            : geometry.collapsedFrame(leftWing: left, rightWing: max(right, shrinkingFrom ?? 0))
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         if !panel.isVisible { panel.orderFrontRegardless() }
+    }
+
+    private func endShrink() {
+        shrinkDone?.cancel()
+        shrinkDone = nil
+        shrinkingFrom = nil
     }
 
     /// Band + the list's estimated height (see `PanelLayout`; it scrolls past the cap) + padding.
