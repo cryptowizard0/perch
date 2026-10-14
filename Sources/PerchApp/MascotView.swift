@@ -3,7 +3,8 @@ import PerchCore
 import SwiftUI
 
 /// The collapsed notch's mascot (#22): `Mascot`'s cells drawn one point each, no antialiasing. Redraws only while
-/// something moves (Running, Needs you, Idle, a reaction); with Reduce Motion it shows each mood's still frame.
+/// something moves (Running, Needs you, Idle, a reaction, a quirk); with Reduce Motion it shows each mood's still
+/// frame and plays no quirks. Reactions and quirks may draw `Mascot.margin` points around its frame.
 struct MascotView: View {
     var signal: SessionStatus?
     var online = true
@@ -11,11 +12,13 @@ struct MascotView: View {
     var pulse = 0
     var pulseStatus: SessionStatus?
     @State private var reaction: (status: SessionStatus, start: Date)?
+    @State private var quirk: (quirk: Mascot.Quirk, start: Date)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let mood = Mascot.Mood(signal: signal, online: online)
-        let fps = reaction == nil ? mood.fps : Mascot.reactionFPS
+        let fps = reaction == nil && quirk == nil ? mood.fps : Mascot.reactionFPS
+        let margin = CGFloat(Mascot.margin)
         TimelineView(.animation(minimumInterval: 1 / max(fps, 1), paused: reduceMotion || fps == 0)) { timeline in
             Canvas { context, _ in
                 // While a reaction plays, the mascot takes the look and colour of the state that caused it.
@@ -23,21 +26,24 @@ struct MascotView: View {
                     let played = Mascot.Reaction(mood: Mascot.Mood(signal: reaction.status), age: timeline.date.timeIntervalSince(reaction.start))
                     return reduceMotion || played.isOver ? nil : (reaction.status, played)
                 }
+                let quirking = quirk.map { Mascot.QuirkPlay($0.quirk, age: timeline.date.timeIntervalSince($0.start)) }
                 let cells = reduceMotion ? Mascot.still(mood) : Mascot.frame(
-                    mood, time: timeline.date.timeIntervalSinceReferenceDate, reaction: playing?.reaction
+                    mood, time: timeline.date.timeIntervalSinceReferenceDate, reaction: playing?.reaction, quirk: quirking
                 )
-                for ink in [Mascot.Ink.body, .white, .dark, .faint] {
+                for ink in Mascot.Ink.allCases {
                     var path = Path()
                     for cell in cells where cell.ink == ink {
-                        path.addRect(CGRect(x: cell.x, y: cell.y, width: 1, height: 1))
+                        path.addRect(CGRect(x: CGFloat(cell.x) + margin, y: CGFloat(cell.y) + margin, width: 1, height: 1))
                     }
                     context.fill(path, with: .color(color(ink, status: playing?.status ?? signal)), style: FillStyle(antialiased: false))
                 }
             }
         }
-        // Idle's "z" drifts past the right edge, over where the running count would be (there is none then).
-        .frame(width: CGFloat(Mascot.overflowWidth), height: CGFloat(Mascot.height))
-        .padding(.trailing, CGFloat(Mascot.width - Mascot.overflowWidth))
+        // Idle's "z" drifts past the right edge, over where the running count would be (there is none then); reactions
+        // and quirks use the margin all round. Neither takes room in the layout.
+        .frame(width: CGFloat(Mascot.overflowWidth) + 2 * margin, height: CGFloat(Mascot.height) + 2 * margin)
+        .padding(EdgeInsets(top: -margin, leading: -margin, bottom: -margin,
+                            trailing: CGFloat(Mascot.width - Mascot.overflowWidth) - margin))
         .accessibilityLabel(signal.map { "\($0)" } ?? "No sessions")
         .onChange(of: pulse) {
             guard !reduceMotion, let status = pulseStatus, let duration = Mascot.Mood(signal: status).reactionDuration else { return }
@@ -45,6 +51,24 @@ struct MascotView: View {
             reaction = (status, start)
             DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
                 if reaction?.start == start { reaction = nil }
+            }
+        }
+        // Asleep or idle (and perchd up): wait for the next quirk, play it, repeat.
+        .task(id: mood.hasQuirks && online && !reduceMotion) {
+            quirk = nil
+            guard mood.hasQuirks && online && !reduceMotion else { return }
+            while !Task.isCancelled {
+                let now = Date()
+                let next = Mascot.nextQuirk(after: now.timeIntervalSinceReferenceDate)
+                let start = Date(timeIntervalSinceReferenceDate: next.start)
+                do {
+                    try await Task.sleep(for: .seconds(start.timeIntervalSince(now)))
+                    quirk = (next.quirk, start)
+                    try await Task.sleep(for: .seconds(next.quirk.duration))
+                } catch {
+                    break
+                }
+                quirk = nil
             }
         }
     }
@@ -55,6 +79,9 @@ struct MascotView: View {
         case .white: return .white
         case .dark: return Color(white: 0.04)
         case .faint: return .white.opacity(0.6)
+        case .confetti0: return SessionStatus.color(.waiting)
+        case .confetti1: return Color(red: 1, green: 0.4, blue: 0.7)
+        case .confetti2: return Color(red: 0.3, green: 0.85, blue: 1)
         }
     }
 }

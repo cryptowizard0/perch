@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             chimePlayer.play(sound, volume: queue.chimes.volume)
         }
+        queue.measureBanner = { BannerView.contentWidth($0) }
         chimesWatch = queue.$chimes.dropFirst().sink { $0.save(to: .standard) }
         let notch = NotchModel()
         notch.display = DisplayChoice(defaults: .standard)

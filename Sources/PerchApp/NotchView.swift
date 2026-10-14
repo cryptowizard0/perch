@@ -17,10 +17,14 @@ struct NotchView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            let notchWidth = notch.geometry?.notch?.width ?? 0
             NotchShape(hasNotch: notch.geometry?.hasNotch ?? true, expanded: notch.expanded)
                 .fill(Color.black)
+                // Collapsed, the window may be wider than the band while the right wing shrinks back.
+                .frame(width: notch.expanded ? nil : notch.leftWing + notchWidth + notch.rightWing)
+                .frame(maxWidth: .infinity, alignment: .leading)
             VStack(spacing: 0) {
-                CollapsedBar(queue: queue, notchWidth: notch.geometry?.notch?.width ?? 0)
+                CollapsedBar(queue: queue, notchWidth: notchWidth, leftWing: notch.leftWing, rightWing: notch.rightWing)
                     .frame(height: notch.geometry?.bandHeight ?? NotchGeometry.capsuleHeight)
                 if notch.expanded {
                     ExpandedPanel(queue: queue, setup: setup)
@@ -86,11 +90,13 @@ extension NotchView {
     }
 }
 
-/// The band beside the notch, all on the left wing: the mascot (acting out the most urgent session's state) and
-/// right next to it the number of running sessions (hidden at 0), or the offline icon.
+/// The band beside the notch. Left wing: the mascot (acting out the most urgent session's state) and right next to it
+/// the number of running sessions (hidden at 0), or the offline icon. Right wing: empty, or the event banner.
 struct CollapsedBar: View {
     @ObservedObject var queue: QueueModel
     var notchWidth: CGFloat
+    var leftWing: CGFloat
+    var rightWing: CGFloat
 
     var body: some View {
         let panel = queue.panel
@@ -108,7 +114,19 @@ struct CollapsedBar: View {
                 .foregroundStyle(.white.opacity(0.9))
             }
             .padding(.leading, NotchGeometry.collapsedInset)
-            Spacer(minLength: notchWidth)
+            .frame(width: leftWing, alignment: .leading)
+            Color.clear.frame(width: notchWidth)
+            ZStack(alignment: .leading) {
+                if let banner = queue.banner {
+                    BannerView(banner: banner)
+                        .id(banner.id)
+                        .padding(.leading, CGFloat(Banner.inset))
+                        .transition(.opacity.animation(.easeInOut(duration: 0.2)))
+                }
+            }
+            .frame(width: rightWing, alignment: .leading)
+            .clipped()
+            Spacer(minLength: 0)
         }
     }
 }
