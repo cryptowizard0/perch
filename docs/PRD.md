@@ -262,7 +262,7 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 | ⌥⇧A / ⌥⇧D | 批准 / 拒绝面板上第一个 Allow / Deny（排序最前、带 request 的 Needs you 会话）；没有就不注册，键照常打字 |
 | ⌥⇧O | 跳到等得最久的 Needs you 会话；没有就不注册 |
 | 右键某一行 | "Remove from Panel"：手动移除（进程检测失效时的逃生口） |
-| 右键刘海 | Sounds（提示音总开关和每种状态的开关，#35）、Quit Perch |
+| 右键刘海 | Sounds（提示音总开关和每种状态的开关，#35）、Display（面板放在哪块屏，#37）、Quit Perch |
 
 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task、⌥⇧Space 快速录入、到期提醒）随 todo 一起从 UI 下线。
 

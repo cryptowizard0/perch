@@ -8,6 +8,8 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 
 **2026-10-12（#35）**：加提示音。进入 Needs you / Failed / Done（就是刘海脉冲的那些变化）各播一段合成的小怪物声音，默认全开，右键刘海 → Sounds 可关；逻辑在 `PerchAppCore/Chime.swift`。仍不发系统通知。
 
+**2026-10-14（#37）**：多屏时选面板放在哪块屏。右键刘海 → Display：Automatic（默认，有刘海的内建屏，没有就主显示器）/ Main Display（带菜单栏的那块）/ 某块具体的屏（按显示器 UUID 记在 defaults 的 `Display` / `DisplayName`，没连上时退回 Automatic）。没刘海的屏上是菜单栏里的胶囊；逻辑在 `PerchAppCore/Display.swift`。
+
 **2026-10-12（v0.5，#31 / M11）**：接入 Grok Build（xAI 的 `grok` CLI），v0.5 接更多 agent（#24）的第一个。刘海永远不能批准 Grok，只提示"Answer in the terminal"。
 
 ## 仓库结构

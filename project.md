@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-13 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35"
+最后更新：2026-10-13 · **v0.4.0 已发布**（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 现在是 `0.5.0-dev` · 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）进行中，分支 `feat/display-picker`，见下方"选显示器 #37"
 
 ## 发布
 
@@ -494,6 +494,15 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
 - 已知限制：专注模式 / 勿扰不会让它静音（是声音不是通知；读 Focus 状态要 `INFocusStatusCenter` + 授权，先靠总开关）；没有"你正看着那个终端就不响"。
 - 2026-10-12 维护者用 `afplay` 听过三段，`APPDIR=/Applications scripts/install.sh` 装到本机，定"先这样"，开 PR。
 - ✅ 2026-10-13 PR #36 squash 合并为 `6c8c3e2`，#35 已关。以后想调声音就改 `make-sounds.swift` 重新生成。
+
+## 选显示器 #37（2026-10-14）
+
+用户双屏（外接 U2701B 是主显示器，内建屏开着放右边），面板一直在内建屏的刘海上，看不到。用户选"右键加 Display 子菜单"（另一个方案是跟着当前菜单栏 / 焦点走，会在两块屏之间跳，没选）。
+
+- 右键刘海 → Display：Automatic（默认，原来的规则：有刘海的屏，没有就 `NSScreen.screens.first`）、Main Display（带菜单栏的那块，换工位接不同显示器时有用）、每块连着的屏一项（`localizedName`，同名的加 " (2)"）。钉住的屏没连上时菜单里留一项 "<名字> (not connected)"（打勾、灰掉），面板退回 Automatic，插回来（`didChangeScreenParametersNotification` 重新布局）就回去。所有构建都有（不是 setup）。
+- 存在 App 的 user defaults：`Display` = `automatic` / `main` / 显示器 UUID（`CGDisplayCreateUUIDFromDisplayID`，重启、重插都不变；`CGDirectDisplayID` 会变），`DisplayName` 记名字。缺失或读不懂 = Automatic。
+- `PerchAppCore/Display.swift`（纯逻辑，`DisplayTests`）：`DisplayChoice`（选屏、读写 defaults）、`DisplayScreen`、`DisplayMenu`。`NotchModel` 持有选择和当前屏幕列表，`NotchWindowController.layout()` 按它选屏，`AppDelegate` 读写 defaults。
+- 2026-10-14 实测（`-Display <值>` 参数，只对那次进程生效）：Automatic / 内建屏 UUID → 内建屏刘海；`main` / U2701B 的 UUID → U2701B 菜单栏正中的胶囊；没连接的 UUID → 退回 Automatic。右键菜单本身要人工点（不能合成鼠标事件）。
 
 ## 未决问题
 
