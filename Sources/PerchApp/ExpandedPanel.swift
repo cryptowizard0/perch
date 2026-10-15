@@ -7,12 +7,12 @@ import SwiftUI
 struct ExpandedPanel: View {
     @ObservedObject var queue: QueueModel
     @ObservedObject var setup: SetupModel
-    var tab: PanelTab = .agents
 
     var body: some View {
         VStack(spacing: 0) {
-            switch tab {
+            switch queue.tab {
             case .agents: SessionList(queue: queue, setup: setup)
+            case .todo: TodoTab(queue: queue)
             }
             if let flash = queue.flash {
                 Text(flash)

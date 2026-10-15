@@ -24,8 +24,14 @@ struct NotchView: View {
                 .frame(width: notch.expanded ? nil : notch.leftWing + notchWidth + notch.rightWing)
                 .frame(maxWidth: .infinity, alignment: .leading)
             VStack(spacing: 0) {
-                CollapsedBar(queue: queue, notchWidth: notchWidth, leftWing: notch.leftWing, rightWing: notch.rightWing)
-                    .frame(height: notch.geometry?.bandHeight ?? NotchGeometry.capsuleHeight)
+                Group {
+                    if notch.expanded {
+                        TabStrip(queue: queue)
+                    } else {
+                        CollapsedBar(queue: queue, notchWidth: notchWidth, leftWing: notch.leftWing, rightWing: notch.rightWing)
+                    }
+                }
+                .frame(height: notch.geometry?.bandHeight ?? NotchGeometry.capsuleHeight)
                 if notch.expanded {
                     ExpandedPanel(queue: queue, setup: setup)
                 }
