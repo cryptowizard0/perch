@@ -8,7 +8,8 @@ import Testing
     @Test func createsHomeAndItemsTable() throws {
         let d = try TestDaemon()
         #expect(FileManager.default.fileExists(atPath: d.daemon.config.databasePath))
-        #expect(try d.daemon.service.store.count() == 0)
+        // On perchd's queue: the connection is single-threaded, and startup work may still be using it.
+        #expect(try d.daemon.queue.sync { try d.daemon.service.store.count() } == 0)
         let mode = try FileManager.default.attributesOfItem(atPath: d.daemon.config.socketPath)[.posixPermissions] as? Int
         #expect(mode == 0o600)
     }

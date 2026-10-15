@@ -78,7 +78,10 @@ struct NotchLatencyTests {
         var worst: TimeInterval = 0
         for n in 1...5 {
             let started = Date()
-            let id = try cli.run("add", "latency probe \(n)", "-p", "high").stdout
+            let add = try cli.start(["add", "latency probe \(n)", "-p", "high"])
+            // Wait for the process off the main actor: blocking it until `perch` exits would hold back the very
+            // main-queue delivery being timed (and the other main-actor suites'), measuring process exit instead.
+            let id = try await Task.detached { try add().stdout }.value
             while appliedAt[id] == nil && Date().timeIntervalSince(started) < 2 {
                 try await Task.sleep(nanoseconds: 1_000_000)
             }

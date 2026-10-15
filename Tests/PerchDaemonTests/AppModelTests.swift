@@ -33,9 +33,13 @@ import Testing
         let model = QueueModel()
         model.connect(client: d.client)
         defer { model.disconnect() }
+        // Noted as it is applied, not polled: the wire keeps whole seconds, so "in 1 s" can expire within
+        // milliseconds, and the notice can arrive and fade between two looks.
+        var shown = false
+        model.onApply = { [unowned model] _ in shown = shown || model.state.items.count == 1 }
         try await until { model.online }
         _ = try d.client.send(Request(op: .add, item: Item(title: "fleeting", kind: .notice, expiresAt: Date().addingTimeInterval(1))))
-        try await until { model.state.items.count == 1 }
+        try await until { shown }
         try await until(timeout: 4) { model.state.items.isEmpty }
     }
 }
@@ -138,7 +142,7 @@ struct PanelApprovalTests {
         try await AppModelTests().until { model.online }
 
         let finish = try CLI(home: d.home).start(["hook", "claude-code", "--wait", "20"], stdin: permission, env: env)
-        try await AppModelTests().until { model.panel.sessions.first.map(model.panel.request(for:)) != nil }
+        try await AppModelTests().until { model.panel.sessions.first.flatMap(model.panel.request(for:)) != nil }
         let session = try #require(model.panel.sessions.first)
         #expect(session.status == .waiting && session.detail == "npm test")
         let request = try #require(model.panel.request(for: session))
@@ -147,7 +151,9 @@ struct PanelApprovalTests {
         model.respond(request, answer)
         try await AppModelTests().until { model.sessions["s1"]?.status == .running }
         #expect(model.panel.request(for: try #require(model.sessions["s1"])) == nil)
-        #expect(try finish().stdout.contains(#""behavior":"\#(answer)""#))
+        // Off the main actor, which the latency tests need free.
+        let output = try await Task.detached { try finish().stdout }.value
+        #expect(output.contains(#""behavior":"\#(answer)""#))
     }
 }
 
