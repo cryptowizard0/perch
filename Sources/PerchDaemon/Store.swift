@@ -4,7 +4,7 @@ import PerchCore
 /// The `items` and `sessions` tables. Columns map 1:1 to `Item` / `Session`; dates are ISO-8601 UTC text,
 /// `meta` / `options` are JSON text. Only perchd opens this database.
 public final class Store {
-    public static let schemaVersion = 3
+    public static let schemaVersion = 4
 
     let db: SQLiteDatabase
 
@@ -15,10 +15,10 @@ public final class Store {
         try migrate()
     }
 
-    static let columns = "id, title, kind, status, source, due_at, link, meta, key, options, response, expires_at, created_at, updated_at"
+    static let columns = "id, title, kind, status, source, due_at, link, meta, key, options, response, expires_at, created_at, updated_at, priority"
 
     public func insert(_ item: Item) throws {
-        try db.run("INSERT INTO items (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(item))
+        try db.run("INSERT INTO items (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(item))
     }
 
     /// Overwrites every column of the row with `item.id`.
@@ -27,7 +27,7 @@ public final class Store {
         args.append(.text(item.id))
         try db.run("""
         UPDATE items SET title = ?, kind = ?, status = ?, source = ?, due_at = ?, link = ?, meta = ?, key = ?,
-            options = ?, response = ?, expires_at = ?, created_at = ?, updated_at = ?
+            options = ?, response = ?, expires_at = ?, created_at = ?, updated_at = ?, priority = ?
         WHERE id = ?
         """, args)
     }
@@ -107,7 +107,7 @@ public final class Store {
             SQLValue(item.dueAt.map(Self.formatDate)), SQLValue(item.link), SQLValue(item.meta.flatMap(Self.json)),
             SQLValue(item.key), SQLValue(item.options.flatMap(Self.json)), SQLValue(item.response),
             SQLValue(item.expiresAt.map(Self.formatDate)),
-            .text(Self.formatDate(item.createdAt)), .text(Self.formatDate(item.updatedAt)),
+            .text(Self.formatDate(item.createdAt)), .text(Self.formatDate(item.updatedAt)), .text(item.priority.rawValue),
         ]
     }
 
@@ -125,7 +125,8 @@ public final class Store {
             throw SQLiteError(description: "bad kind/status in row \(row.text(0) ?? "?")")
         }
         return Item(
-            id: try required(0), title: try required(1), kind: kind, status: status, source: try required(4),
+            id: try required(0), title: try required(1), kind: kind, status: status,
+            priority: row.text(14).flatMap(ItemPriority.init(rawValue:)) ?? .normal, source: try required(4),
             dueAt: try date(5), link: row.text(6),
             meta: row.text(7).flatMap { try? JSONDecoder().decode([String: String].self, from: Data($0.utf8)) },
             key: row.text(8),
@@ -203,6 +204,13 @@ public final class Store {
             try db.execute("""
             ALTER TABLE sessions ADD COLUMN transcript_path TEXT;
             PRAGMA user_version = 3;
+            """)
+        }
+        if version < 4 {
+            // Todo priority (#41); every existing item is Normal.
+            try db.execute("""
+            ALTER TABLE items ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('high', 'normal', 'low'));
+            PRAGMA user_version = 4;
             """)
         }
     }

@@ -57,6 +57,9 @@ final class NotchWindowController {
     private var shrinkingFrom: CGFloat?
     private var shrinkDone: DispatchWorkItem?
     static let wingAnimation = 0.3
+    /// The tab the expanded panel was last sized for (nil while collapsed): switching tabs animates the height.
+    private var sizedTab: PanelTab?
+    static let tabAnimation = 0.15
 
     static let expandedWidth: CGFloat = 460
 
@@ -68,6 +71,9 @@ final class NotchWindowController {
         host.sizingOptions = []
         host.onHover = { [weak notch] inside in notch?.hover(inside) }
         panel.contentView = host
+        queue.expanded = notch.expanded
+        // Dev aid next to PERCH_PIN_EXPANDED: `PERCH_PIN_TAB=todo` starts on that tab (screenshots without a mouse).
+        if let tab = ProcessInfo.processInfo.environment["PERCH_PIN_TAB"].flatMap(PanelTab.init(rawValue:)) { queue.pick(tab) }
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -80,6 +86,8 @@ final class NotchWindowController {
         notch.$expanded.removeDuplicates().dropFirst().sink { [weak self] expanded in
             // The list says it all: no banner while it is open, none saved for after.
             self?.queue.showsBanners = !expanded
+            // Opening picks the tab, before the panel draws.
+            self?.queue.expanded = expanded
             DispatchQueue.main.async {
                 self?.layout()
                 // agents.json or a hook file may have changed from the CLI since the last look.
@@ -136,7 +144,20 @@ final class NotchWindowController {
         let frame = notch.expanded
             ? geometry.expandedFrame(size: CGSize(width: Self.expandedWidth, height: expandedHeight(band: geometry.bandHeight)))
             : geometry.collapsedFrame(leftWing: left, rightWing: max(right, shrinkingFrom ?? 0))
-        if panel.frame != frame { panel.setFrame(frame, display: true) }
+        let switchedTab = notch.expanded && sizedTab != nil && sizedTab != queue.tab
+        sizedTab = notch.expanded ? queue.tab : nil
+        if panel.frame != frame {
+            if switchedTab && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                // The height follows the tab; the width stays.
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = Self.tabAnimation
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    panel.animator().setFrame(frame, display: true)
+                }
+            } else {
+                panel.setFrame(frame, display: true)
+            }
+        }
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
@@ -146,9 +167,9 @@ final class NotchWindowController {
         shrinkingFrom = nil
     }
 
-    /// Band + the list's estimated height (see `PanelLayout`; it scrolls past the cap) + padding.
+    /// Band + the current tab's estimated height (see `PanelLayout`; it scrolls past the cap) + padding.
     private func expandedHeight(band: CGFloat) -> CGFloat {
-        band + PanelLayout.listHeight(queue.panel(setup: setup.state), online: queue.online) + 16
+        band + PanelLayout.listHeight(queue.tab, panel: queue.panel(setup: setup.state), todos: queue.todos, online: queue.online) + 16
     }
 }
 

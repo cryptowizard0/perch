@@ -58,10 +58,22 @@ import Testing
     @Test func onlyTitleIsRequired() throws {
         let item = try PerchJSON.decoder.decode(Item.self, from: Data(#"{"title":"hi"}"#.utf8))
         #expect(item.title == "hi")
+        #expect(item.priority == .normal)
         #expect(item.kind == .task)
         #expect(item.status == .open)
         #expect(item.source == "human")
         #expect(item.id.count == 4)
+    }
+
+    @Test func priorityRoundTripsAndAPatchCarriesIt() throws {
+        let item = try PerchJSON.decoder.decode(Item.self, from: Data(#"{"title":"hi","priority":"low"}"#.utf8))
+        #expect(item.priority == .low)
+        #expect(String(decoding: try PerchJSON.encoder.encode(item), as: UTF8.self).contains(#""priority":"low""#))
+        let patch = try PerchJSON.decoder.decode(Request.Patch.self, from: Data(#"{"priority":"high"}"#.utf8))
+        #expect(patch.priority == .high && !patch.isEmpty)
+        #expect(throws: DecodingError.self) {
+            try PerchJSON.decoder.decode(Item.self, from: Data(#"{"title":"hi","priority":"urgent"}"#.utf8))
+        }
     }
 
     @Test func missingTitleIsAnError() {
@@ -93,5 +105,24 @@ import Testing
         ]
         #expect(items.queueOrdered(now: now, calendar: calendar).map(\.id)
                 == ["req1", "req2", "wait", "over", "tday", "late", "open", "note", "done", "dism"])
+    }
+
+    /// Open tasks go High, Normal, Low (#41), each in the usual order; requests, waiting items and notices don't move.
+    @Test func openTasksGoByPriorityFirst() {
+        let t = { (s: TimeInterval) in self.now.addingTimeInterval(s) }
+        let items = [
+            Item(id: "lowo", title: "", priority: .low, dueAt: t(-60)),
+            Item(id: "low1", title: "", priority: .low, createdAt: t(-10)),
+            Item(id: "norm", title: "", dueAt: t(3600)),
+            Item(id: "nrm2", title: ""),
+            Item(id: "hig2", title: "", priority: .high, createdAt: t(5)),
+            Item(id: "hig1", title: "", priority: .high, createdAt: t(0)),
+            Item(id: "note", title: "", kind: .notice, priority: .high),
+            Item(id: "wait", title: "", status: .waiting, priority: .low),
+            Item(id: "reqq", title: "", kind: .request, status: .waiting, priority: .low),
+            Item(id: "done", title: "", status: .done, priority: .high),
+        ]
+        #expect(items.queueOrdered(now: now, calendar: calendar).map(\.id)
+                == ["reqq", "wait", "hig1", "hig2", "norm", "nrm2", "lowo", "low1", "note", "done"])
     }
 }

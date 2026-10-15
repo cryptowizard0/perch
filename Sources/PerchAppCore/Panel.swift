@@ -194,6 +194,25 @@ public enum PanelLayout {
     /// Monospaced characters per line at the panel's width.
     static let lineLength = 52
 
+    /// The Todo tab's title and summary line.
+    public static let titleHeight: CGFloat = 46
+    public static let todoRowHeight: CGFloat = 26
+
+    /// The expanded notch below the band, for the tab it shows.
+    public static func listHeight(_ tab: PanelTab, panel: Panel, todos: TodoList, online: Bool = true) -> CGFloat {
+        switch tab {
+        case .agents: return listHeight(panel, online: online)
+        case .todo: return todoHeight(todos, online: online)
+        }
+    }
+
+    /// The title and summary, then the groups (or, with perchd offline, a one-line message).
+    public static func todoHeight(_ todos: TodoList, online: Bool = true) -> CGFloat {
+        guard online else { return titleHeight + messageHeight }
+        let groups = todos.groups.reduce(CGFloat(0)) { $0 + headerHeight + CGFloat($1.items.count) * todoRowHeight }
+        return min(titleHeight + groups, maxListHeight)
+    }
+
     /// Setup, then the groups (or, with no sessions or perchd offline, a one-line message).
     public static func listHeight(_ panel: Panel, online: Bool = true) -> CGFloat {
         let sessions = online && !panel.sessions.isEmpty ? sessionsHeight(panel) : messageHeight

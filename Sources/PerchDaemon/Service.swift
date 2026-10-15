@@ -139,7 +139,7 @@ public final class Service {
 
     private func update(_ id: String?, _ patch: Request.Patch?) throws -> (Response, [Event]) {
         guard let patch, !patch.isEmpty else {
-            throw ServiceError("update needs at least one of: title, kind, due_at, clear_due")
+            throw ServiceError("update needs at least one of: title, kind, priority, due_at, clear_due")
         }
         if patch.dueAt != nil && patch.clearDue == true {
             throw ServiceError("update takes either due_at or clear_due, not both")
@@ -160,6 +160,7 @@ public final class Service {
             if kind == .task { item.expiresAt = nil }
             item.kind = kind
         }
+        if let priority = patch.priority { item.priority = priority }
         if let due = patch.dueAt { item.dueAt = Self.wholeSeconds(due) }
         if patch.clearDue == true { item.dueAt = nil }
         guard item != original else { return (Response(ok: true, item: original), []) }

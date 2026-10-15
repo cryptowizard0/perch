@@ -3,22 +3,16 @@ import PerchAppCore
 import PerchCore
 import SwiftUI
 
-/// What the expanded notch can show. Only agents for now; todo comes back as a second tab later,
-/// which is when a tab bar appears.
-enum PanelTab {
-    case agents
-}
-
 /// The expanded notch: the current tab's content, then a failed action's message if any.
 struct ExpandedPanel: View {
     @ObservedObject var queue: QueueModel
     @ObservedObject var setup: SetupModel
-    var tab: PanelTab = .agents
 
     var body: some View {
         VStack(spacing: 0) {
-            switch tab {
+            switch queue.tab {
             case .agents: SessionList(queue: queue, setup: setup)
+            case .todo: TodoTab(queue: queue)
             }
             if let flash = queue.flash {
                 Text(flash)

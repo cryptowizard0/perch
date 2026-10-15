@@ -4,7 +4,8 @@ import PerchClient
 import PerchCore
 
 /// What the notch shows, fed by `QueueConnection`, and what its rows and hotkeys do. Main thread only.
-/// The notch renders `panel` (agent sessions); items are kept only for the requests Allow / Deny answer.
+/// The Agents tab renders `panel` (agent sessions, and the requests Allow / Deny answer); the Todo tab renders `todos`.
+/// The folded notch (mascot, running count, banner, sounds) only ever follows sessions.
 @MainActor
 public final class QueueModel: ObservableObject {
     @Published public private(set) var state = QueueState()
@@ -26,6 +27,23 @@ public final class QueueModel: ObservableObject {
     /// Which pulses also play a sound (#35). The Sounds menu edits it; the app keeps it in its user defaults.
     @Published public var chimes = ChimeSettings() {
         didSet { chime.settings = chimes }
+    }
+
+    /// The expanded notch's tab. It only changes when the panel opens (`expanded`) or someone picks one (`pick`).
+    @Published public private(set) var tab: PanelTab = .agents
+    /// Todos whose circle was clicked: crossed out with an Undo until `completionDelay` passes and `done` is sent.
+    /// One stays here until its item leaves (the `done` event), so the row never flickers back.
+    @Published public private(set) var completing: Set<String> = []
+    /// How long a clicked circle waits for Undo before the todo is done.
+    public var completionDelay: TimeInterval = 3
+
+    /// Whether the notch is expanded; the app sets it. Opening picks the tab (`PanelTab.opening`).
+    public var expanded = false {
+        didSet {
+            guard expanded != oldValue, expanded else { return }
+            let opening = PanelTab.opening(picked: pickedTab, panel: panel)
+            if tab != opening { tab = opening }
+        }
     }
 
     /// Called after every applied update; used to measure CLI → notch latency.
@@ -51,6 +69,10 @@ public final class QueueModel: ObservableObject {
     private var ticker: Timer?
     private var flashTimer: Timer?
     private let actions = DispatchQueue(label: "dev.perch.app.actions")
+    /// The last tab picked by hand; memory only, so a relaunch starts on Agents.
+    private var pickedTab: PanelTab = .agents
+    /// Pending completions that have not sent `done` yet; cancelling one is Undo.
+    private var completions: [String: DispatchWorkItem] = [:]
 
     public init() {}
 
@@ -63,6 +85,9 @@ public final class QueueModel: ObservableObject {
     public func panel(setup: SetupState) -> Panel {
         Panel(sessions: sessions.values, requests: state.items.values, setup: setup)
     }
+
+    /// The Todo tab: open tasks by priority (completing ones included, crossed out, until they are done).
+    public var todos: TodoList { TodoList(items: state.items.values, hadAny: state.hadTodos) }
 
     public func connect(client: PerchClient = PerchClient()) {
         self.client = client
@@ -106,6 +131,8 @@ public final class QueueModel: ObservableObject {
             sessions = [:]
             setBanner(nil)
         }
+        // A todo that is done (here or anywhere) or gone has nothing left to undo.
+        for id in completing where state.items[id] == nil { finishCompletion(id) }
         refresh()
         onApply?(update)
     }
@@ -145,8 +172,52 @@ public final class QueueModel: ObservableObject {
         respond(head, value)
     }
 
-    /// Sends one request off the main thread; failures go to `flash`.
-    public func send(_ request: Request) {
+    /// Clicking a tab's icon. Remembered (in memory) as the tab to open on next time.
+    public func pick(_ tab: PanelTab) {
+        pickedTab = tab
+        if self.tab != tab { self.tab = tab }
+    }
+
+    /// Clicking a todo's circle: crosses it out and sends `done` after `completionDelay`, unless it is clicked again
+    /// (or Undo) first. The timer lives here, not in the view, so it still commits after the notch collapses;
+    /// quitting meanwhile leaves the todo open.
+    public func toggleCompletion(_ item: Item) {
+        if completing.contains(item.id) { return undoCompletion(item.id) }
+        guard state.items[item.id] != nil else { return }
+        completing.insert(item.id)
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.commitCompletion(item.id) }
+        }
+        completions[item.id] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + completionDelay, execute: work)
+    }
+
+    /// Undo: the todo stays open and no `done` is sent. Too late once `done` has gone out.
+    public func undoCompletion(_ id: String) {
+        guard let work = completions.removeValue(forKey: id) else { return }
+        work.cancel()
+        completing.remove(id)
+    }
+
+    /// Right-click → Priority: moves the todo to that group (by its creation time, like any other).
+    public func setPriority(_ item: Item, _ priority: ItemPriority) {
+        guard item.priority != priority else { return }
+        send(Request(op: .update, id: item.id, patch: Request.Patch(priority: priority)))
+    }
+
+    private func commitCompletion(_ id: String) {
+        guard completions.removeValue(forKey: id) != nil else { return }
+        // Stays crossed out until the done event removes the row; a failure brings it back.
+        send(Request(op: .done, id: id)) { [weak self] in self?.finishCompletion(id) }
+    }
+
+    private func finishCompletion(_ id: String) {
+        completions.removeValue(forKey: id)?.cancel()
+        completing.remove(id)
+    }
+
+    /// Sends one request off the main thread; failures go to `flash` (after `failed`, if given).
+    public func send(_ request: Request, failed: (@MainActor () -> Void)? = nil) {
         let client = self.client
         actions.async { [weak self] in
             let failure: String?
@@ -157,7 +228,12 @@ public final class QueueModel: ObservableObject {
                 failure = String(describing: error)
             }
             guard let failure else { return }
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.show(failure) } }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    failed?()
+                    self?.show(failure)
+                }
+            }
         }
     }
 

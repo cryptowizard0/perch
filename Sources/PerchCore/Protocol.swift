@@ -73,30 +73,32 @@ public struct Request: Codable, Sendable {
         }
     }
 
-    /// For `update`. Unset fields stay as they are. `kind` switches between task and notice only
+    /// For `update`. Unset fields stay as they are. `priority` applies to any kind (only open tasks are sorted by it). `kind` switches between task and notice only
     /// (a notice that becomes a task stops expiring); requests keep their kind.
     public struct Patch: Codable, Sendable, Equatable {
         public var title: String?
         public var kind: ItemKind?
+        public var priority: ItemPriority?
         public var dueAt: Date?
         /// Removes `due_at`. Cannot be combined with `due_at`.
         public var clearDue: Bool?
 
-        public init(title: String? = nil, kind: ItemKind? = nil, dueAt: Date? = nil, clearDue: Bool? = nil) {
+        public init(title: String? = nil, kind: ItemKind? = nil, priority: ItemPriority? = nil, dueAt: Date? = nil, clearDue: Bool? = nil) {
             self.title = title
             self.kind = kind
+            self.priority = priority
             self.dueAt = dueAt
             self.clearDue = clearDue
         }
 
         enum CodingKeys: String, CodingKey {
-            case title, kind
+            case title, kind, priority
             case dueAt = "due_at"
             case clearDue = "clear_due"
         }
 
         public var isEmpty: Bool {
-            title == nil && kind == nil && dueAt == nil && clearDue != true
+            title == nil && kind == nil && priority == nil && dueAt == nil && clearDue != true
         }
     }
 }

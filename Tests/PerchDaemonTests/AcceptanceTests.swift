@@ -58,7 +58,7 @@ struct AcceptanceTests {
 
 /// M2 acceptance: `perch add` in a terminal → the notch's model has the item, ≤ 200 ms end to end
 /// (process launch + socket + daemon + push + main-thread apply). Rendering is measured in the real app
-/// by scripts/measure-latency.sh.
+/// by scripts/measure-latency.sh. The probes are High todos (#42): each lands in the Todo tab's High group.
 @MainActor
 @Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
 struct NotchLatencyTests {
@@ -78,7 +78,7 @@ struct NotchLatencyTests {
         var worst: TimeInterval = 0
         for n in 1...5 {
             let started = Date()
-            let id = try cli.run("add", "latency probe \(n)").stdout
+            let id = try cli.run("add", "latency probe \(n)", "-p", "high").stdout
             while appliedAt[id] == nil && Date().timeIntervalSince(started) < 2 {
                 try await Task.sleep(nanoseconds: 1_000_000)
             }
@@ -86,6 +86,7 @@ struct NotchLatencyTests {
             worst = max(worst, applied.timeIntervalSince(started))
         }
         #expect(worst < 0.2, "worst CLI → notch model latency \(Int(worst * 1000)) ms")
+        #expect(model.todos.groups.map(\.priority) == [.high] && model.todos.openCount == 5)
     }
 }
 
