@@ -33,9 +33,13 @@ import Testing
         let model = QueueModel()
         model.connect(client: d.client)
         defer { model.disconnect() }
+        // Noted as it is applied, not polled: the wire keeps whole seconds, so "in 1 s" can expire within
+        // milliseconds, and the notice can arrive and fade between two looks.
+        var shown = false
+        model.onApply = { [unowned model] _ in shown = shown || model.state.items.count == 1 }
         try await until { model.online }
         _ = try d.client.send(Request(op: .add, item: Item(title: "fleeting", kind: .notice, expiresAt: Date().addingTimeInterval(1))))
-        try await until { model.state.items.count == 1 }
+        try await until { shown }
         try await until(timeout: 4) { model.state.items.isEmpty }
     }
 }
