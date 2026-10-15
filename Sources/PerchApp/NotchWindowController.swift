@@ -146,9 +146,9 @@ final class NotchWindowController {
         shrinkingFrom = nil
     }
 
-    /// Band + the list's estimated height (see `PanelLayout`; it scrolls past the cap) + padding.
+    /// Band + the current tab's estimated height (see `PanelLayout`; it scrolls past the cap) + padding.
     private func expandedHeight(band: CGFloat) -> CGFloat {
-        band + PanelLayout.listHeight(queue.panel(setup: setup.state), online: queue.online) + 16
+        band + PanelLayout.listHeight(.agents, panel: queue.panel(setup: setup.state), online: queue.online) + 16
     }
 }
 

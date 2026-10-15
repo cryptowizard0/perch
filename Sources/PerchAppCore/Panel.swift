@@ -194,6 +194,13 @@ public enum PanelLayout {
     /// Monospaced characters per line at the panel's width.
     static let lineLength = 52
 
+    /// The expanded notch below the band, for the tab it shows.
+    public static func listHeight(_ tab: PanelTab, panel: Panel, online: Bool = true) -> CGFloat {
+        switch tab {
+        case .agents: return listHeight(panel, online: online)
+        }
+    }
+
     /// Setup, then the groups (or, with no sessions or perchd offline, a one-line message).
     public static func listHeight(_ panel: Panel, online: Bool = true) -> CGFloat {
         let sessions = online && !panel.sessions.isEmpty ? sessionsHeight(panel) : messageHeight
