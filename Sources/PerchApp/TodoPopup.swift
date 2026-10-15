@@ -172,7 +172,7 @@ struct TodoPopupView: View {
                     .buttonStyle(.plain)
                 }
                 Spacer(minLength: 8)
-                Text("Tab priority · Return \(editing ? "save" : "add") · Esc close")
+                Text("⇥ priority · ↩ \(editing ? "save" : "add") · esc close")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
