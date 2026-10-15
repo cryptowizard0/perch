@@ -129,6 +129,27 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
     }
 
+    /// Dates go out as whole-second ISO-8601, which truncates. `expires_at` is rounded up instead,
+    /// so a client asking for `now + N` never reaches perchd with a shorter window.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(status, forKey: .status)
+        try c.encode(priority, forKey: .priority)
+        try c.encode(source, forKey: .source)
+        try c.encodeIfPresent(dueAt, forKey: .dueAt)
+        try c.encodeIfPresent(link, forKey: .link)
+        try c.encodeIfPresent(meta, forKey: .meta)
+        try c.encodeIfPresent(key, forKey: .key)
+        try c.encodeIfPresent(options, forKey: .options)
+        try c.encodeIfPresent(response, forKey: .response)
+        try c.encodeIfPresent(expiresAt.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.up)) }, forKey: .expiresAt)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(updatedAt, forKey: .updatedAt)
+    }
+
     /// Short, typeable ids like `t7k2`: 4 chars from an alphabet without look-alikes.
     public static func newID() -> String {
         let alphabet = Array("abcdefghjkmnpqrstuvwxyz23456789")

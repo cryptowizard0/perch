@@ -28,6 +28,18 @@ import Testing
         #expect(back == item)
     }
 
+    @Test func expiryIsRoundedUpOnTheWire() throws {
+        // The wire carries whole-second ISO-8601; truncating would shorten the window an agent asked for.
+        let asked = Item(title: "r", kind: .request, expiresAt: Date(timeIntervalSince1970: 1_800_000_000.2))
+        let json = String(decoding: try PerchJSON.encoder.encode(asked), as: UTF8.self)
+        #expect(json.contains("\"expires_at\":\"2027-01-15T08:00:01Z\""))
+        let back = try PerchJSON.decoder.decode(Item.self, from: Data(json.utf8))
+        #expect(back.expiresAt == Date(timeIntervalSince1970: 1_800_000_001))
+
+        let whole = Item(title: "r", kind: .request, expiresAt: Date(timeIntervalSince1970: 1_800_000_000))
+        #expect(try PerchJSON.decoder.decode(Item.self, from: PerchJSON.encoder.encode(whole)).expiresAt == whole.expiresAt)
+    }
+
     @Test func newIDIsFourCharsFromSafeAlphabet() {
         let alphabet = Set("abcdefghjkmnpqrstuvwxyz23456789")
         for _ in 0..<100 {
