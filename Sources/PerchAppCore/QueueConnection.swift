@@ -7,6 +7,7 @@ import PerchCore
 /// every reconnect starts with a fresh snapshot. Never polls while connected.
 public final class QueueConnection: @unchecked Sendable {
     public enum Update: Sendable {
+        /// The active items and the done tasks, then every session.
         case snapshot([Item], [Session])
         case event(Event)
         case session(SessionEvent)
@@ -63,7 +64,9 @@ public final class QueueConnection: @unchecked Sendable {
                     return true
                 }) else { return }
                 // Subscribed first, so nothing that happens after the snapshot can be missed.
-                let items = try client.send(Request(op: .list)).items ?? []
+                // The done tasks only tell the Todo tab whether there ever were any ("All clear" vs "Nothing to do yet.").
+                let items = try (client.send(Request(op: .list)).items ?? [])
+                    + (client.send(Request(op: .list, filter: Request.Filter(status: .done, kind: .task))).items ?? [])
                 let sessions = try client.send(Request(op: .sessions)).sessions ?? []
                 send(.snapshot(items, sessions))
                 delay = Self.backoff.lowerBound
