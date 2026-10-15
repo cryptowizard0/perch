@@ -142,7 +142,7 @@ struct PanelApprovalTests {
         try await AppModelTests().until { model.online }
 
         let finish = try CLI(home: d.home).start(["hook", "claude-code", "--wait", "20"], stdin: permission, env: env)
-        try await AppModelTests().until { model.panel.sessions.first.map(model.panel.request(for:)) != nil }
+        try await AppModelTests().until { model.panel.sessions.first.flatMap(model.panel.request(for:)) != nil }
         let session = try #require(model.panel.sessions.first)
         #expect(session.status == .waiting && session.detail == "npm test")
         let request = try #require(model.panel.request(for: session))
