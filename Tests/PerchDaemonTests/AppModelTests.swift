@@ -147,7 +147,9 @@ struct PanelApprovalTests {
         model.respond(request, answer)
         try await AppModelTests().until { model.sessions["s1"]?.status == .running }
         #expect(model.panel.request(for: try #require(model.sessions["s1"])) == nil)
-        #expect(try finish().stdout.contains(#""behavior":"\#(answer)""#))
+        // Off the main actor, which the latency tests need free.
+        let output = try await Task.detached { try finish().stdout }.value
+        #expect(output.contains(#""behavior":"\#(answer)""#))
     }
 }
 
