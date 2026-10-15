@@ -45,4 +45,19 @@ import Testing
         #expect(expired.item.status == .dismissed)
         #expect(Date() >= added.expiresAt!)
     }
+
+    @Test func theCLINeverShortensTheWindow() throws {
+        let d = try TestDaemon()
+        try CLI.warmUp()
+        let stream = try d.client.watch()
+        let started = Date()
+        let result = try CLI(home: d.home).run("add", "fleeting", "--kind", "notice", "--expires", "1")
+        #expect(result.status == 0)
+        let added = try #require(try stream.next(timeout: 2))
+        #expect(added.type == .added)
+        #expect(try #require(added.item.expiresAt) >= started.addingTimeInterval(1))
+        let expired = try #require(try stream.next(timeout: 3))
+        #expect(expired.item.status == .dismissed)
+        #expect(Date().timeIntervalSince(started) >= 1)
+    }
 }
