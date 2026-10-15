@@ -116,7 +116,8 @@ final class TodoPopupController {
         guard let editor = queue.editor else { return }
         let size = Self.size
         var frame: CGRect
-        if editor.fromPanel {
+        // Below the panel whenever it is expanded, even for a ⌥⇧Space popup the notch expanded under afterwards.
+        if editor.fromPanel || notchWindow.notch.expanded {
             let notch = notchWindow.panel.frame
             frame = CGRect(x: notch.midX - size.width / 2, y: notch.minY - Self.gap - size.height, width: size.width, height: size.height)
         } else {
@@ -145,7 +146,7 @@ struct TodoPopupView: View {
             HStack(spacing: 8) {
                 Image(systemName: editing ? "pencil.circle" : "plus.circle")
                     .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(.white.opacity(editor?.canSubmit == true ? 0.85 : 0.35))
                 TextField(editing ? "Todo" : "New todo", text: Binding(
                     get: { queue.editor?.title ?? "" },
                     set: { queue.editor?.title = $0 }
