@@ -36,6 +36,11 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var completing: Set<String> = []
     /// How long a clicked circle waits for Undo before the todo is done.
     public var completionDelay: TimeInterval = 3
+    /// The todo popup while it is open (#43). The popup draws it and edits `title`; the rest goes through the methods.
+    @Published public var editor: TodoEditor?
+    /// Todos added while the panel was open, marked new for `highlightDuration`.
+    @Published public private(set) var highlighted: Set<String> = []
+    public var highlightDuration: TimeInterval = 1
 
     /// Whether the notch is expanded; the app sets it. Opening picks the tab (`PanelTab.opening`).
     public var expanded = false {
@@ -114,6 +119,9 @@ public final class QueueModel: ObservableObject {
             offlineReason = nil
         case .event(let event):
             state.apply(event)
+            if expanded && event.type == .added && event.item.kind == .task && event.item.status == .open {
+                highlight(event.item.id)
+            }
         case .session(let event):
             let before = sessions[event.session.id]
             let after = event.type == .ended ? nil : event.session
@@ -133,6 +141,8 @@ public final class QueueModel: ObservableObject {
         }
         // A todo that is done (here or anywhere) or gone has nothing left to undo.
         for id in completing where state.items[id] == nil { finishCompletion(id) }
+        // Nothing left to edit (done, deleted, or perchd went away).
+        if case .edit(let id)? = editor?.mode, state.items[id] == nil || !online { editor = nil }
         refresh()
         onApply?(update)
     }
@@ -203,6 +213,56 @@ public final class QueueModel: ObservableObject {
     public func setPriority(_ item: Item, _ priority: ItemPriority) {
         guard item.priority != priority else { return }
         send(Request(op: .update, id: item.id, patch: Request.Patch(priority: priority)))
+    }
+
+    /// ⌥⇧Space (`fromPanel` false) or "+ Add a todo": the popup, empty and on Normal.
+    public func openAdd(fromPanel: Bool) {
+        editor = .add(fromPanel: fromPanel)
+    }
+
+    /// A double-click on a title, or Edit…: the popup, prefilled.
+    public func openEdit(_ item: Item) {
+        editor = .edit(item)
+    }
+
+    /// Tab / Shift-Tab in the popup.
+    public func cycleEditorPriority(forward: Bool) {
+        editor?.cyclePriority(forward: forward)
+    }
+
+    /// Esc, clicking elsewhere: nothing is sent.
+    public func closeEditor() {
+        if editor != nil { editor = nil }
+    }
+
+    /// Return. Adding: `add` (source human, the chosen priority); the popup stays open, empty and back on Normal for
+    /// the next one. Editing: `update` with the title and priority, then the popup closes. False (and nothing sent)
+    /// while the title is blank.
+    @discardableResult
+    public func submitEditor() -> Bool {
+        guard let editor, let title = editor.submittedTitle else { return false }
+        switch editor.mode {
+        case .add:
+            send(Request(op: .add, item: Item(title: title, kind: .task, priority: editor.priority, source: "human")))
+            self.editor = .add(fromPanel: editor.fromPanel)
+        case .edit(let id):
+            send(Request(op: .update, id: id, patch: Request.Patch(title: title, priority: editor.priority)))
+            self.editor = nil
+        }
+        return true
+    }
+
+    /// Right-click → Delete: `rm` at once, no confirmation, no undo.
+    public func delete(_ item: Item) {
+        undoCompletion(item.id)
+        send(Request(op: .remove, id: item.id))
+    }
+
+    private func highlight(_ id: String) {
+        highlighted.insert(id)
+        DispatchQueue.main.asyncAfter(deadline: .now() + highlightDuration) { [weak self] in
+            MainActor.assumeIsolated { _ = self?.highlighted.remove(id) }
+        }
     }
 
     private func commitCompletion(_ id: String) {

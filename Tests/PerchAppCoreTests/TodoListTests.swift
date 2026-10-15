@@ -55,7 +55,8 @@ import Testing
 
     @Test func heightFollowsTheGroupsAndScrollsPastTheCap() {
         let empty = PanelLayout.todoHeight(TodoList(items: [], hadAny: false))
-        #expect(empty == PanelLayout.titleHeight)
+        // The title, and "+ Add a todo" fixed at the bottom.
+        #expect(empty == PanelLayout.titleHeight + PanelLayout.addRowHeight)
         let one = PanelLayout.todoHeight(TodoList(items: [todo("a")], hadAny: false))
         #expect(one == empty + PanelLayout.headerHeight + PanelLayout.todoRowHeight)
         let two = PanelLayout.todoHeight(TodoList(items: [todo("a"), todo("b", .high)], hadAny: false))
@@ -63,6 +64,7 @@ import Testing
         let many = TodoList(items: (0..<60).map { todo("t\($0)") }, hadAny: false)
         #expect(PanelLayout.todoHeight(many) == PanelLayout.maxListHeight)
         #expect(PanelLayout.todoHeight(many, online: false) == PanelLayout.titleHeight + PanelLayout.messageHeight)
+        #expect(PanelLayout.maxListHeight > PanelLayout.titleHeight + PanelLayout.addRowHeight + PanelLayout.todoRowHeight * 10)
         // Each tab is sized for itself.
         let panel = Panel(sessions: [])
         #expect(PanelLayout.listHeight(.todo, panel: panel, todos: many) == PanelLayout.maxListHeight)
