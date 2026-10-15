@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-14 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39"
+最后更新：2026-10-15 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）"
 
 ## 发布
 
@@ -32,6 +32,7 @@
 | M7 | 会话状态机（sessions 表、pid 存活检测、Claude Code / Codex hook 映射重写） | ✅ 完成 | #15 状态机 ✅；#16 存活检测 ✅；#17 真实会话验收 ✅（2026-10-08，Hermes 一轮未测） |
 | M8 | Agent 面板 UI；刘海 todo UI 下线 | ✅ 完成 | #18 面板 ✅；#19 交互 + todo 下线 ✅；#20 验收 ✅（2026-10-08，用户确认） |
 | M11 | Grok Build（#31，v0.5 第一个新 agent） | ✅ 完成 | 363 个测试；2026-10-12 维护者真实会话验收通过，PR #33 合并为 `1f83a18`，#31 已关（见"M11 进度"） |
+| M12 | Todo tab（#41：#42 / #43） | 🚧 待验收 | #42 已合并（PR #46）；#43 代码和文档完成，等维护者用一天后验收（见"Todo tab（M12）"） |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -47,7 +48,7 @@
 | 展开态 | 按状态分组，组标题带数量 | |
 | agent 图标 | 自己渲染的 12×12 单色像素图标；Claude Code = 像素小怪物 | 不打包商标文件；颜色只给状态圆点 |
 | Running 第二行 | 本轮 prompt 首行 | 不装 PreToolUse；"当前动作"以后再说 |
-| todo | UI 拿掉，底层和 CLI 不动；以后作为独立 tab 回来 | |
+| todo | UI 拿掉，底层和 CLI 不动；以后作为独立 tab 回来 | 2026-10-15 回来了：Todo tab（M12，#41） |
 | 会话存哪 | SQLite（`sessions` 表） | 推翻 M3 "session 只在内存"的决定；重启后面板原样恢复 |
 | 僵尸会话 | pid 存活检测为主（30 秒）+ 24 小时超时兜底 + 手动移除 | |
 | 接哪些 agent | Claude Code + Codex；Hermes 暂不显示（2026-10-08 起暂不支持，M9 搁置） | Codex 几乎零成本，还能验证状态机与 agent 无关 |
@@ -517,6 +518,16 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
 - **闲时彩蛋**：Idle 或没有会话（且 perchd 在线）时，每 240 秒随机来一个：打哈欠伸懒腰 2.4 秒、醒来左右张望 2.6 秒、吹鼻涕泡 2.8 秒（泡泡破了被吓醒一下）。时间和种类是参考时钟的纯函数（`Mascot.nextQuirk(after:)`，按周期号做 hash），没有状态、可以测；`MascotView` 用 `.task` 睡到下一次，播的时候按 14fps 重绘，平时 Asleep 照旧 0fps。"减少动态效果"下不播。
 - 验证：392 个测试通过。隔离 perchd + debug App 截图（本机内建屏没刘海可用，是 5K 屏的胶囊）：Needs you / Done 横幅、长回复滚到末尾后收起（截到收窄中间那一帧）、Failed 侧躺、打哈欠都对。跑全量测试时偶发过一次 signal 11（重跑通过，没复现，看起来和这次改动无关）。
 - ✅ 2026-10-14 维护者用 `scripts/install.sh` 装到 ~/Applications 实测通过；PR #40 squash 合并为 `a4262c3`，#39 已关，随 v0.4.2 发布。
+
+## Todo tab（M12，#41 / #42 / #43，2026-10-15）
+
+用户 2026-10-15 做了一轮设计评审，全部决定记在 #41（设计不写进单独的 docs/*.md，写在 issue 里）。拆成两个纵向切片：#42 → #43。完整行为见 `docs/PRD.md` 的"Todo tab"，这里只记实现和坑。
+
+- **#42**（PR #46 → `c206c27`）：`ItemPriority`，schema v4（`items.priority`），`perch add|update -p`，`queueOrdered` 把 open task 按优先级排；`PanelTab`（Agents 优先的打开规则）、`Panel.attention`（橙 / 红点）、`TodoList`（分组、摘要）；`QueueModel` 管 tab、待完成（`completionDelay` 默认 3 秒，`DispatchWorkItem`，收起后照样提交）。快照多拉一次 done 的 task，只为区分 "All clear" 和 "Nothing to do yet."。展开时条带换成 `TabStrip`；切 tab 时 `NSAnimationContext` 0.15 秒改窗口高度。`PERCH_PIN_TAB=todo` 配合 `PERCH_PIN_EXPANDED=1` 截 Todo tab。
+- **#43**（分支 `todo-entry-popup`）：`TodoEditor`（添加 / 编辑、标题、优先级、Tab 轮换、空白不提交）放在 `QueueModel.editor`；`submitEditor` 添加后保持打开、清空、回到 Normal，编辑发 `update` 后关闭；`delete` 立刻 `rm`；面板展开时 `item.added` 的 task 高亮 1 秒（`highlighted` / `highlightDuration`）；正在编辑的待办没了（done / rm / 离线）弹窗自己关。弹窗是 `PerchApp/TodoPopup.swift`：M2 快速录入的不激活 App 的 key panel（从 git 历史 `4386353^` 拿回来），`sendEvent` 里截 Tab / Shift-Tab / Esc（输入法组字时不截）；从面板打开时 `NotchModel.held` 让面板不因悬停离开而收起，弹窗关掉后指针不在面板上就照常收起。`HotKey` 的文本解析和 `QuickEntryHotKey` 从 M2 拿回来（`HotKey.quickEntry`）。
+- 测试：`TodoModelTests` / `TodoEditorModelTests`（QueueModel + 进程内 perchd）、`TodoListTests` / `PanelTabTests` / `TodoEditorTests` / `HotKeyTests`（纯函数）、`PriorityCLITests`（真实 `perch`）、`StartupTests.migratesAV3DatabaseToNormalPriority`。
+- 坑：perchd 的 `created_at` 精确到秒，同一秒加的待办在组内按 id 排；测顺序的用一步一秒的假时钟（`SteppingClock`）。所有 `@MainActor` 测试共用主线程，全量并行跑时 200 ms 的延迟测试偶尔超（`cliToNotchModelUnder200ms` 以前就有），所以 #42 没有另加进程内的 200 ms 测试，而是让这个验收测试改加 High 待办。
+- 截图（隔离 perchd + `PERCH_PIN_EXPANDED`，本机只有无刘海的外接屏，是胶囊样式）：两个 tab、三种弹窗位置都对。悬停、点击、键盘焦点、全局快捷键只能人工验。
 
 ## 未决问题
 

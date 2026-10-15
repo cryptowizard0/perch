@@ -4,13 +4,15 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 核心闭环：**agent 在等你 → 刘海亮 → 你就地处理或跳回去。**
 产品需求见 `docs/PRD.md`，里程碑与验收标准见 `docs/MILESTONES.md`，**当前进度、下一步计划和交接说明见 `project.md`（新 session 先读它）**。先自用，但按可开源分发的形态设计。
 
-**2026-09-28 方向调整（v0.2）**：todo 暂时从刘海 UI 拿掉（底层和 CLI 不动，以后作为独立 tab 回来）；刘海只显示 agent 会话，一行一个会话，五种状态 Needs you 🟠 / Failed 🔴 / Running 🟢（呼吸）/ Done 🔵 / Idle ⚪。会话从 M7 起进 SQLite（`sessions` 表，状态机已实现，#15）。完整设计见 `docs/PRD.md` 的"v0.2 方向调整"和"Agent 面板"。
+**2026-09-28 方向调整（v0.2）**：todo 暂时从刘海 UI 拿掉（底层和 CLI 不动；2026-10-15 作为 Todo tab 回来，见下）；刘海只显示 agent 会话，一行一个会话，五种状态 Needs you 🟠 / Failed 🔴 / Running 🟢（呼吸）/ Done 🔵 / Idle ⚪。会话从 M7 起进 SQLite（`sessions` 表，状态机已实现，#15）。完整设计见 `docs/PRD.md` 的"v0.2 方向调整"和"Agent 面板"。
 
 **2026-10-12（#35）**：加提示音。进入 Needs you / Failed / Done（就是刘海脉冲的那些变化）各播一段合成的小怪物声音，默认全开，右键刘海 → Sounds 可关；逻辑在 `PerchAppCore/Chime.swift`。仍不发系统通知。
 
 **2026-10-14（#37）**：多屏时选面板放在哪块屏。右键刘海 → Display：Automatic（默认，有刘海的内建屏，没有就主显示器）/ Main Display（带菜单栏的那块）/ 某块具体的屏（按显示器 UUID 记在 defaults 的 `Display` / `DisplayName`，没连上时退回 Automatic）。没刘海的屏上是菜单栏里的胶囊；逻辑在 `PerchAppCore/Display.swift`。
 
 **2026-10-14（#39）**：收起态右翼平时空着；进入 Needs you / Failed / Done（脉冲那一刻）时伸出来几秒，显示项目名 + 一行（命令 / 错误 / 回复首行），太长滚一遍就停，不做常驻滚动（`PerchAppCore/Banner.swift`）。进入反应多一段（"!"、摔倒冒烟、彩纸），Idle / 没会话时每 4 分钟左右一个小彩蛋（哈欠、张望、鼻涕泡），都在 `Mascot.swift`。
+
+**2026-10-15（#41 / #42 / #43，M12）**：todo 作为展开态的 **Todo tab** 回来，只放人手写的待办，任何地方都没有日期和时间。展开时刘海左边的条带是 Agents（小怪物，Needs you 橙点 / Failed 红点）和 Todo（清单，灰色未完成数）两个图标；有 Needs you / Failed 会话时总是打开在 Agents，否则打开在上次手动选的 tab（只在内存里），打开着从不自己换 tab。Todo tab 按 High / Normal / Low 分组（优先级不用颜色），组内最老的在前；点圆圈 3 秒后 `done`（Undo 可撤，计时在 `QueueModel`，收起后照样完成）；双击标题 / 右键 Edit… 编辑，右键 Priority ▸ / Delete（立刻 `rm`）。**刘海面板永远不拿键盘焦点**：打字只在单独的弹窗里（不激活 App 却能成为 key 的 `NSPanel`，`PerchApp/TodoPopup.swift`），⌥⇧Space 在刘海下面打开（刘海保持收起），"+ Add a todo" 在面板下面打开（面板保持展开）；输入什么存什么，不解析。收起态（小怪物、运行数、横幅、声音）只管 agent，todo 永远不影响它。逻辑在 `PerchAppCore` 的 `PanelTab` / `TodoList` / `TodoEditor` 和 `QueueModel`。设计见 `docs/PRD.md` 的"Todo tab"。
 
 **2026-10-12（v0.5，#31 / M11）**：接入 Grok Build（xAI 的 `grok` CLI），v0.5 接更多 agent（#24）的第一个。刘海永远不能批准 Grok，只提示"Answer in the terminal"。
 
@@ -20,7 +22,7 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd（daemon）、PerchApp（刘海 App）
 Sources/PerchCore/       模型、wire protocol、路径、纯解析/渲染。所有客户端共享，不含任何 I/O
 Sources/PerchClient/     Unix socket 客户端（CLI 和刘海 App 共用）；sysctl 读进程（hook 找 agent、perchd 存活检测）
-Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd、自检和设置行（`Setup` / `AppSetup` / `SetupModel`）、开机启动（`LoginItem`）
+Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd、自检和设置行（`Setup` / `AppSetup` / `SetupModel`）、开机启动（`LoginItem`）、tab 和 Todo tab（`PanelTab` / `TodoList` / `TodoEditor`）
 Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像
 Sources/PerchSetup/      安装 Perch（库，有 I/O）：agent hook 文件读写、perchd 的 launchd agent、agents.json、固定安装位置、状态评估（纯函数 `Setup.evaluate`）、卸载；CLI / perchd / 刘海 App 共用
 Tests/PerchSetupTests/   状态评估的纯函数测试；`perch setup` / `uninstall` 的端到端测试在 PerchDaemonTests/SetupCLITests（临时 HOME + 假 launchctl）
@@ -72,8 +74,9 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 ## 数据模型
 
 一张 `items` 表，字段与 `Item`（`Sources/PerchCore/Models.swift`）一一对应，JSON 用 snake_case，日期 ISO-8601：
-`id`（4 位可手打，如 `t7k2`）、`title`、`kind`（task / notice / request）、`status`（open / waiting / done / dismissed）、`source`（自由字符串）、`due_at`、`link`、`meta`、`key`、request 专用的 `options` / `response` / `expires_at`、`created_at` / `updated_at`。
+`id`（4 位可手打，如 `t7k2`）、`title`、`kind`（task / notice / request）、`status`（open / waiting / done / dismissed）、`priority`（high / normal / low，默认 normal；schema v4，#42）、`source`（自由字符串）、`due_at`（刘海不再用，只为兼容留着）、`link`、`meta`、`key`、request 专用的 `options` / `response` / `expires_at`、`created_at` / `updated_at`。
 `kind` 区分 task 和 notice 是刻意的："agent 完成了"不是待办，混在一起会稀释橙色信号。
+优先级（#42）：`perch add|update --priority high|normal|low`（`-p`），值不对是用法错误（exit 64）；JSON 里缺省就是 normal（HTTP 客户端照旧）；`update` 的 patch 可以改它，同 `key` 重新 add 也会改。`queueOrdered`（`perch ls`、`todo.md`）把 open 的 task 按 High / Normal / Low 排在一起，各组内还是原来的队列顺序；`ls` 和 `todo.md` 标出 High / Low。inbox 没有优先级语法。schema v4 是 `ALTER TABLE items ADD COLUMN priority … DEFAULT 'normal'`，老数据都是 Normal。
 
 M7 起有 `sessions` 表（schema v2，字段与 `Session`（`Sources/PerchCore/Sessions.swift`）一一对应）：会话状态只放这里，重启后原样恢复。hook 适配器发 `session_report`（`SessionReport`：prompt / waiting / resume / stop / failure / interrupt / end，与 agent 无关），状态机在 perchd 的 `SessionRegistry`：比该会话最后一次事件旧的报告丢弃（平局照收），被移除的会话 10 分钟内记着移除时间，旧事件不会让它复活；Done 10 分钟后变 Idle（`session_seen` 立刻变）；resume / stop / failure / interrupt / end 顺带把 `meta.session_id` 指向该会话的 request 关掉（不带回应）。白名单内的 PermissionRequest 仍发 request（经 `meta.session_id` 挂到会话）。报告可以带 `turn_id`（Grok 的 `promptId`）：prompt 把它记成会话的当前轮，别的轮的 stop / failure / interrupt 直接丢掉（Grok 的取消报告可能晚于下一轮的 prompt 才到）；当前轮只存在 `SessionRegistry` 内存里，perchd 重启后退回按时间判断，不动 schema。`settle`（Grok 的 `idle_prompt`）只把 Running / Needs you 改成 Idle，Done / Failed 不动，也不新建会话。M8（#19）起 Claude Code / Codex 的 hook 不再发 waiting / notice item，request 是它们唯一会建的 item。清理：pid 存活检测（30 秒，比对进程启动时间防复用）为主，拿不到 pid 的 24 小时无事件兜底，`perch session rm` 手动移除（#16）。`perch hook` 沿父进程链找 argv[0] 叫 `claude` / `codex` 的最近祖先（`AgentProcess`，纯函数；进程表由 `PerchClient/SystemProcesses.swift` 用 sysctl 读），每条 `session_report` 带上它的 pid 和启动时间。**按 argv[0] 认，不按内核进程名**：`~/.local/bin/claude` 是指向 `versions/2.1.x` 的符号链接，内核记的名字是 `2.1.x`。
 
@@ -155,7 +158,7 @@ PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permissi
 
 ## 范围守卫（不要做）
 
-dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里回答 agent 提问）、MCP server、markdown 双向同步、音乐控制、系统 HUD、文件中转、项目 / 标签 / 子任务 / 重复任务、云同步、iPhone、日历、多用户。
+dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里回答 agent 提问）、MCP server、markdown 双向同步、音乐控制、系统 HUD、文件中转、项目 / 标签 / 子任务 / 重复任务、云同步、iPhone、日历、多用户。Todo tab（#41）另外不做：到期时间 / 提醒 / 推迟、notice 转 task、agent 给人留 todo、在刘海面板里打字或任何输入语法、删除确认 / 撤销。
 遇到"顺手加一个"的冲动，先看 `docs/PRD.md` 的"不做，及原因"。
 
 ## 代码与提交约定
@@ -171,7 +174,7 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 ## 未决问题（定了就更新这里）
 
 - ~~`link` 跳回终端的机制~~ 已定（M3）：`perch-terminal://<app>?id=&cwd=&bundle=`。Ghostty（≥ 1.3，AppleScript）在 UserPromptSubmit 时记下聚焦的 terminal id，跳转时 `focus` 那个 terminal，找不到按目录找，再不行激活 App；其他终端只激活 App（按 `__CFBundleIdentifier`）。
-- ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。M8 起快速录入随 todo UI 下线（#19 已删），⌥⇧A / D 回答面板上第一个 request、⌥⇧O 跳到等得最久的 Needs you 会话。
+- ~~全局快捷键默认值~~ 已定（M2）：快速录入 ⌥⇧Space（`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改）；⌥⇧A / ⌥⇧D 批准 / 拒绝队首请求、⌥⇧O 跳转，M4 实现。M8 起快速录入随 todo UI 下线（#19 已删），⌥⇧A / D 回答面板上第一个 request、⌥⇧O 跳到等得最久的 Needs you 会话。2026-10-15（#43）起 ⌥⇧Space 打开 todo 弹窗，同一个 `QuickEntryHotKey` 可改（重启生效）。
 - ~~Claude 桌面 App 里的会话能否沿父进程链找到 agent 的 pid~~ 已定（M7 实测）：能。桌面 App 每个会话一个 `claude` 进程（`Claude` → `disclaimer` → `claude`），会话进程退出就移除。Codex 桌面 App（ChatGPT.app）所有会话共用一个 `codex app-server` 进程，只有退出 App 才会按 pid 清掉。
 - ~~全屏 App 下刘海面板是否可见~~ 已定（M8 实测）：可见。`NotchPanel` 是 `.fullScreenAuxiliary` + `.canJoinAllSpaces`、层级在菜单栏之上，全屏 Ghostty 里能悬停展开、能看到脉冲。
 - ~~`SMAppService` 在 ad-hoc 签名、未公证的 App 上能不能用~~ 已定（2026-10-12 实测，#28）：能。ad-hoc 签名、没有 TeamIdentifier 的测试 bundle 调 `SMAppService.mainApp.register()` 后状态 notFound → enabled，`unregister()` 后回到 notRegistered，所以不需要给 App 另装 launchd agent 兜底。注销 / 重新登录后真的启动、出现在 系统设置 → 通用 → 登录项、菜单里取消后消失：2026-10-12 维护者在第二台 Mac 上验收通过。
