@@ -47,6 +47,14 @@ struct Perch: ParsableCommand {
     }
 }
 
+/// `--priority`: a wrong value is a usage error (exit 64).
+func parsePriority(_ raw: String) throws -> ItemPriority {
+    guard let priority = ItemPriority(rawValue: raw.lowercased()) else {
+        throw CLIError("--priority must be high, normal or low, got '\(raw)'", code: 64)
+    }
+    return priority
+}
+
 /// A failure with one human-readable line. Exit code 1 unless stated.
 struct CLIError: Error {
     let message: String
@@ -73,6 +81,7 @@ struct Add: ParsableCommand {
     @Argument(help: "Title.") var title: String
     @Option(help: "task | notice | request") var kind: String = "task"
     @Option(help: "open | waiting | done | dismissed (default: waiting for requests, open otherwise)") var status: String?
+    @Option(name: [.short, .long], help: "high | normal | low") var priority: String = "normal"
     @Option(help: "Who is adding: human, claude-code, codex, hermes, …") var source: String = "human"
     @Option(help: "Due time: @15:00 (next time the clock shows it), +30m / +2h / +1d, or ISO-8601.") var due: String?
     @Option(help: "URL, file path or terminal session ref to jump back to.") var link: String?
@@ -85,6 +94,7 @@ struct Add: ParsableCommand {
 
     func run() throws {
         guard let kind = ItemKind(rawValue: kind) else { throw CLIError("--kind must be task, notice or request") }
+        let priority = try parsePriority(priority)
         let status = try status.map { raw -> ItemStatus in
             guard let s = ItemStatus(rawValue: raw) else { throw CLIError("--status must be open, waiting, done or dismissed") }
             return s
@@ -103,6 +113,7 @@ struct Add: ParsableCommand {
             title: title,
             kind: kind,
             status: status,
+            priority: priority,
             source: source,
             dueAt: try due.map { try parseDue($0, now: now) },
             link: link,
@@ -201,7 +212,7 @@ struct Done: ParsableCommand {
 
 struct Update: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Change an item's title, kind or due time.",
+        abstract: "Change an item's title, kind, priority or due time.",
         discussion: """
         Snooze: perch update <id> --due +30m. Keep a notice as a task: perch update <id> --kind task
         (it stops expiring). Requests keep their kind.
@@ -210,13 +221,14 @@ struct Update: ParsableCommand {
     @Argument var id: String
     @Option(help: "New title.") var title: String?
     @Option(help: "task | notice") var kind: String?
+    @Option(name: [.short, .long], help: "high | normal | low") var priority: String?
     @Option(help: "Due time: @15:00, +30m / +2h / +1d, or ISO-8601.") var due: String?
     @Flag(help: "Remove the due time.") var noDue = false
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
-        if title == nil && kind == nil && due == nil && !noDue {
-            throw CLIError("give at least one of --title, --kind, --due, --no-due", code: 64)
+        if title == nil && kind == nil && priority == nil && due == nil && !noDue {
+            throw CLIError("give at least one of --title, --kind, --priority, --due, --no-due", code: 64)
         }
         if due != nil && noDue { throw CLIError("--due and --no-due cannot be combined", code: 64) }
         let newKind = try kind.map { raw -> ItemKind in
@@ -226,6 +238,7 @@ struct Update: ParsableCommand {
         let patch = Request.Patch(
             title: title,
             kind: newKind,
+            priority: try priority.map(parsePriority),
             dueAt: try due.map { raw in
                 do { return try DueParser.parse(raw, now: Date()) } catch { throw CLIError(String(describing: error)) }
             },

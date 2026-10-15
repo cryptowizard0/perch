@@ -5,6 +5,7 @@ import PerchCore
 enum Format {
     static func row(_ item: Item, sourceWidth: Int, now: Date = Date()) -> String {
         var line = "\(item.id)  \(pad(state(item), 9))  \(pad(item.source, sourceWidth))  \(oneLine(item.title))"
+        if let marker = item.priority.marker { line += "  · \(marker)" }
         if let due = item.dueAt {
             let overdue = due < now && (item.status == .open || item.status == .waiting)
             line += "  · \(overdue ? "overdue" : "due") \(shortDate(due, now: now))"
@@ -16,6 +17,7 @@ enum Format {
     static func details(_ item: Item) -> String {
         var fields: [(String, String?)] = [
             ("id", item.id), ("title", item.title), ("kind", item.kind.rawValue), ("status", item.status.rawValue),
+            ("priority", item.priority.rawValue),
             ("source", item.source), ("due", item.dueAt.map(longDate)), ("link", item.link), ("key", item.key),
             ("options", item.options?.joined(separator: ", ")), ("response", item.response),
             ("expires", item.expiresAt.map(longDate)),
