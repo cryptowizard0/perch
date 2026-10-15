@@ -72,6 +72,8 @@ final class NotchWindowController {
         host.onHover = { [weak notch] inside in notch?.hover(inside) }
         panel.contentView = host
         queue.expanded = notch.expanded
+        // Dev aid next to PERCH_PIN_EXPANDED: `PERCH_PIN_TAB=todo` starts on that tab (screenshots without a mouse).
+        if let tab = ProcessInfo.processInfo.environment["PERCH_PIN_TAB"].flatMap(PanelTab.init(rawValue:)) { queue.pick(tab) }
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
