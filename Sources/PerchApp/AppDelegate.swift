@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let queue = QueueModel()
     private let setup = SetupModel()
     private var notchWindow: NotchWindowController?
+    private var todoPopup: TodoPopupController?
+    /// ⌥⇧Space (or `QuickEntryHotKey`): the todo popup, from anywhere.
+    private var popupHotKey: GlobalHotKey?
     /// ⌥⇧A / ⌥⇧D exist only while the panel shows a request, ⌥⇧O while a session needs you,
     /// so the rest of the time those keys type Å / Î / Ø as usual.
     private var approveHotKey: GlobalHotKey?
@@ -38,6 +41,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ))
         controller.show()
         notchWindow = controller
+        let popup = TodoPopupController(queue: queue, notchWindow: controller)
+        todoPopup = popup
+        let (hotKey, problem) = HotKey.quickEntry(UserDefaults.standard.string(forKey: HotKey.quickEntryDefaultsKey))
+        if let problem { NSLog("Perch: \(problem)") }
+        popupHotKey = GlobalHotKey(hotKey) { [weak popup] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { popup?.toggle() } }
+        }
+        if popupHotKey == nil { NSLog("Perch: could not register the todo shortcut \(hotKey); is it taken?") }
         // The self-check (binaries, perchd, hook repairs) and, on a first run, the setup card.
         queue.onSession = { [weak self] event in self?.setup.observe(event) }
         setup.onCardAppeared = { [weak notch] in notch?.open() }

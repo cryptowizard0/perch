@@ -1,12 +1,12 @@
 # Perch · PRD v0.2
 
-2026-09-24 · Webber（v0.1）· 2026-09-28 方向调整为 agent 面板（v0.2）
+2026-09-24 · Webber（v0.1）· 2026-09-28 方向调整为 agent 面板（v0.2）· 2026-10-15 todo 作为 Todo tab 回来（#41）
 
 ## v0.2 方向调整（2026-09-28）
 
 v0.1 的定位是"agent 等待队列 + 我的待办"。M1–M6 做完后调整为：**刘海是 agent 的灵动岛面板**，只显示 agent 会话的状态。
 
-- **todo 暂时搁置**：刘海 UI 里拿掉 task、快速录入、到期提醒；daemon、SQLite、`perch add/ls/done`、`todo.md` / `inbox.md` 全部保留不动（CLI 契约不变）。以后作为展开态里一个**独立的 tab** 回来，不和 agent 面板混在一起。
+- **todo 暂时搁置**：刘海 UI 里拿掉 task、快速录入、到期提醒；daemon、SQLite、`perch add/ls/done`、`todo.md` / `inbox.md` 全部保留不动（CLI 契约不变）。以后作为展开态里一个**独立的 tab** 回来，不和 agent 面板混在一起。2026-10-15 回来了：展开态的 Todo tab（#41），只放人手写的待办、按优先级分组、不带任何时间，见下方"Todo tab"。
 - **一行 = 一个 agent 会话**（按 `session_id`），从第一次发 prompt 到 SessionEnd，状态在五种之间流转（见下方"Agent 面板"）。
 - **先接 Claude Code 和 Codex**（2026-10-12 起加 Grok Build，#31：刘海不能批准 Grok，只提示去终端回答）；Hermes 的会话生命周期不同（每轮都发 `on_session_end`、gateway 会话没有"关闭"、进程常驻），暂不显示，单独一个里程碑迁移。
 - 本文下方凡是和"Agent 面板"一节冲突的 v0.1 描述（收起态数字 = 待办数、notice、快速录入等），以"Agent 面板"为准。
@@ -27,7 +27,7 @@ iPhone 灵动岛的三个原语直接映射到 agent：
 
 四条设计原则：
 
-1. **Agent-first**：刘海上只有 agent；人手写的待办以后放在独立 tab，不影响收起态的颜色和数字。
+1. **Agent-first**：收起态只有 agent；人手写的待办放在展开态独立的 Todo tab（#41），不影响收起态的小怪物、数字、横幅和声音。
 2. **Local-first**：单机、单用户、无云端，daemon 和数据都在本地。
 3. **CLI 是唯一契约**：任何能跑 shell 的 agent 零学习成本接入，存储是实现细节。
 4. **第一版砍掉一切非核心**：先自用跑通，但 CLI 契约、数据模型、hook 适配器按可开源分发的形态设计。
@@ -76,7 +76,12 @@ v0.1 只做一个闭环：agent 在等你 → 刘海亮 → 就地处理或跳�
 | MCP server | 三个目标 agent 都能跑 shell 或 HTTP，暂时没有需要 MCP 的场景 |
 | markdown 双向同步 | daemon 持有 SQLite 时，手改文件再同步是冲突和重复 id 的集中产地；改为只读镜像 + 追加式收件箱 |
 | 音乐控制、系统 HUD、文件中转 | 现有 13 家都在做，不是本产品的差异化 |
-| 项目、标签、子任务、重复任务 | todo 只是底座，不追求完整的任务管理 |
+| 项目、标签、子任务、重复任务、拖动排序、"今天完成的" | todo 只是底座，不追求完整的任务管理 |
+| 日历、到期时间、到期提醒、推迟、Apple Reminders 同步（Todo tab，#41） | 别的刘海应用都在做；刘海里一出现时间就会和"agent 在等你"抢信号。`due_at` / `--due` 只为兼容留在 CLI 和库里，刘海不显示、不排序、不提醒 |
+| notice 转 task（Todo tab） | notice 是 agent 的告知，不是人的待办；Todo tab 只放人手写的 task |
+| agent 给人留 todo（agent 图标、跳回链接、给 agent 的说明） | Todo tab 只给人自己写的待办；`perch add` 不变，只是不推荐给 agent |
+| 在刘海面板里直接打字、任何输入语法（优先级标记、`@15:00`） | 刘海面板永远不拿键盘焦点；打字只在单独的弹窗里，输入什么存什么 |
+| 删除确认、删除撤销 | 删除很少误点，确认框比偶尔重写一条更烦 |
 | 云同步、iPhone、日历、多用户 | local-first，单机单用户 |
 | Windows / Linux | 刘海是 Mac 硬件特性 |
 
@@ -93,7 +98,8 @@ v0.1 只做一个闭环：agent 在等你 → 刘海亮 → 就地处理或跳�
 | kind | enum | `task` 需要我行动 / `notice` 仅告知、到时自动消失 / `request` agent 在等一个决定 |
 | status | enum | `open` / `waiting`（agent 在等我）/ `done` / `dismissed` |
 | source | string | `human` / `claude-code` / `codex` / `hermes`；自由字符串，新 agent 不用改代码 |
-| due_at | datetime? | 到期时间，触发提醒 |
+| priority | enum | `high` / `normal` / `low`，默认 normal（2026-10-15，#41，schema v4）；Todo tab 按它分组，`perch ls` / `todo.md` 按它排序 |
+| due_at | datetime? | 到期时间。v0.2 起刘海不再用它（不显示、不提醒），只为兼容留在 CLI 和库里 |
 | link | string? | URL、文件路径或终端 session 引用，点一下跳回去 |
 | meta | json? | agent 自由塞 cwd、session_id、工具名等 |
 | created_at / updated_at | datetime | — |
@@ -233,7 +239,7 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 
 ### 展开态（悬停触发）
 
-按状态分组，组标题带数量（`Needs you 1` / `Failed 1` / `Running 3` / `Done 2` / `Idle 1`），空组不显示。组内排序：Needs you 等得最久的在前；Running 按本轮开始时间；Done / Idle 最近的在前。展开态的结构要能在以后加 tab（todo 回来时用），这一版不画 tab 栏。
+按状态分组，组标题带数量（`Needs you 1` / `Failed 1` / `Running 3` / `Done 2` / `Idle 1`），空组不显示。组内排序：Needs you 等得最久的在前；Running 按本轮开始时间；Done / Idle 最近的在前。展开态上方、刘海左边的条带是 tab 栏：Agents 和 Todo 两个图标（#41，见"Todo tab"）。
 
 每行两行字：
 
@@ -266,13 +272,54 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 | 右键某一行 | "Remove from Panel"：手动移除（进程检测失效时的逃生口） |
 | 右键刘海 | Sounds（提示音总开关和每种状态的开关，#35）、Display（面板放在哪块屏，#37）、Quit Perch |
 
-todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task、⌥⇧Space 快速录入、到期提醒）随 todo 一起从 UI 下线。
+v0.2 时 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task、⌥⇧Space 快速录入、到期提醒）随 todo 一起从 UI 下线；2026-10-15 todo 作为 Todo tab 回来，交互见"Todo tab"（推迟、notice 转 task、到期提醒不回来）。
 
 ### 提醒
 
 刘海脉冲（见状态表），加提示音（2026-10-12 起，#35）：进入 Needs you / Failed / Done 时各播一段小怪物的声音，和它的反应动作同步——Needs you 是两声往上扬的"Mrrp? Mrrp?"（在叫你），Failed 是"Uh-oh… bzzt"（往下掉的哀叹加天线短路），Done 是"Bwip! hehe"（跳一下、咯咯笑、一点闪光）。默认全开，右键刘海 → Sounds 可以整体关掉或按状态关。1 秒内只放更紧急的一个，同一会话同一种声音 10 秒内只响一次；连接时已有的状态不响。不发系统通知。全屏 App 下刘海照样可见、能展开、能看到脉冲（M8 实测）。
 
 **实时性指标**：CLI / hook 调用到刘海更新 ≤ 200 ms，靠 daemon 推事件，不轮询。
+
+## Todo tab（2026-10-15，#41 / #42 / #43）
+
+展开态的第二个 tab：人自己写的待办，按优先级分组，任何地方都没有日期和时间。样子跟着 Sapphire 的刘海：黑底面板、粗大标题加一行灰色摘要、导航图标在刘海旁边的条带里。
+
+**tab 栏**：展开时，刘海左边的条带换成两个图标：Agents（小怪物）和 Todo（清单）。当前 tab 白色，另一个灰色，点一下切换。无刘海屏的菜单栏胶囊展开时也有同一条。
+- Agents 图标：有会话 Needs you 时带橙点，否则有会话 Failed 时带红点。
+- Todo 图标：灰色的未完成数，0 时不显示。
+
+**先看 agent**：有任何 Needs you 或 Failed 会话时，面板总是打开在 Agents；否则打开在上次手动选的 tab（只在内存里，重启后从 Agents 开始）。打开着的面板从不自己换 tab，圆点就是信号。面板高度跟着当前 tab，切换时 0.15 秒的高度动画（"减少动态效果"下没有动画），宽度不变。
+
+**收起态不变**：小怪物、运行数、事件横幅、提示音都只管 agent。添加、完成、改优先级、删除待办都不会改变收起态。
+
+**Todo tab 的内容**
+- 粗大的 "Todo" 标题，下面一行灰色摘要："6 open · 2 high"；没有 High 时 "6 open"；全做完 "All clear"；从来没有过待办 "Nothing to do yet."。
+- 只显示 open 的 task（notice、request、做完的都不显示），按 High / Normal / Low 分组。组标题带数量、和 Agents 的组标题同一个样式、空组不显示；High 的组标题白色，其余灰色。**优先级不用颜色**：橙、红、绿、蓝只属于 agent 状态。
+- 组内最老的在前；改了优先级的待办按创建时间排进新组。
+- 每行一行：圆圈 + 标题，太长尾部截断，悬停显示完整标题。没有时间、来源、链接。
+- 列表超过面板最大高度时滚动；底部固定一行 "+ Add a todo"。
+
+**交互**
+
+| 操作 | 效果 |
+| --- | --- |
+| 点圆圈 | 打勾、标题划掉、出现 Undo；3 秒后发 `done`，行消失。3 秒内点 Undo 或再点圆圈就取消。计时在刘海的数据模型里，不在视图里，所以刘海收起后照样完成；3 秒内退出 Perch，待办保持未完成 |
+| 单击标题 | 什么都不做（防误点） |
+| 双击标题、右键 → Edit… | 打开弹窗（编辑），预填标题和优先级 |
+| 右键 → Priority ▸ | High / Normal / Low，当前的打勾；改完移到新组 |
+| 右键 → Delete | 立刻 `rm`，不确认、不能撤销 |
+| "+ Add a todo" | 打开弹窗（添加），面板保持展开，弹窗在面板正下方 |
+| ⌥⇧Space（任何地方） | 打开弹窗（添加），在刘海正下方，刘海保持收起；再按一次关掉。`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改，重启生效 |
+
+**弹窗**：刘海面板永远不拿键盘焦点，所有打字都在这个单独的小弹窗里。它是不激活 App 却能成为 key window 的面板（M2 快速录入同一个技巧），所以终端一直是前台 App；深色外观。
+- 一个标题输入框，下面一排 High / Normal / Low 按钮，默认 Normal。Tab 选下一个优先级，Shift-Tab 上一个，按钮也能点（输入法正在组字时 Tab 留给输入法）。
+- **不解析**：去掉首尾空白后原样存成标题，没有优先级标记、没有 `@15:00`。空白输入按 Return 什么都不做。
+- 添加：Return 发 `add`（source `human`、选中的优先级），弹窗不关、清空、回到 Normal，可以连续加。面板展开时新加的那一行高亮 1 秒。
+- 编辑：Return 发 `update`（标题和优先级）并关闭；Esc 什么都不改。
+- Esc 或点别处关闭。从面板打开时，面板在弹窗关闭前一直展开，关掉后恢复正常的悬停收起。
+- 弹窗的状态（添加 / 编辑、标题、选中的优先级、能不能提交）在刘海的数据模型里（`TodoEditor`），弹窗只负责画和转发按键。
+
+**CLI 和文件**：`perch add|update --priority high|normal|low`（`-p`），不给就是 Normal，值不对是用法错误（exit 64）。`perch ls` 和 `todo.md` 的 "To do" 按优先级排（High、Normal、Low，然后是原来的队列顺序），标出 High 和 Low。`inbox.md` 没有优先级语法，进来的都是 Normal。HTTP 客户端不带 `priority` 照常工作。
 
 ## 技术路线
 
@@ -304,7 +351,7 @@ v0.1 六个里程碑 + v0.2 三个，每一步都能独立验证再往下走；�
 
 - [x] `link` 跳回终端的机制：日常用 Ghostty。Ghostty ≥ 1.3 可 AppleScript：提交 prompt 时记下聚焦的 terminal id，跳转时 focus 它；其他终端只激活 App。
 - [x] 产品名 Perch（栖），CLI `perch`：agent 停在刘海上等你。
-- [x] 全局快捷键默认值：快速录入 ⌥⇧Space。
+- [x] 全局快捷键默认值：快速录入 ⌥⇧Space（2026-10-15 起打开 todo 弹窗，#43）。
 - [x] hook 等刘海的超时：先用 20 秒（可改），用一周后再看。
 
 产品化余地：这个品类里 13 家全在做音乐控制，"agent 的灵动岛"的位置是空的。护城河不在 UI，在 hook 适配器目录和安全白名单——每多支持一个 agent 就是一个适配器，开源 CLI 加适配器目录天然是面向 Claude Code / Codex 用户的分发方式。自用跑通前不展开。

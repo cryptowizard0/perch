@@ -10,6 +10,7 @@ The loop it is built for: **an agent is waiting for you → the notch lights up 
 - **A pixel cyclops lives in the notch** and acts out the most urgent state: it trots while an agent runs, waves at you when one needs you, and hops when one starts needing you, fails or finishes.
 - **Allow / Deny in the notch** for commands on your allowlist (`npm test`, `git status`, …). Everything else shows the full command and *Answer in the terminal*.
 - **Click a row** to go back to its terminal (the exact Ghostty tab) or its desktop app.
+- **A Todo tab** for your own todos, grouped High / Normal / Low. Add one from anywhere with ⌥⇧Space without leaving your terminal.
 - Works with **Claude Code** and **Codex** (in the terminal or their desktop apps) and **Grok** (the `grok` CLI), through their hooks. No changes to how you run them.
 
 macOS 14+. Prebuilt for Apple silicon; builds from source on any Mac, Intel included. On displays without a notch it sits in a small capsule at the top of the screen.
@@ -186,6 +187,28 @@ perch allowlist check Bash "npm test"  # would this be?
 perch allowlist init                   # write ~/.perch/allowlist.json to edit
 ```
 
+### Todo
+
+The expanded notch has two tabs, picked from the icons left of the notch: **Agents** (the mascot; an orange dot while a session needs you, red while one failed) and **Todo** (a checklist with your open count). The panel opens on Agents whenever a session needs you or failed; otherwise on the tab you last picked. Todos never change the folded notch.
+
+The Todo tab is a plain list of the todos you write yourself, grouped High / Normal / Low, oldest first. There are no dates or times.
+
+| | |
+| --- | --- |
+| ⌥⇧Space, anywhere | Add a todo in a small popup under the notch; your terminal stays in front |
+| *+ Add a todo* | The same popup, under the panel |
+| In the popup | Type the title (stored exactly as typed). Tab / Shift-Tab picks High / Normal / Low. Return adds and stays open for the next one. Esc closes. |
+| Click a todo's circle | Done after 3 seconds; *Undo* takes it back |
+| Double-click a title, or right-click → *Edit…* | Edit its title and priority |
+| Right-click → *Priority* / *Delete* | Re-rank it, or delete it at once |
+
+```bash
+perch add "Renew the domain" -p high   # high | normal | low (default normal)
+perch update <id> --priority low
+perch ls                               # open todos by priority, High and Low marked
+defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"   # another shortcut (relaunch Perch)
+```
+
 ## Safety
 
 - **Perch never allows anything by default.** If you don't answer in the notch within 20 seconds, the agent's own prompt appears in the terminal as usual.
@@ -217,7 +240,7 @@ Claude Code / Codex / Grok ──hook──▶ perch hook ──▶ perchd ─�
 - `perchd` is the daemon and the only thing that touches the database. It runs the session state machine and pushes changes to the app, never polled: CLI to notch averages about 15 ms (budget 200 ms).
 - `Perch.app` is the notch panel (AppKit + SwiftUI).
 
-`perch watch --json` streams the same events, one JSON object per line. Every command takes `--json`; `perch --help` lists them all (the todo commands `add` / `ls` / `done` are still there, though the notch shows only agent sessions for now).
+`perch watch --json` streams the same events, one JSON object per line. Every command takes `--json`; `perch --help` lists them all, including the todo commands (`add` / `ls` / `done` / `update` / `rm`) behind the Todo tab.
 
 ## Develop
 

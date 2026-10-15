@@ -99,11 +99,13 @@ struct TodoTab: View {
                         ForEach(todos.groups) { group in
                             TodoGroupHeader(group: group)
                             ForEach(group.items) { item in
-                                TodoRowView(item: item, completing: queue.completing.contains(item.id), queue: queue)
+                                TodoRowView(item: item, completing: queue.completing.contains(item.id),
+                                            highlighted: queue.highlighted.contains(item.id), queue: queue)
                             }
                         }
                     }
                 }
+                AddTodoRow { queue.openAdd(fromPanel: true) }
             }
         }
     }
@@ -125,11 +127,33 @@ struct TodoGroupHeader: View {
     }
 }
 
+/// "+ Add a todo", fixed under the list: opens the popup just below the panel.
+struct AddTodoRow: View {
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus").font(.system(size: 12, weight: .semibold)).frame(width: 15)
+                Text("Add a todo").font(.system(size: 13))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.white.opacity(0.5))
+            .frame(height: PanelLayout.addRowHeight)
+            .padding(.leading, 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// One todo: the circle and the title (tail-truncated, the full title in a tooltip). Clicking the circle crosses it
-/// out with an Undo for a few seconds; clicking the title does nothing. Right-click: Priority.
+/// out with an Undo for a few seconds; a single click on the title does nothing, a double-click edits it.
+/// Right-click: Edit… · Priority ▸ · Delete. A todo just added while the panel is open is lit for a second.
 struct TodoRowView: View {
     var item: Item
     var completing: Bool
+    var highlighted = false
     var queue: QueueModel
 
     var body: some View {
@@ -150,6 +174,7 @@ struct TodoRowView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help(title)
+                .onTapGesture(count: 2) { queue.openEdit(item) }
             Spacer(minLength: 4)
             if completing {
                 Button("Undo") { queue.undoCompletion(item.id) }
@@ -160,8 +185,13 @@ struct TodoRowView: View {
         }
         .frame(height: PanelLayout.todoRowHeight)
         .padding(.leading, 1)
+        .background(
+            RoundedRectangle(cornerRadius: 6).fill(.white.opacity(highlighted ? 0.14 : 0)).padding(.horizontal, -4)
+                .animation(.easeOut(duration: 0.4), value: highlighted)
+        )
         .contentShape(Rectangle())
         .contextMenu {
+            Button("Edit…") { queue.openEdit(item) }
             Menu("Priority") {
                 ForEach(ItemPriority.allCases, id: \.self) { priority in
                     Toggle(priority.label, isOn: Binding(
@@ -170,6 +200,8 @@ struct TodoRowView: View {
                     ))
                 }
             }
+            Divider()
+            Button("Delete") { queue.delete(item) }
         }
     }
 }

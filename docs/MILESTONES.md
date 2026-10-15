@@ -102,3 +102,19 @@
 - [x] 刘海：Grok 的像素图标（斜线穿过的圆环）和名字
 - [x] 验收：真实 grok 会话（Ghostty）——发 prompt → Running；要权限的命令 → Needs you + "Answer in the terminal"，在终端批准后回 Running；跑完 → Done；Ctrl+C → Idle；关 tab → 消失；点行跳回那个 tab；`~/.perch/hook.log` 干净（2026-10-12，维护者本机，`APPDIR=/Applications scripts/install.sh` 装的这个分支）
 - [x] 验收：设置卡片 / "Grok found · Connect" 连上 Grok，断开后 `~/.grok/hooks/perch.json` 被删掉（2026-10-12，同上）
+
+## M12 — Todo tab（#41：#42 / #43）
+
+设计见 #41 和 `docs/PRD.md` 的"Todo tab"。
+
+- [x] 优先级：schema v4（老数据都是 Normal）、`perch add|update --priority` / `-p`（值不对 exit 64）、`ls` / `todo.md` 按优先级排并标出 High / Low、HTTP 不带 `priority` 照常（#42）
+- [x] 展开态 tab 栏：Agents（Needs you 橙点 / Failed 红点）和 Todo（灰色未完成数）；有 Needs you / Failed 时打开在 Agents，否则打开在上次选的 tab，重启后回到 Agents；打开着从不自己换 tab；高度跟着 tab、0.15 秒动画（#42）
+- [x] Todo tab：标题和摘要、High / Normal / Low 分组（组内最老的在前）、点圆圈 3 秒后完成（Undo 可撤，收起后照样完成）、右键 Priority ▸（#42）
+- [x] 收起态不受 todo 影响（#42）
+- [x] 弹窗：⌥⇧Space 在刘海下面打开、刘海保持收起；"+ Add a todo" 在面板下面打开、面板保持展开；Return 添加后保持打开、清空、回到 Normal；Tab / Shift-Tab 轮换优先级；输入什么存什么，空白不提交；Esc / 点别处关闭（#43）
+- [x] 编辑和删除：双击标题 / Edit… 打开预填的弹窗，Return 保存标题和优先级、Esc 不改；Delete 立刻 `rm`；面板打开时新加的那一行高亮 1 秒（#43）
+- [x] `QuickEntryHotKey` 可改快捷键（重启生效）（#43）
+- [x] PRD、CLAUDE.md、`project.md`、MILESTONES、README 描述上线的行为（#43）
+- [x] `swift build` / `swift test` 通过；数据模型的测试连真实的进程内 perchd
+- [ ] 人工验收：终端在前台时 ⌥⇧Space 打开弹窗、打字进弹窗、Esc 后键盘回到终端；悬停、点击、切 tab 动画、"减少动态效果"、有刘海的屏上的条带
+- [ ] 维护者真实用一天后验收

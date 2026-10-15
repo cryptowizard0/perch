@@ -16,6 +16,15 @@ final class NotchModel: ObservableObject {
     /// keeping the window wide enough for the black shape to grow and shrink inside it.
     @Published var leftWing: CGFloat = 26
     @Published var rightWing: CGFloat = 26
+    /// Kept expanded while the todo popup opened from the panel is up (#43); hover-collapse resumes when it closes.
+    var held = false {
+        didSet {
+            guard held != oldValue, !held, !pointerInside else { return }
+            hover(false)
+        }
+    }
+    /// Where the pointer was at the last hover change.
+    private var pointerInside = false
     private var pendingHover: DispatchWorkItem?
     /// Dev aid: `PERCH_PIN_EXPANDED=1` keeps the notch open (screenshots, layout work without a mouse).
     private let pinned = ProcessInfo.processInfo.environment["PERCH_PIN_EXPANDED"] == "1"
@@ -34,8 +43,9 @@ final class NotchModel: ObservableObject {
     /// and collapses a little later (so a wobble at the edge does not flicker).
     func hover(_ inside: Bool) {
         guard !pinned else { return }
+        pointerInside = inside
         pendingHover?.cancel()
-        guard inside != expanded else { return }
+        guard inside != expanded, inside || !held else { return }
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated { self?.expanded = inside }
         }
