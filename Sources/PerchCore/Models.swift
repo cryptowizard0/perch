@@ -18,12 +18,37 @@ public enum ItemStatus: String, Codable, CaseIterable, Sendable {
     case dismissed
 }
 
+/// How much a todo matters (#41). Shown by grouping, never by colour: orange and red belong to agents.
+public enum ItemPriority: String, Codable, CaseIterable, Sendable {
+    case high, normal, low
+
+    /// How `perch ls` and `todo.md` mark it; Normal goes unmarked.
+    public var marker: String? {
+        switch self {
+        case .high: return "high priority"
+        case .normal: return nil
+        case .low: return "low priority"
+        }
+    }
+
+    /// High first.
+    public var rank: Int {
+        switch self {
+        case .high: return 0
+        case .normal: return 1
+        case .low: return 2
+        }
+    }
+}
+
 /// One row in the store. Wire format is JSON with snake_case keys and ISO-8601 dates.
 public struct Item: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var title: String
     public var kind: ItemKind
     public var status: ItemStatus
+    /// Normal unless someone says otherwise; only open tasks are sorted by it.
+    public var priority: ItemPriority
     /// "human", "claude-code", "codex", "hermes", … — free string, new agents need no code change.
     public var source: String
     public var dueAt: Date?
@@ -45,6 +70,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         title: String,
         kind: ItemKind = .task,
         status: ItemStatus = .open,
+        priority: ItemPriority = .normal,
         source: String = "human",
         dueAt: Date? = nil,
         link: String? = nil,
@@ -60,6 +86,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         self.title = title
         self.kind = kind
         self.status = status
+        self.priority = priority
         self.source = source
         self.dueAt = dueAt
         self.link = link
@@ -73,7 +100,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, kind, status, source, link, meta, key, options, response
+        case id, title, kind, status, priority, source, link, meta, key, options, response
         case dueAt = "due_at"
         case expiresAt = "expires_at"
         case createdAt = "created_at"
@@ -89,6 +116,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         title = try c.decode(String.self, forKey: .title)
         kind = try c.decodeIfPresent(ItemKind.self, forKey: .kind) ?? .task
         status = try c.decodeIfPresent(ItemStatus.self, forKey: .status) ?? .open
+        priority = try c.decodeIfPresent(ItemPriority.self, forKey: .priority) ?? .normal
         source = try c.decodeIfPresent(String.self, forKey: .source) ?? "human"
         dueAt = try c.decodeIfPresent(Date.self, forKey: .dueAt)
         link = try c.decodeIfPresent(String.self, forKey: .link)
@@ -117,8 +145,9 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
 }
 
 extension Item {
-    /// Position in the queue; lower comes first. The notch and `perch ls` share this order:
+    /// Position in the queue; lower comes first. `perch ls` and `todo.md` share this order:
     /// request → waiting → overdue → due today → other open → notice → done → dismissed.
+    /// Open tasks (overdue, due today, other) are sorted by `priority` before this rank (see `queueOrdered`).
     public func queueRank(now: Date, calendar: Calendar = .current) -> Int {
         switch status {
         case .done: return 6
@@ -137,10 +166,17 @@ extension Item {
 }
 
 extension Array where Element == Item {
-    /// Sorted by `queueRank`; within a rank by due date, then oldest first. Closed items: most recently updated first.
+    /// Sorted by `queueRank`, except that open tasks go High, then Normal, then Low, each in rank order; within a
+    /// rank by due date, then oldest first. Closed items: most recently updated first.
     public func queueOrdered(now: Date = Date(), calendar: Calendar = .current) -> [Item] {
-        map { ($0, $0.queueRank(now: now, calendar: calendar)) }
+        /// Open tasks share one slot (ranks 2…4), split by priority.
+        func slot(_ item: Item, _ rank: Int) -> (Int, Int) {
+            (2...4).contains(rank) ? (2, item.priority.rank) : (rank, 0)
+        }
+        return map { ($0, $0.queueRank(now: now, calendar: calendar)) }
             .sorted { a, b in
+                let sa = slot(a.0, a.1), sb = slot(b.0, b.1)
+                if sa != sb { return sa < sb }
                 if a.1 != b.1 { return a.1 < b.1 }
                 if a.1 >= 6 { return a.0.updatedAt > b.0.updatedAt }
                 let da = a.0.dueAt ?? .distantFuture, db = b.0.dueAt ?? .distantFuture

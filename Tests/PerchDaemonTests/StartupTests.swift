@@ -41,7 +41,43 @@ import Testing
         #expect(try store.sessions().map(\.id) == ["s1"])
         var version = 0
         try store.db.run("PRAGMA user_version") { version = $0.int(0) }
-        #expect(version == Store.schemaVersion && version == 3)
+        #expect(version == Store.schemaVersion && version == 4)
+    }
+
+    /// A v3 database (before todo priority, #41) gains the priority column; every existing item is Normal.
+    @Test func migratesAV3DatabaseToNormalPriority() throws {
+        let path = "/tmp/perch-test-v3-\(UUID().uuidString.prefix(8)).db"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            let v3 = try SQLiteDatabase(path: path)
+            try v3.execute("""
+            CREATE TABLE items (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL,
+                source TEXT NOT NULL, due_at TEXT, link TEXT, meta TEXT, key TEXT UNIQUE, options TEXT, response TEXT,
+                expires_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT NOT NULL, title TEXT NOT NULL, cwd TEXT, link TEXT,
+                status TEXT NOT NULL, prompt TEXT, last_message TEXT, detail TEXT, error TEXT, pid INTEGER, pid_started_at TEXT,
+                started_at TEXT NOT NULL, turn_started_at TEXT NOT NULL, status_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                transcript_path TEXT);
+            INSERT INTO items VALUES ('t7k2', 'open task', 'task', 'open', 'human', NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z');
+            INSERT INTO items VALUES ('d0ne', 'done task', 'task', 'done', 'human', NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                '2027-01-15T08:00:00Z', '2027-01-15T09:00:00Z');
+            INSERT INTO items VALUES ('rq22', 'npm test', 'request', 'waiting', 'claude-code', NULL, NULL, NULL, NULL,
+                '["allow","deny"]', NULL, NULL, '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z');
+            PRAGMA user_version = 3;
+            """)
+        }
+        let store = try Store(path: path)
+        let items = try store.list(Request.Filter(all: true))
+        #expect(Set(items.map(\.id)) == ["t7k2", "d0ne", "rq22"])
+        #expect(items.allSatisfy { $0.priority == .normal })
+        var version = 0
+        try store.db.run("PRAGMA user_version") { version = $0.int(0) }
+        #expect(version == 4)
+        var high = try #require(try store.get(id: "t7k2"))
+        high.priority = .high
+        try store.update(high)
+        #expect(try Store(path: path).get(id: "t7k2")?.priority == .high)
     }
 
     @Test func pingOverUnixSocket() throws {
