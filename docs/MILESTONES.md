@@ -136,3 +136,14 @@
 - [x] `swift build` / `swift test` 通过；CLAUDE.md、PRD 更新
 - [ ] 人工验收（真 Mac + iPhone）：Connect 能用；手机 ↔ 刘海双向都能看到变化；重新编译的 App 保留 Reminders 权限
 - [ ] 测量 App 写入 → `EKEventStoreChanged` 的延迟和真实的 iCloud 手机 → Mac 延迟，记在 #50 的评论里
+
+**#52 CLI / inbox.md 经 bridge 写**
+- [x] `add` / `done` / `update` / `rm`（和 `update --status dismissed`）对 todo 的写经 perchd 交给 bridge（`todo_op` → `todo_ack` → 快照），`ls` 马上看得到
+- [x] 没有 bridge 或 2 秒内没等到：一行错误、exit 1、`--json` 错误格式，不排队；晚到的 ack 照样记 key，同 `--key` 重试不重复
+- [x] `--due`（只有日期 / 带时间，`due_date_only`，schema v6）、`--link`、`--priority` 写进提醒；同 `--key` 再 add 是改；`--source` / `--meta` / `--expires` 对 todo 不存
+- [x] 等待中的 task `update --status open` 搬进 Reminders（短 id、key 不变）；`ls --status done` 是 7 天内完成的，`update --status open` 重新打开
+- [x] 不是 bridge 的 App 的 Todo tab 写经 perchd 交给 bridge
+- [x] `inbox.md` 只在 bridge 连着时吸收，做完一行删一行；没有 bridge 或 bridge 做不了时留在文件里
+- [x] 没有 bridge 时：`perch ls` stderr "Todos as of HH:MM — Perch.app isn't connected"、`--json` 的 `todos_as_of`、`todo.md` 的 As of 行；缓存是空的不说
+- [x] `swift build` / `swift test` 通过；README、AGENT-SNIPPET、PRD、CLAUDE.md 更新
+- [ ] 人工验收（真 Mac）：装好的 Perch.app 连着时 `perch add` / `done` / `rm` 改到 Reminders 和手机；退出 App 后 `perch add` 报错、`perch ls` 带 as of；`inbox.md` 的行在 App 打开后进 Reminders

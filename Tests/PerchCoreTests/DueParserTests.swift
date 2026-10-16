@@ -44,13 +44,27 @@ import Testing
         #expect(try parse("2026-09-24T07:00:00Z") == at(24, 15, 0))
     }
 
+    /// A bare date is a day with no time (a date-only reminder, #52): midnight on the wire, flagged as date-only.
+    @Test func dateOnly() throws {
+        let day = try DueParser.parseDue("2026-10-20", now: now, calendar: calendar)
+        #expect(day == DueParser.Due(date: calendar.date(from: DateComponents(year: 2026, month: 10, day: 20))!, dateOnly: true))
+        #expect(try parse("2026-10-20") == day.date)
+        #expect(try DueParser.parseDue("@15:00", now: now, calendar: calendar) == DueParser.Due(date: at(24, 15, 0), dateOnly: false))
+        #expect(try DueParser.parseDue("2026-09-24T07:00:00Z", now: now, calendar: calendar).dateOnly == false)
+    }
+
+    @Test(arguments: ["2026-13-01", "2026-02-30", "2026-1-5", "20261020"])
+    func rejectsBadDates(_ input: String) {
+        #expect(throws: DueParser.ParseError.self) { try parse(input) }
+    }
+
     @Test(arguments: ["", "15:00", "@", "@24:00", "@12:60", "@1:5", "@ab", "@12:00:00", "+", "+30", "+m", "+0m", "+30s", "+-5m", "tomorrow"])
     func rejects(_ input: String) {
         #expect(throws: DueParser.ParseError.self) { try parse(input) }
     }
 
     @Test func errorMessageExplainsSyntax() {
-        #expect(throws: DueParser.ParseError(description: "invalid due 'soon': use @15:00, +30m or an ISO-8601 time")) {
+        #expect(throws: DueParser.ParseError(description: "invalid due 'soon': use @15:00, +30m, a date (2026-10-20) or an ISO-8601 time")) {
             try parse("soon")
         }
     }

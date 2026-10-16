@@ -75,6 +75,10 @@ struct Add: ParsableCommand {
 
         With --kind request --wait, blocks until someone responds and prints the answer (exit 0).
         If the request expires (--expires), is closed or removed first, exits 3 with no answer.
+
+        Open and done tasks are todos: they live in the "Perch" list in Apple Reminders, so adding one needs
+        Perch.app running (it fails otherwise, and nothing is queued). --source, --meta and --expires are not
+        stored for them.
         """
     )
 
@@ -83,7 +87,7 @@ struct Add: ParsableCommand {
     @Option(help: "open | waiting | done | dismissed (default: waiting for requests, open otherwise)") var status: String?
     @Option(name: [.short, .long], help: "high | normal | low") var priority: String = "normal"
     @Option(help: "Who is adding: human, claude-code, codex, hermes, …") var source: String = "human"
-    @Option(help: "Due time: @15:00 (next time the clock shows it), +30m / +2h / +1d, or ISO-8601.") var due: String?
+    @Option(help: "Due: @15:00 (next time the clock shows it), +30m / +2h / +1d, a day (2026-10-20), or ISO-8601.") var due: String?
     @Option(help: "URL, file path or terminal session ref to jump back to.") var link: String?
     @Option(help: "Idempotency key; re-adding the same key updates instead of duplicating.") var key: String?
     @Option(help: "Extra data as key=value; repeatable (e.g. --meta cwd=$PWD --meta tool=Bash).") var meta: [String] = []
@@ -109,13 +113,15 @@ struct Add: ParsableCommand {
             metaDict[String(pair[..<eq])] = String(pair[pair.index(after: eq)...])
         }
         let now = Date()
+        let parsedDue = try due.map { try parseDue($0, now: now) }
         let item = Item(
             title: title,
             kind: kind,
             status: status,
             priority: priority,
             source: source,
-            dueAt: try due.map { try parseDue($0, now: now) },
+            dueAt: parsedDue?.date,
+            dueDateOnly: parsedDue?.dateOnly ?? false,
             link: link,
             meta: metaDict.isEmpty ? nil : metaDict,
             key: key,
@@ -139,12 +145,14 @@ struct Add: ParsableCommand {
         }
     }
 
-    func parseDue(_ text: String, now: Date) throws -> Date {
-        do {
-            return try DueParser.parse(text, now: now)
-        } catch {
-            throw CLIError(String(describing: error))
-        }
+}
+
+/// `--due`: a wrong value is one readable line.
+func parseDue(_ text: String, now: Date) throws -> DueParser.Due {
+    do {
+        return try DueParser.parseDue(text, now: now)
+    } catch {
+        throw CLIError(String(describing: error))
     }
 }
 
@@ -174,6 +182,10 @@ struct Ls: ParsableCommand {
         let items = response.items ?? []
         if items.isEmpty {
             FileHandle.standardError.write(Data("nothing here\n".utf8))
+        }
+        // The todos are the last snapshot from Reminders: say how old (stdout stays the same for scripts).
+        if let asOf = response.todosAsOf {
+            FileHandle.standardError.write(Data("Todos as of \(Format.shortDate(asOf, now: Date())) \u{2014} Perch.app isn't connected\n".utf8))
         }
         let sourceWidth = items.map(\.source.count).max() ?? 0
         for item in items {
@@ -212,36 +224,45 @@ struct Done: ParsableCommand {
 
 struct Update: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Change an item's title, kind, priority or due time.",
+        abstract: "Change an item's title, kind, status, priority or due time.",
         discussion: """
         Snooze: perch update <id> --due +30m. Keep a notice as a task: perch update <id> --kind task
         (it stops expiring). Requests keep their kind.
+
+        Open and done tasks are todos in the "Perch" Reminders list, changed through Perch.app: --status open
+        reopens a done one, --status dismissed deletes it, and a waiting task set to open moves into Reminders.
         """
     )
     @Argument var id: String
     @Option(help: "New title.") var title: String?
     @Option(help: "task | notice") var kind: String?
+    @Option(help: "open | waiting | done | dismissed") var status: String?
     @Option(name: [.short, .long], help: "high | normal | low") var priority: String?
-    @Option(help: "Due time: @15:00, +30m / +2h / +1d, or ISO-8601.") var due: String?
+    @Option(help: "Due: @15:00, +30m / +2h / +1d, a day (2026-10-20), or ISO-8601.") var due: String?
     @Flag(help: "Remove the due time.") var noDue = false
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
-        if title == nil && kind == nil && priority == nil && due == nil && !noDue {
-            throw CLIError("give at least one of --title, --kind, --priority, --due, --no-due", code: 64)
+        if title == nil && kind == nil && status == nil && priority == nil && due == nil && !noDue {
+            throw CLIError("give at least one of --title, --kind, --status, --priority, --due, --no-due", code: 64)
         }
         if due != nil && noDue { throw CLIError("--due and --no-due cannot be combined", code: 64) }
         let newKind = try kind.map { raw -> ItemKind in
             guard let k = ItemKind(rawValue: raw), k != .request else { throw CLIError("--kind must be task or notice") }
             return k
         }
+        let newStatus = try status.map { raw -> ItemStatus in
+            guard let s = ItemStatus(rawValue: raw) else { throw CLIError("--status must be open, waiting, done or dismissed") }
+            return s
+        }
+        let parsedDue = try due.map { try parseDue($0, now: Date()) }
         let patch = Request.Patch(
             title: title,
             kind: newKind,
+            status: newStatus,
             priority: try priority.map(parsePriority),
-            dueAt: try due.map { raw in
-                do { return try DueParser.parse(raw, now: Date()) } catch { throw CLIError(String(describing: error)) }
-            },
+            dueAt: parsedDue?.date,
+            dueDateOnly: parsedDue?.dateOnly,
             clearDue: noDue ? true : nil
         )
         let response = try call(Request(op: .update, id: id, patch: patch))
@@ -291,7 +312,7 @@ struct Watch: ParsableCommand {
             case nil: throw CLIError("perchd stopped")
             case .item(let event): json ? printJSON(event) : print(Format.event(event))
             case .session(let event): json ? printJSON(event) : print(Format.sessionEvent(event))
-            case .bridge: break  // for the notch apps, not people
+            case .bridge, .todo: break  // for the notch apps, not people
             }
         }
     }

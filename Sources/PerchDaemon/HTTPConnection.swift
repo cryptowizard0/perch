@@ -50,7 +50,7 @@ enum HTTPConnection {
         }
 
         // The Reminders bridge is the notch app on this Mac, over the Unix socket; containers can't take its place.
-        if request.op == .bridgeRegister || request.op == .todoSnapshot {
+        if [.bridgeRegister, .todoSnapshot, .todoAck].contains(request.op) {
             return reply(writer, 200, "the Reminders bridge connects over the Unix socket, not HTTP")
         }
         if request.op == .watch {

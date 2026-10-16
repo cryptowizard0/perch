@@ -57,21 +57,38 @@ final class EventKitRemindersStore: RemindersStore {
         return await fetch(open) + fetch(done)
     }
 
-    func createReminder(inList list: String, title: String, priority: Int) throws -> String {
+    func createReminder(inList list: String, _ fields: ReminderChange) throws -> String {
         let reminder = EKReminder(eventStore: store)
         reminder.calendar = try calendar(list)
-        reminder.title = title
-        reminder.priority = priority
+        Self.apply(fields, to: reminder)
         try store.save(reminder, commit: true)
         return reminder.calendarItemExternalIdentifier
     }
 
+    func containsReminder(_ externalID: String, inList list: String) -> Bool {
+        (try? reminder(externalID, inList: list)) != nil
+    }
+
     func updateReminder(_ externalID: String, inList list: String, _ change: ReminderChange) throws {
         let reminder = try self.reminder(externalID, inList: list)
+        Self.apply(change, to: reminder)
+        try store.save(reminder, commit: true)
+    }
+
+    /// Only the fields Perch manages, and only those set.
+    private static func apply(_ change: ReminderChange, to reminder: EKReminder) {
         if let title = change.title { reminder.title = title }
         if let priority = change.priority { reminder.priority = priority }
         if let completed = change.completed { reminder.isCompleted = completed }
-        try store.save(reminder, commit: true)
+        if let due = change.dueAt {
+            let units: Set<Calendar.Component> = change.dueDateOnly == true ? [.year, .month, .day] : [.year, .month, .day, .hour, .minute]
+            var components = Calendar.current.dateComponents(units, from: due)
+            if change.dueDateOnly != true { components.timeZone = TimeZone.current }
+            reminder.dueDateComponents = components
+        }
+        if change.clearDue == true { reminder.dueDateComponents = nil }
+        if let url = change.url { reminder.url = URL(string: url) }
+        if change.clearURL == true { reminder.url = nil }
     }
 
     func deleteReminder(_ externalID: String, inList list: String) throws {
@@ -127,6 +144,7 @@ final class EventKitRemindersStore: RemindersStore {
             priority: r.priority,
             completed: r.isCompleted,
             dueAt: r.dueDateComponents.flatMap { Calendar.current.date(from: $0) },
+            dueDateOnly: r.dueDateComponents.map { $0.hour == nil } ?? false,
             url: r.url?.absoluteString,
             createdAt: r.creationDate
         )

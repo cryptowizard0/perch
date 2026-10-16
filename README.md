@@ -202,10 +202,18 @@ The Todo tab shows the **"Perch" list in Apple Reminders**, grouped High / Norma
 | Double-click a title, or right-click → *Edit…* | Edit its title and priority |
 | Right-click → *Priority* / *Delete* | Re-rank it, or delete it at once (it goes to Reminders' Recently Deleted) |
 
+The CLI and `~/.perch/inbox.md` change the same list, through Perch.app: it applies the change in Reminders before `perch` returns, so `perch ls` right after always shows it. If Perch.app isn't running (or doesn't answer within 2 seconds), the command fails with one line and nothing is saved for later. Lines you append to `inbox.md` (`- [ ] title`) wait in the file until Perch.app is running, then become reminders.
+
 ```bash
+perch add "Renew passport" -p high --due 2026-11-03     # a day; --due @15:00 or +2h for a time
+perch add "Read the RFC" --link https://example.com/rfc --key rfc  # same --key again updates it instead of adding another
 perch ls                               # open todos by priority, High and Low marked, each with a short id
+perch ls --status done                 # completed in the last 7 days
+perch done t7k2                        # also: perch update t7k2 --status open (reopen), perch rm t7k2
 defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"   # another shortcut (relaunch Perch)
 ```
+
+While Perch.app isn't connected, `perch ls` still lists the todos it saw last and says how old they are on stderr ("Todos as of 14:02 — Perch.app isn't connected"); `--json` adds `todos_as_of`, and `todo.md` an "As of" line.
 
 ## Safety
 

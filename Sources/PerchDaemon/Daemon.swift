@@ -31,16 +31,26 @@ public final class Daemon {
     private var bridgeCandidates: Set<UUID> = []
     /// The watcher that is the Reminders bridge (#51): the one app that reads and writes the "Perch" list.
     private var bridge: UUID?
+    /// Todo writes handed to the bridge, by operation id, until its snapshot after the ack answers them (or it leaves).
+    private var pendingWrites: [String: PendingWrite] = [:]
+    /// How long a todo writer waits for the bridge (ack, then the snapshot showing the change).
+    let bridgeTimeout: TimeInterval
     private var expiryTimer: DispatchSourceTimer?
     private var livenessTimer: DispatchSourceTimer?
     private let mirror: MirrorWriter
     private var inbox: InboxWatcher?
+    /// Inbox lines are on their way to the bridge; `inboxAgain`: the file changed meanwhile, so look once more after.
+    private var inboxBusy = false
+    private var inboxAgain = false
+    /// Inbox lines whose writes the bridge hasn't settled yet (even after their writer gave up): not sent again.
+    private var inboxInFlight: Set<String> = []
     private var transcripts: TranscriptWatcher?
 
     /// `probe` tells whether a session's agent process still runs; `livenessInterval` is how often it is asked.
     public init(config: DaemonConfig, now: @escaping () -> Date = Date.init, probe: @escaping ProcessProbe = SystemProcesses.startTime(of:),
-                livenessInterval: TimeInterval = SessionRegistry.livenessInterval) throws {
+                livenessInterval: TimeInterval = SessionRegistry.livenessInterval, bridgeTimeout: TimeInterval = 2) throws {
         self.config = config
+        self.bridgeTimeout = bridgeTimeout
         try FileManager.default.createDirectory(at: config.home, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         service = Service(store: try Store(path: config.databasePath), now: now)
@@ -51,13 +61,9 @@ public final class Daemon {
         }
         queue.sync {
             transcripts = TranscriptWatcher(queue: queue) { [weak self] id in self?.checkTranscript(of: id) }
-            mirror.write(activeItems())
+            writeMirror()
             afterChange(service.dismissLegacyHookItems())
-            afterChange(ingestInbox())
-            let watcher = InboxWatcher(path: config.inboxPath, queue: queue) { [weak self] in
-                guard let self else { return }
-                self.afterChange(self.ingestInbox())
-            }
+            let watcher = InboxWatcher(path: config.inboxPath, queue: queue) { [weak self] in self?.ingestInbox() }
             watcher.start()
             inbox = watcher
             // Right away too: sessions whose agent exited while perchd was down go now, and transcripts get
@@ -79,18 +85,134 @@ public final class Daemon {
         transcripts?.stop()
     }
 
+    /// Handles one request. Called from the transports' threads; a todo write blocks its caller (not the daemon) until
+    /// the bridge has made it, at most `bridgeTimeout`.
     public func perform(_ request: Request) -> Response {
-        queue.sync {
-            if request.op.isSession { return applySession(request) }
+        perform(request, settled: nil)
+    }
+
+    /// `settled` runs on `queue` once a todo write is settled for good, with whether the bridge made it: possibly after
+    /// the writer gave up waiting (a late ack). For anything else, with whether it succeeded.
+    func perform(_ request: Request, settled: ((Bool) -> Void)?) -> Response {
+        let started = queue.sync { () -> Started in
+            if request.op.isSession { return .answered(applySession(request)) }
             switch request.op {
-            case .bridgeRegister: return registerBridge(request.watcher)
-            case .todoSnapshot: return applySnapshot(request)
+            case .bridgeRegister: return .answered(registerBridge(request.watcher))
+            case .todoSnapshot: return .answered(applySnapshot(request))
+            case .todoAck: return .answered(applyAck(request))
+            case .list: return .answered(list(request))
+            case .add, .done, .update, .remove:
+                switch service.planTodoWrite(request) {
+                case .local: break
+                case .answer(let response): return .answered(response)
+                case .bridge(let write): return startTodoWrite(write, settled: settled)
+                }
             default: break
             }
             let (response, events) = service.handle(request)
             afterChange(events)
-            return response
+            return .answered(response)
         }
+        switch started {
+        case .answered(let response):
+            if let settled { queue.sync { settled(response.ok) } }
+            return response
+        case .waiting(let write): return finish(write)
+        }
+    }
+
+    private enum Started {
+        case answered(Response)
+        case waiting(PendingWrite)
+    }
+
+    /// A todo write on its way through the bridge. Touched only on `queue`, except `done`.
+    private final class PendingWrite {
+        let write: Service.TodoWrite
+        var settled: ((Bool) -> Void)?
+        let answered = DispatchSemaphore(value: 0)
+        /// The bridge made it: the reminder it made or changed. The next snapshot answers it.
+        var reminder: String?
+        var response: Response?
+
+        init(_ write: Service.TodoWrite) {
+            self.write = write
+        }
+    }
+
+    /// On `queue`: hands the write to the bridge on its watch connection; with no bridge it is refused, not queued.
+    private func startTodoWrite(_ write: Service.TodoWrite, settled: ((Bool) -> Void)?) -> Started {
+        guard let bridge, let sink = subscribers[bridge] else { return .answered(.failure(Service.todoWriteRefused)) }
+        let pending = PendingWrite(write)
+        pending.settled = settled
+        pendingWrites[write.operation.id] = pending
+        sink(Response(ok: true, todoOp: write.operation))
+        return .waiting(pending)
+    }
+
+    /// Off `queue`: waits for the bridge. Too late, the writer is told so; the write stays pending, so a late ack
+    /// still records the reminder's key (a retry with it finds the reminder instead of making another).
+    private func finish(_ pending: PendingWrite) -> Response {
+        _ = pending.answered.wait(timeout: .now() + bridgeTimeout)
+        return queue.sync {
+            if pending.response == nil {
+                // An ack this late is lost anyway (the bridge is stuck, or dropped it): stop holding the write.
+                queue.asyncAfter(deadline: .now() + Self.lateAckWindow) { [weak self] in
+                    guard self?.pendingWrites.removeValue(forKey: pending.write.operation.id) != nil else { return }
+                    pending.settled?(false)
+                }
+            }
+            return pending.response ?? .failure(
+                "Perch.app didn't confirm the todo change within \(String(format: "%g", bridgeTimeout)) seconds; it may "
+                + "still happen, so check `perch ls` before retrying (retrying with the same --key is safe)")
+        }
+    }
+
+    /// How long a write the writer gave up on still waits for its ack (which records the reminder's key).
+    static let lateAckWindow: TimeInterval = 30
+
+    private func answer(_ pending: PendingWrite, _ response: Response) {
+        pendingWrites.removeValue(forKey: pending.write.operation.id)
+        pending.response = response
+        pending.answered.signal()
+        pending.settled?(pending.reminder != nil)
+    }
+
+    /// On `queue`: the bridge made a write (or couldn't). Made: remember the reminder now, answer after the snapshot.
+    /// Made but with an error (it couldn't read the list afterwards): remember it, and answer with the error.
+    private func applyAck(_ request: Request) -> Response {
+        guard let bridge, request.watcher.flatMap(UUID.init(uuidString:)) == bridge else {
+            return .failure("only the Reminders bridge acknowledges todo operations")
+        }
+        guard let ack = request.ack else { return .failure("todo_ack needs an ack") }
+        // Answered already (the bridge left and came back): nothing waits for it.
+        guard let pending = pendingWrites[ack.id] else { return Response(ok: true) }
+        if let error = ack.error, ack.externalID == nil {
+            answer(pending, .failure(error))
+            return Response(ok: true)
+        }
+        guard let made = ack.externalID ?? pending.write.operation.externalID else {
+            answer(pending, .failure("Perch.app didn't say which reminder it made"))
+            return Response(ok: true)
+        }
+        do {
+            afterChange(try service.recordTodoWrite(pending.write, externalID: made))
+            pending.reminder = made
+            if let error = ack.error { answer(pending, .failure(error)) }
+        } catch {
+            answer(pending, .failure("internal error: \(error)"))
+        }
+        return Response(ok: true)
+    }
+
+    /// On `queue`: `list`, saying how old the todos are while no bridge keeps them current.
+    private func list(_ request: Request) -> Response {
+        var (response, _) = service.handle(request)
+        if bridge == nil, let items = response.items, !items.isEmpty,
+           let todos = try? Set(service.store.todos().map(\.id)), items.contains(where: { todos.contains($0.id) }) {
+            response.todosAsOf = service.todosAsOf()
+        }
+        return response
     }
 
     /// On `queue`: a session op, its events, and closing the requests of a session that moved on.
@@ -109,6 +231,9 @@ public final class Daemon {
         if bridge == nil {
             bridge = id
             announceBridge(true)
+            writeMirror()
+            // Lines that waited for a bridge go in now.
+            ingestInbox()
         }
         return Response(ok: true, bridge: bridge == id)
     }
@@ -120,10 +245,16 @@ public final class Daemon {
         }
         do {
             afterChange(try service.applySnapshot(request.reminders ?? []))
-            return Response(ok: true)
         } catch {
             return .failure("internal error: \(error)")
         }
+        // The bridge sends this after acking: the writes it made are in the cache now.
+        for pending in pendingWrites.values where pending.reminder != nil {
+            answer(pending, service.todoWriteAnswer(pending.write, externalID: pending.reminder))
+        }
+        // The list may take lines it couldn't before (it was just created again, say).
+        ingestInbox()
+        return Response(ok: true)
     }
 
     /// Whether a Reminders bridge is connected.
@@ -186,6 +317,11 @@ public final class Daemon {
             guard bridge == id else { return }
             bridge = nil
             announceBridge(false)
+            for pending in pendingWrites.values {
+                answer(pending, .failure("Perch.app went away before confirming the todo change; check `perch ls`"))
+            }
+            service.bridgeLeft()
+            writeMirror()
         }
     }
 
@@ -202,52 +338,74 @@ public final class Daemon {
     /// re-arm the expiry timer.
     private func afterChange(_ events: [Event]) {
         publish(events)
-        if !events.isEmpty { mirror.write(activeItems()) }
+        if !events.isEmpty { writeMirror() }
         scheduleExpiry()
     }
 
-    private func activeItems() -> [Item] {
-        (try? service.store.list(nil)) ?? []
+    /// todo.md; while no bridge keeps the todos current, it says how old they are.
+    private func writeMirror() {
+        mirror.write((try? service.store.list(nil)) ?? [], todosAsOf: bridge == nil ? service.todosAsOf() : nil)
     }
-
-    /// Inbox lines become todos, todos live in Reminders (#51), and perchd cannot hand writes to the bridge yet (#52):
-    /// until it can, lines stay in the file rather than being lost.
-    static let absorbsInbox = false
 
     /// How long an unterminated last line must stay unchanged before it counts as finished (#6).
     static let inboxSettle: TimeInterval = 1
 
-    /// Absorbs `- [ ] …` lines from inbox.md as tasks and rewrites the file without them.
-    /// The file is re-read right before rewriting; if it changed meanwhile, start over, so a line
-    /// appended during ingestion is never lost. A last line without its newline may be half written: it waits
+    /// On `queue`: `- [ ] …` lines in inbox.md become reminders through the bridge (#52), one at a time, and each
+    /// leaves the file once the bridge has made it (anything written around it stays). With no bridge, or when the
+    /// bridge can't take one, the lines wait in the file. A last line without its newline may be half written: it waits
     /// until the file has not changed for `inboxSettle` (`settled` is what the file held then).
-    private func ingestInbox(settled: String? = nil) -> [Event] {
-        guard Self.absorbsInbox else { return [] }
+    private func ingestInbox(settled: String? = nil) {
+        guard bridge != nil else { return }
+        guard !inboxBusy else { inboxAgain = true; return }
         let url = URL(fileURLWithPath: config.inboxPath)
-        for _ in 0..<5 {
-            guard let before = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-            let parsed = Inbox.parse(before, absorbUnterminated: before == settled)
-            if parsed.pending { settleInbox(expecting: parsed.entries.isEmpty ? before : parsed.remainder) }
-            guard !parsed.entries.isEmpty else { return [] }
-            guard (try? String(contentsOf: url, encoding: .utf8)) == before,
-                  let handle = try? FileHandle(forWritingTo: url) else { continue }
-            // Rewrite in place (same inode) so editors and watchers keep the file.
-            try? handle.truncate(atOffset: 0)
-            try? handle.write(contentsOf: Data(parsed.remainder.utf8))
-            try? handle.close()
-            return parsed.entries.flatMap { entry -> [Event] in
-                let (title, due) = QuickEntry.parse(entry, now: service.now())
-                return service.handle(Request(op: .add, item: Item(title: title, source: "human", dueAt: due))).1
+        guard let before = try? String(contentsOf: url, encoding: .utf8) else { return }
+        let parsed = Inbox.parse(before, absorbUnterminated: before == settled)
+        if parsed.pending { settleInbox(expecting: parsed.entries.isEmpty ? before : parsed.remainder) }
+        let entries = parsed.entries.filter { !inboxInFlight.contains($0) }
+        guard !entries.isEmpty else { return }
+        inboxBusy = true
+        let now = service.now()
+        // Off the queue: each line waits for the bridge like any todo write, and leaves the file once the bridge has
+        // made it, even if that is after giving up on it here (so it is never sent twice).
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            for entry in entries {
+                let (title, due) = QuickEntry.parse(entry, now: now)
+                guard let self else { return }
+                self.queue.sync { _ = self.inboxInFlight.insert(entry) }
+                let request = Request(op: .add, item: Item(title: title, source: "human", dueAt: due))
+                let response = self.perform(request) { [weak self] made in
+                    guard let self else { return }
+                    self.inboxInFlight.remove(entry)
+                    if made { self.removeInboxLine(entry) }
+                }
+                guard response.ok else { break }
+            }
+            self?.queue.async {
+                guard let self else { return }
+                self.inboxBusy = false
+                if self.inboxAgain {
+                    self.inboxAgain = false
+                    self.ingestInbox()
+                }
             }
         }
-        return []
+    }
+
+    /// On `queue`: rewrites inbox.md in place (same inode, so editors and watchers keep the file) without that line.
+    private func removeInboxLine(_ entry: String) {
+        let url = URL(fileURLWithPath: config.inboxPath)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        let rest = Inbox.removing(entry, from: text)
+        guard rest != text, let handle = try? FileHandle(forWritingTo: url) else { return }
+        try? handle.truncate(atOffset: 0)
+        try? handle.write(contentsOf: Data(rest.utf8))
+        try? handle.close()
     }
 
     /// Looks again once the file has had time to settle; if it still holds `expected`, the last line goes in.
     private func settleInbox(expecting expected: String) {
         queue.asyncAfter(deadline: .now() + Self.inboxSettle) { [weak self] in
-            guard let self else { return }
-            self.afterChange(self.ingestInbox(settled: expected))
+            self?.ingestInbox(settled: expected)
         }
     }
 

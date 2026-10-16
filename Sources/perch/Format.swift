@@ -7,8 +7,8 @@ enum Format {
         var line = "\(item.id)  \(pad(state(item), 9))  \(pad(item.source, sourceWidth))  \(oneLine(item.title))"
         if let marker = item.priority.marker { line += "  · \(marker)" }
         if let due = item.dueAt {
-            let overdue = due < now && (item.status == .open || item.status == .waiting)
-            line += "  · \(overdue ? "overdue" : "due") \(shortDate(due, now: now))"
+            let overdue = item.isOverdue(now: now) && (item.status == .open || item.status == .waiting)
+            line += "  · \(overdue ? "overdue" : "due") \(item.dueDateOnly ? day.string(from: due) : shortDate(due, now: now))"
         }
         if let response = item.response { line += "  → \(response)" }
         return line
@@ -18,7 +18,7 @@ enum Format {
         var fields: [(String, String?)] = [
             ("id", item.id), ("title", item.title), ("kind", item.kind.rawValue), ("status", item.status.rawValue),
             ("priority", item.priority.rawValue),
-            ("source", item.source), ("due", item.dueAt.map(longDate)), ("link", item.link), ("key", item.key),
+            ("source", item.source), ("due", item.dueAt.map { item.dueDateOnly ? day.string(from: $0) : longDate($0) }), ("link", item.link), ("key", item.key),
             ("options", item.options?.joined(separator: ", ")), ("response", item.response),
             ("expires", item.expiresAt.map(longDate)),
         ]
@@ -90,5 +90,6 @@ enum Format {
     private static let time = formatter("HH:mm:ss")
     private static let hourMinute = formatter("HH:mm")
     private static let monthDay = formatter("MM-dd HH:mm")
+    private static let day = formatter("yyyy-MM-dd")
     private static let full = formatter("yyyy-MM-dd HH:mm:ss")
 }

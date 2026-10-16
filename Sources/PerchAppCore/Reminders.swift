@@ -25,21 +25,6 @@ public struct ReminderList: Equatable, Sendable {
     }
 }
 
-/// What Perch changes on a reminder. Unset fields stay as they are, and so does everything Perch doesn't manage
-/// (notes, dates, URL, alarms, repeat rules, subtasks, flags, tags, images).
-public struct ReminderChange: Equatable, Sendable {
-    public var title: String?
-    /// EventKit's 0–9 (`ItemPriority.reminderPriority`).
-    public var priority: Int?
-    public var completed: Bool?
-
-    public init(title: String? = nil, priority: Int? = nil, completed: Bool? = nil) {
-        self.title = title
-        self.priority = priority
-        self.completed = completed
-    }
-}
-
 public struct RemindersError: Error, CustomStringConvertible, Equatable {
     public let description: String
     public init(_ description: String) { self.description = description }
@@ -58,8 +43,11 @@ public protocol RemindersStore: AnyObject {
     func createList(named name: String) throws -> ReminderList
     /// The list's incomplete reminders, plus those completed since `completedSince`.
     func reminders(inList list: String, completedSince: Date) async throws -> [Reminder]
-    /// A new incomplete reminder; returns its external identifier.
-    func createReminder(inList list: String, title: String, priority: Int) throws -> String
+    /// A new reminder with `fields` (`title` is set; unset ones stay EventKit's defaults); returns its external
+    /// identifier.
+    func createReminder(inList list: String, _ fields: ReminderChange) throws -> String
+    /// Whether the reminder is still in the list.
+    func containsReminder(_ externalID: String, inList list: String) -> Bool
     /// Completing a repeating reminder does whatever EventKit does with it.
     func updateReminder(_ externalID: String, inList list: String, _ change: ReminderChange) throws
     func deleteReminder(_ externalID: String, inList list: String) throws
@@ -186,7 +174,32 @@ public final class RemindersBridge {
 
     /// A new todo from the add popup.
     public func add(title: String, priority: ItemPriority) throws {
-        _ = try store.createReminder(inList: try readyList().id, title: title, priority: priority.reminderPriority)
+        _ = try store.createReminder(inList: try readyList().id, ReminderChange(title: title, priority: priority.reminderPriority))
+    }
+
+    /// A todo write perchd handed over (from the CLI, inbox.md or another app, #52). Returns the reminder it made or
+    /// changed.
+    public func apply(_ operation: TodoOperation) throws -> String {
+        let list = try readyList()
+        switch operation.action {
+        case .create:
+            guard operation.change.title?.isEmpty == false else { throw RemindersError("a new todo needs a title") }
+            return try store.createReminder(inList: list.id, operation.change)
+        case .upsert:
+            if let reminder = operation.externalID, store.containsReminder(reminder, inList: list.id) {
+                try store.updateReminder(reminder, inList: list.id, operation.change)
+                return reminder
+            }
+            return try apply(TodoOperation(id: operation.id, action: .create, change: operation.change))
+        case .update, .delete:
+            guard let reminder = operation.externalID else { throw RemindersError("no reminder given") }
+            if operation.action == .delete {
+                try store.deleteReminder(reminder, inList: list.id)
+            } else {
+                try store.updateReminder(reminder, inList: list.id, operation.change)
+            }
+            return reminder
+        }
     }
 
     /// Changes only what is given: the title and priority Perch shows, or completion.
@@ -200,8 +213,12 @@ public final class RemindersBridge {
     }
 
     private func readyList() throws -> ReminderList {
-        guard state.isReady, let list else { throw RemindersError("The \u{201C}\(listName)\u{201D} list in Reminders is gone") }
-        return list
+        switch state {
+        case .ready: if let list { return list }
+        case .createList: break
+        case .connect, .openSettings: throw RemindersError("Perch.app doesn't have access to Reminders")
+        }
+        throw RemindersError("\(listName) list not found")
     }
 
     private func reminderID(_ item: Item) throws -> String {

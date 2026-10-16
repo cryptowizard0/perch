@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-16 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）进行中**：#51（bridge）代码、测试、文档完成，等真 Mac + iPhone 人工验收和延迟测量，见下方"Todo 搬进 Reminders（M13）"；#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）未开始
+最后更新：2026-10-16 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）进行中**：#51（bridge）代码、测试、文档完成，等真 Mac + iPhone 人工验收和延迟测量；#52（CLI / inbox 经 bridge 写）代码、测试、文档完成，等人工验收，见下方"Todo 搬进 Reminders（M13）"；#53（日期、✎、大编辑器）未开始
 
 ## 发布
 
@@ -33,7 +33,7 @@
 | M8 | Agent 面板 UI；刘海 todo UI 下线 | ✅ 完成 | #18 面板 ✅；#19 交互 + todo 下线 ✅；#20 验收 ✅（2026-10-08，用户确认） |
 | M11 | Grok Build（#31，v0.5 第一个新 agent） | ✅ 完成 | 363 个测试；2026-10-12 维护者真实会话验收通过，PR #33 合并为 `1f83a18`，#31 已关（见"M11 进度"） |
 | M12 | Todo tab（#41：#42 / #43） | 🚧 待验收 | #42 已合并（PR #46）；#43 代码和文档完成，等维护者用一天后验收（见"Todo tab（M12）"） |
-| M13 | Todo 搬进 Apple Reminders（#50：#51 / #52 / #53） | 🚧 进行中 | #51 bridge 代码完成，等人工验收（见"Todo 搬进 Reminders（M13）"）；#52、#53 未开始 |
+| M13 | Todo 搬进 Apple Reminders（#50：#51 / #52 / #53） | 🚧 进行中 | #51 bridge、#52 CLI / inbox 经 bridge 写，代码完成，等人工验收（见"Todo 搬进 Reminders（M13）"）；#53 未开始 |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -129,7 +129,7 @@ Tests/PerchDaemonTests/  进程内起 daemon（Support.swift 的 TestDaemon）+ 
 ## 已定下的契约（M2+ 依赖，改之前先想清楚）
 
 - Wire：Unix socket 上一行一个 JSON；HTTP `POST /rpc` 同一套 JSON。`watch` 先回 `{"ok":true}` 确认，再逐行推 `{"ok":true,"event":{…}}`。**确认之后发生的变化保证能收到**，所以客户端正确做法是：先 `watch()`，再 `list` 拿快照。
-- op：`ping / add / list / get / done / respond / remove / update / watch / session_start / session_end / sessions / session_report / session_seen / session_remove`。
+- op：`ping / add / list / get / done / respond / remove / update / watch / session_start / session_end / sessions / session_report / session_seen / session_remove / bridge_register / todo_snapshot / todo_ack`（后三个是 Reminders bridge 的，#51 / #52；watch 上给 bridge 推 `todo_op`）。
 - session（M7 起）：进 SQLite `sessions` 表，五种状态，由 `session_report` 驱动（见下方"M7 进度"）；`watch` 另推 `session.updated`（每次变化）和 `session.ended`（移除）。以下是 M3 的旧约定，已作废的部分见 M7：session 只在 perchd 内存里，不进 SQLite；`watch` 推 `{"ok":true,"session_event":{…}}`，`EventStream.next()` 只返回 item 事件（老客户端不受影响），`nextPush()` 两种都给。每条消息带观测时间，比该 id 最后一条旧的消息丢弃（async hook 会乱序）；超过 3 小时没结束的 turn 自动清掉。`list` 默认只返回 open + waiting，已按队列顺序排好。
 - `add --key`：同 key 更新原项（保留 id 和 created_at），会重新打开已关闭项并清空旧 response；内容完全相同的重复 add 不发事件。
 - request：默认 status waiting、options `allow,deny`；`respond` 校验选项，回应后 status 变 done。
@@ -530,7 +530,7 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
 - 坑：perchd 的 `created_at` 精确到秒，同一秒加的待办在组内按 id 排；测顺序的用一步一秒的假时钟（`SteppingClock`）。所有 `@MainActor` 测试共用主线程，全量并行跑时 200 ms 的延迟测试偶尔超（`cliToNotchModelUnder200ms` 以前就有），所以 #42 没有另加进程内的 200 ms 测试，而是让这个验收测试改加 High 待办。
 - 截图（隔离 perchd + `PERCH_PIN_EXPANDED`，本机只有无刘海的外接屏，是胶囊样式）：两个 tab、三种弹窗位置都对。悬停、点击、键盘焦点、全局快捷键只能人工验。
 
-## Todo 搬进 Reminders（M13，#50 / #51，2026-10-16）
+## Todo 搬进 Reminders（M13，#50 / #51 / #52，2026-10-16）
 
 设计在 #50（父 issue）和三个切片 #51 → #52 → #53。完整行为见 `docs/PRD.md` 的"同步"和"Todo tab"里的 Reminders 一节，这里只记实现和坑。
 
@@ -544,6 +544,16 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
 - 坑：假 Reminders 默认不为 App 自己的写发变化通知（`notifiesOwnWrites`），这样测试能证明 bridge 写完自己发快照。`FakeRemindersStore` 是 @MainActor，不能当非隔离函数的默认参数。
 - 已知限制：bridge 的权限被撤销时它仍是 bridge（缓存停在撤销前），别的有权限的 App 要等它退出才能接手；刚连上、`bridge_register` 还没回来的一瞬间，刘海里的写会被 perchd 拒绝（闪一下错误，不丢数据）。HTTP 上不能当 bridge，HTTP 的 watch 也收不到 bridge 来去。
 - 没做（要人）：真 Mac + iPhone 的验收（Connect、双向、重新编译后权限还在）、两个延迟（App 写 → `EKEventStoreChanged`、iCloud 手机 → Mac）记到 #50 的评论。本机不能合成点击，Connect 弹窗要人点。`x-apple-reminderkit://` 深链接和"只设时间会不会提醒"的 spike 属于 #53。
+- **#52 CLI / inbox.md 经 bridge 写**：
+  - 线上协议：todo 写由 `Service.planTodoWrite` 判断（`.local` 照旧 `handle`；`.answer` 直接回答，比如同 key 内容一样；`.bridge(TodoWrite)`）。`Daemon.perform` 在队列上把 `TodoOperation` 推到 bridge 的 watch sink（`Response.todoOp`），**离开队列**等信号量（`bridgeTimeout` 默认 2 秒，`TestDaemon(bridgeTimeout:)` 可改）。bridge 回 `todo_ack`（`Request.ack`）时 `recordTodoWrite` 记引用和 key（promote 的本地 item 删掉，引用沿用它的短 id），等**下一份**快照再用 `todoWriteAnswer` 回答；超时的写留在 `pendingWrites` 里，所以晚到的 ack 照样记 key；bridge 断开时全部失败。
+  - App：`QueueModel.applyTodo` 用 `RemindersBridge.apply` 写，ack 放进 `acksDue`，下一次读快照开始时取走、读完先发 ack 再发快照（同一个串行 actions 队列），这样 perchd 回答时缓存一定已经有这次改动。写失败立刻回带 error 的 ack（列表没了是 "Perch list not found"）。收到 `todo_op` 就当自己是 bridge（`bridge_register` 的回答可能还在路上）。
+  - 字段：`ReminderChange` 挪到 PerchCore（线上要用），加了到期（`dueDateOnly`、`clearDue`）和 URL（`clearURL`）；`RemindersStore.createReminder(inList:_:)` 改成收 `ReminderChange`。`Item.dueDateOnly` / `Reminder.dueDateOnly`（JSON `due_date_only`，只在 true 时出现）；`DueParser.parseDue` 认 `2026-10-20`；`Item.isOverdue` 让只有日期的到期在那天结束前不算逾期。schema v6：`items.due_date_only`、`daemon_state`（`todos_as_of`）。
+  - `Patch.status`：任务和 notice 可以改状态；request 不行（用 respond / done / rm）。todo 改成 waiting、改成 notice 都拒绝。
+  - inbox：`ingestInbox` 只在有 bridge 时跑，在后台线程一行一行走 `perform`，成功一行就 `Inbox.removing` 删一行（原地重写），失败就停；忙的时候文件又变了就做完再看一次（自己删行触发的变化最多多跑一轮，不会空转）。bridge 报名时也跑一次。
+  - stale：`list` 在没有 bridge 且结果里有缓存的 todo 时带 `todos_as_of`（`Service.todosAsOf`：最后一份快照或 bridge 断开的时刻，存在 `daemon_state`；旧库退回缓存里最新的 `updated_at`）。`todo.md` 在没有 bridge 时 "To do" 下面加 As of 行，bridge 来去都重写。
+- 测试（#52）：`TodoWritesTests`（真 perchd + 真 `QueueModel` bridge + `FakeRemindersStore` + 真 `perch`，CLI 用 `Task.detached` 跑，不然会堵住主线程上的 bridge）：CLI 增删改、没有 bridge、晚到的 ack（`FakeRemindersStore.readDelay` 推迟读 = 推迟 ack）、字段、promote、7 天、inbox（含没写完的行、bridge 做不了）、stale 输出。`RemindersBridgeTests.oneBridgeAtATimeAndTheNextTakesOver` 改成第二个 App 的写经 bridge 生效。原来 `.disabled` 的五个 inbox 测试搬进 `TodoWritesTests`。纯函数：`DueParserTests.dateOnly`、`MirrorTests.staleTodosSayAsOf`、`InboxTests.removingAnAbsorbedLine`、`StartupTests.migratingToV6…`、`UpdateTests.statusMovesTasksAndNotices`。
+- 评审后补的（#52）：bridge 的 ack / 快照走单独的串行队列（`bridgeActions`），不会排在本 App 自己那条正被 perchd 转回来的写后面；做了但读不到列表时 ack 同时带外部标识符和 error，perchd 记下 key 并立刻报错，不干等；超时的写最多再等 30 秒的晚到 ack（`Daemon.lateAckWindow`）；同 `--key` 只在引用表里找到（缓存里没有）时发 `upsert`（还在列表里就改，不在就新建，`RemindersStore.containsReminder`）；inbox 的行晚到的 ack 也会删掉那一行，在途的行不会重发（`inboxInFlight`），每份快照之后再看一次 inbox（列表重建后不用碰文件）。
+- 已知限制（#52）：perchd 推 `todo_op` 时 bridge 的 App 若刚好卡住，CLI 2 秒后报错，但写可能之后才生效（报错信息里说了）。2 秒包括 bridge 写完之后读一遍列表的时间（ack 跟着那次读走），EventKit 读得慢时成功的写也可能报超时。没有 bridge 时 `ls --status done` 里可能有超过 7 天的（缓存不知道完成时间，等 bridge 回来的快照才清掉）。`ls` 的 as of 只看这次列出的东西里有没有 todo。`--due` 带时间时只设到期日期组件，不加提醒（alarm）：会不会响要看 #53 的 spike。
 
 ## 未决问题
 

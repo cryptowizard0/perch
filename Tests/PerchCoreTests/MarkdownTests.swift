@@ -39,12 +39,44 @@ import Testing
         """)
     }
 
+    /// Without the Reminders bridge, todos are its last snapshot: the "To do" section says how old (#52). A date-only
+    /// due shows the day alone.
+    @Test func staleTodosSayAsOf() {
+        let asOf = now.addingTimeInterval(-3600)
+        let items = [
+            Item(id: "task", title: "reply to X", dueAt: now.addingTimeInterval(7 * 3600)),
+            Item(id: "day1", title: "dentist", dueAt: Date(timeIntervalSince1970: 1_800_057_600), dueDateOnly: true),
+        ]
+        let text = MirrorRenderer.render(items, todosAsOf: asOf, now: now, calendar: calendar)
+        #expect(text.contains("""
+        ## To do
+
+        _As of 2027-01-15 07:00 — Perch.app isn't connected_
+
+        - [ ] reply to X — due 2027-01-15 15:00 · human · `task`
+        - [ ] dentist — due 2027-01-16 · human · `day1`
+
+        """))
+        // Nothing to date when there are no todos.
+        #expect(!MirrorRenderer.render([Item(title: "x", kind: .notice)], todosAsOf: asOf, now: now).contains("As of"))
+    }
+
     @Test func emptyQueue() {
         #expect(MirrorRenderer.render([], now: now).hasSuffix("# Perch\n\nNothing waiting.\n"))
     }
 }
 
 @Suite struct InboxTests {
+    /// Once a line has become a reminder (#52), only that line leaves the file; anything written meanwhile stays.
+    @Test func removingAnAbsorbedLine() {
+        let text = "# keep\n- [ ] buy milk\n* [ ] call mom +2h\n- [ ] buy milk\nnew stuff\n"
+        #expect(Inbox.removing("buy milk", from: text) == "# keep\n* [ ] call mom +2h\n- [ ] buy milk\nnew stuff\n")
+        #expect(Inbox.removing("call mom +2h", from: text) == "# keep\n- [ ] buy milk\n- [ ] buy milk\nnew stuff\n")
+        #expect(Inbox.removing("not there", from: text) == text)
+        #expect(Inbox.removing("only", from: "- [ ] only\n") == "")
+        #expect(Inbox.removing("last", from: "- [ ] first\n- [ ] last") == "- [ ] first\n")
+    }
+
     @Test func absorbsOpenCheckboxesAndKeepsEverythingElse() {
         let parsed = Inbox.parse("""
         # my inbox

@@ -13,6 +13,8 @@ public final class QueueConnection: @unchecked Sendable {
         case session(SessionEvent)
         /// A Reminders bridge registered (true) or left (false).
         case bridge(Bool)
+        /// This app is the bridge: a todo write to apply and acknowledge.
+        case todo(TodoOperation)
         case offline(String)
     }
 
@@ -75,6 +77,7 @@ public final class QueueConnection: @unchecked Sendable {
                     case .item(let event): send(.event(event))
                     case .session(let event): send(.session(event))
                     case .bridge(let connected): send(.bridge(connected))
+                    case .todo(let operation): send(.todo(operation))
                     }
                 }
                 if !isStopped { send(.offline("perchd stopped")) }

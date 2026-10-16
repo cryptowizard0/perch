@@ -52,6 +52,8 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
     /// "human", "claude-code", "codex", "hermes", … — free string, new agents need no code change.
     public var source: String
     public var dueAt: Date?
+    /// `due_at` is a whole day (its midnight), not a moment: a date-only reminder (#52). On the wire only when true.
+    public var dueDateOnly: Bool
     /// URL, file path or terminal session reference. Clicking it jumps back.
     public var link: String?
     /// Free-form bag for agents: cwd, session_id, tool name, …
@@ -73,6 +75,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         priority: ItemPriority = .normal,
         source: String = "human",
         dueAt: Date? = nil,
+        dueDateOnly: Bool = false,
         link: String? = nil,
         meta: [String: String]? = nil,
         key: String? = nil,
@@ -89,6 +92,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         self.priority = priority
         self.source = source
         self.dueAt = dueAt
+        self.dueDateOnly = dueDateOnly
         self.link = link
         self.meta = meta
         self.key = key
@@ -102,6 +106,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, title, kind, status, priority, source, link, meta, key, options, response
         case dueAt = "due_at"
+        case dueDateOnly = "due_date_only"
         case expiresAt = "expires_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -119,6 +124,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         priority = try c.decodeIfPresent(ItemPriority.self, forKey: .priority) ?? .normal
         source = try c.decodeIfPresent(String.self, forKey: .source) ?? "human"
         dueAt = try c.decodeIfPresent(Date.self, forKey: .dueAt)
+        dueDateOnly = try dueAt != nil && (c.decodeIfPresent(Bool.self, forKey: .dueDateOnly) ?? false)
         link = try c.decodeIfPresent(String.self, forKey: .link)
         meta = try c.decodeIfPresent([String: String].self, forKey: .meta)
         key = try c.decodeIfPresent(String.self, forKey: .key)
@@ -140,6 +146,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         try c.encode(priority, forKey: .priority)
         try c.encode(source, forKey: .source)
         try c.encodeIfPresent(dueAt, forKey: .dueAt)
+        if dueDateOnly { try c.encode(true, forKey: .dueDateOnly) }
         try c.encodeIfPresent(link, forKey: .link)
         try c.encodeIfPresent(meta, forKey: .meta)
         try c.encodeIfPresent(key, forKey: .key)
@@ -179,10 +186,16 @@ extension Item {
         if kind == .notice { return 5 }
         if status == .waiting { return 1 }
         if let due = dueAt {
-            if due < now { return 2 }
+            if isOverdue(now: now, calendar: calendar) { return 2 }
             if calendar.isDate(due, inSameDayAs: now) { return 3 }
         }
         return 4
+    }
+
+    /// Past its due time; a date-only due (a whole day) only once that day is over.
+    public func isOverdue(now: Date, calendar: Calendar = .current) -> Bool {
+        guard let due = dueAt else { return false }
+        return due < (dueDateOnly ? calendar.startOfDay(for: now) : now)
     }
 }
 
