@@ -39,6 +39,13 @@ final class NotchModel: ObservableObject {
         expanded = true
     }
 
+    /// Collapses now (✎ left for the Reminders app). Hovering again expands it as usual.
+    func close() {
+        pendingHover?.cancel()
+        guard !pinned else { return }
+        expanded = false
+    }
+
     /// Hover expands after a beat (so brushing past on the way to the menu bar does nothing)
     /// and collapses a little later (so a wobble at the edge does not flicker).
     func hover(_ inside: Bool) {

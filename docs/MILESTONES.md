@@ -147,3 +147,13 @@
 - [x] 没有 bridge 时：`perch ls` stderr "Todos as of HH:MM — Perch.app isn't connected"、`--json` 的 `todos_as_of`、`todo.md` 的 As of 行；缓存是空的不说
 - [x] `swift build` / `swift test` 通过；README、AGENT-SNIPPET、PRD、CLAUDE.md 更新
 - [ ] 人工验收（真 Mac）：装好的 Perch.app 连着时 `perch add` / `done` / `rm` 改到 Reminders 和手机；退出 App 后 `perch add` 报错、`perch ls` 带 as of；`inbox.md` 的行在 App 打开后进 Reminders
+
+**#53 日期、✎、大编辑器**
+- [x] spike：`x-apple-reminderkit://REMCDReminder/<UUID>` 能打开那条提醒所在的列表；只设到期时间不加 alarm 就不会像 Reminders 那样提醒（Reminders 自己会加），结果记在 #50
+- [x] 日期标签（Today / Tomorrow / 星期几 / "Oct 20" / 带年份、只有日期 / 带时间、过期白色），固定 now 和日历的测试；不改排序
+- [x] 行：`○ 标题 … 日期 ✎`，悬停完整标题和日期；单击圆圈或标题完成，双击不多做；右键 Edit… / Priority ▸ / Delete
+- [x] ✎ 打开那条提醒（找不到就只打开 Reminders），刘海收起
+- [x] 大编辑器：标题、备注、日期、时间、优先级、URL；Return 保存、Esc 不改；Perch 不管的字段不动；备注进缓存
+- [x] 设时间同时加 alarm（刘海和 CLI 都是），时间改了跟着走，别的 alarm 不动
+- [x] 添加弹窗不变；`swift build` / `swift test` 通过；PRD、CLAUDE.md 更新
+- [ ] 人工验收（真 Mac，有 Reminders 权限）：行的样子、✎ 跳过去、大编辑器（日期 / 时间选择器、Return / Esc / Tab）、在刘海里设的时间到点会提醒、iCloud 列表上 ✎ 也能找到那条

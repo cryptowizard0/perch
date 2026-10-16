@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-16 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）进行中**：#51（bridge）代码、测试、文档完成，等真 Mac + iPhone 人工验收和延迟测量；#52（CLI / inbox 经 bridge 写）代码、测试、文档完成，等人工验收，见下方"Todo 搬进 Reminders（M13）"；#53（日期、✎、大编辑器）未开始
+最后更新：2026-10-16 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）进行中**：#51（bridge）代码、测试、文档完成，等真 Mac + iPhone 人工验收和延迟测量；#52（CLI / inbox 经 bridge 写）代码、测试、文档完成，等人工验收，见下方"Todo 搬进 Reminders（M13）"；#53（日期、✎、大编辑器）代码、测试、文档完成，等人工验收
 
 ## 发布
 
@@ -33,7 +33,7 @@
 | M8 | Agent 面板 UI；刘海 todo UI 下线 | ✅ 完成 | #18 面板 ✅；#19 交互 + todo 下线 ✅；#20 验收 ✅（2026-10-08，用户确认） |
 | M11 | Grok Build（#31，v0.5 第一个新 agent） | ✅ 完成 | 363 个测试；2026-10-12 维护者真实会话验收通过，PR #33 合并为 `1f83a18`，#31 已关（见"M11 进度"） |
 | M12 | Todo tab（#41：#42 / #43） | 🚧 待验收 | #42 已合并（PR #46）；#43 代码和文档完成，等维护者用一天后验收（见"Todo tab（M12）"） |
-| M13 | Todo 搬进 Apple Reminders（#50：#51 / #52 / #53） | 🚧 进行中 | #51 bridge、#52 CLI / inbox 经 bridge 写，代码完成，等人工验收（见"Todo 搬进 Reminders（M13）"）；#53 未开始 |
+| M13 | Todo 搬进 Apple Reminders（#50：#51 / #52 / #53） | 🚧 进行中 | #51 bridge、#52 CLI / inbox 经 bridge 写、#53 日期 / ✎ / 大编辑器，代码完成，等人工验收（见"Todo 搬进 Reminders（M13）"） |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -553,7 +553,16 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
   - stale：`list` 在没有 bridge 且结果里有缓存的 todo 时带 `todos_as_of`（`Service.todosAsOf`：最后一份快照或 bridge 断开的时刻，存在 `daemon_state`；旧库退回缓存里最新的 `updated_at`）。`todo.md` 在没有 bridge 时 "To do" 下面加 As of 行，bridge 来去都重写。
 - 测试（#52）：`TodoWritesTests`（真 perchd + 真 `QueueModel` bridge + `FakeRemindersStore` + 真 `perch`，CLI 用 `Task.detached` 跑，不然会堵住主线程上的 bridge）：CLI 增删改、没有 bridge、晚到的 ack（`FakeRemindersStore.readDelay` 推迟读 = 推迟 ack）、字段、promote、7 天、inbox（含没写完的行、bridge 做不了）、stale 输出。`RemindersBridgeTests.oneBridgeAtATimeAndTheNextTakesOver` 改成第二个 App 的写经 bridge 生效。原来 `.disabled` 的五个 inbox 测试搬进 `TodoWritesTests`。纯函数：`DueParserTests.dateOnly`、`MirrorTests.staleTodosSayAsOf`、`InboxTests.removingAnAbsorbedLine`、`StartupTests.migratingToV6…`、`UpdateTests.statusMovesTasksAndNotices`。
 - 评审后补的（#52）：bridge 的 ack / 快照走单独的串行队列（`bridgeActions`），不会排在本 App 自己那条正被 perchd 转回来的写后面；做了但读不到列表时 ack 同时带外部标识符和 error，perchd 记下 key 并立刻报错，不干等；超时的写最多再等 30 秒的晚到 ack（`Daemon.lateAckWindow`）；同 `--key` 只在引用表里找到（缓存里没有）时发 `upsert`（还在列表里就改，不在就新建，`RemindersStore.containsReminder`）；inbox 的行晚到的 ack 也会删掉那一行，在途的行不会重发（`inboxInFlight`），每份快照之后再看一次 inbox（列表重建后不用碰文件）。
-- 已知限制（#52）：perchd 推 `todo_op` 时 bridge 的 App 若刚好卡住，CLI 2 秒后报错，但写可能之后才生效（报错信息里说了）。2 秒包括 bridge 写完之后读一遍列表的时间（ack 跟着那次读走），EventKit 读得慢时成功的写也可能报超时。没有 bridge 时 `ls --status done` 里可能有超过 7 天的（缓存不知道完成时间，等 bridge 回来的快照才清掉）。`ls` 的 as of 只看这次列出的东西里有没有 todo。`--due` 带时间时只设到期日期组件，不加提醒（alarm）：会不会响要看 #53 的 spike。
+- **#53 日期、✎、大编辑器**：
+  - spike（2026-10-16，macOS 15.6.1，本机 Reminders 不在 iCloud；结果在 #50 的评论）：`open "x-apple-reminderkit://REMCDReminder/<UUID>"` 能把 Reminders 切到那条提醒所在的列表（不打开详情、不明显选中）；`x-apple-reminder://` 没有 App 处理；`REMCDList/<id>` 不切列表，不能当兜底。Reminders 首次的 "启用 iCloud 同步？" 表单挂着时链接无效。用 AppleScript 只设 `due date`（带时间）时 Reminders 自己同时设了 `remind me date`，带 alarm 的到点有通知；所以 Perch 设时间时也加 alarm。做 spike 时建的 "Perch Spike" 列表已删。
+  - 日期：`TodoList.dueLabel(item, now:calendar:)`；行用 `queue.now`（每分钟 tick）。只有日期的到期在那天结束前不算过期（`Item.isOverdue`，#52 加的）。
+  - ✎：`RemindersStore.localIdentifier(of:inList:)`（EventKit 的 `calendarItemIdentifier`）→ `RemindersBridge.link(for:)` → `QueueModel.openInReminders` → App 注入的 `openReminder`（`Jumper.openReminder`，打不开就只打开 Reminders）+ `NotchModel.close()`。
+  - 编辑器：`TodoEditor` 加 `notes` / `hasDate` / `hasTime` / `date` / `url`、`setHasDate` / `setHasTime`（Reminders 的默认：今天、下一个整点、别的日子 09:00）、`edited(item)`；`isLarge` 决定弹窗大小（编辑 440×318）。保存只发改了的：bridge 直接 `RemindersBridge.update(item, ReminderChange(from:to:))`，别的 App 发 `Request.Patch(from:to:)`（patch 新增 `notes` / `link` / `clear_link`）。`TodoPopupPanel.onReturn` 在大编辑器里让 Return 从任何一栏保存（Shift / Option-Return 在备注里换行），Tab 只在添加弹窗里换优先级。
+  - 备注：`Reminder.notes` → 缓存的 `meta.notes`（`Item.notes`），不加列。
+  - alarm：`ReminderChange.alarms(existing, oldDue:, oldDueDateOnly:)` 是纯规则，EventKit 实现和假 Reminders 都用它；只动绝对时间的 alarm，只动在旧到期时间上的那个。
+- 测试（#53）：`DueLabelTests`、`TodoEditorTests`（大编辑器部分）、`ReminderChangeTests`（diff、alarm）是纯函数；`TodoDetailsTests`（真 perchd + bridge + 假 Reminders）：编辑器存所有字段且不动别的（旗标、自定义 alarm、列表、创建时间）、Esc、不是 bridge 的 App 编辑、✎ 的链接和兜底、CLI 的时间带 alarm。`FakeRemindersStore.Entry` 加了 `alarms`，`notes` 挪进 `Reminder`。`TodoWritesTests.unfinishedInboxLinesWaitForTheRest` 在主线程很忙、检查晚于 settle 时间时跳过"还没吸收"那一段（以前偶尔失败）。
+- 没做（要人）：本机没有给开发版 App Reminders 权限，Todo tab 只显示 Connect，行和大编辑器都没截图；悬停、点击、日期选择器、Return / Esc / Tab、✎ 的跳转、刘海里设的时间到点提醒，都要在有权限的真 Mac 上人工验；iCloud 列表上外部标识符和本机标识符不同时 ✎ 能不能找到也要验。
+- 已知限制（#52）：perchd 推 `todo_op` 时 bridge 的 App 若刚好卡住，CLI 2 秒后报错，但写可能之后才生效（报错信息里说了）。2 秒包括 bridge 写完之后读一遍列表的时间（ack 跟着那次读走），EventKit 读得慢时成功的写也可能报超时。没有 bridge 时 `ls --status done` 里可能有超过 7 天的（缓存不知道完成时间，等 bridge 回来的快照才清掉）。`ls` 的 as of 只看这次列出的东西里有没有 todo。`--due` 带时间时只设到期日期组件，不加提醒（alarm）：#53 起同时加那个时间的 alarm，见下。
 
 ## 未决问题
 

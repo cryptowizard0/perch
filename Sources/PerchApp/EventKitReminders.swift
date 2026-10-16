@@ -69,14 +69,33 @@ final class EventKitRemindersStore: RemindersStore {
         (try? reminder(externalID, inList: list)) != nil
     }
 
+    func localIdentifier(of externalID: String, inList list: String) -> String? {
+        (try? reminder(externalID, inList: list))?.calendarItemIdentifier
+    }
+
     func updateReminder(_ externalID: String, inList list: String, _ change: ReminderChange) throws {
         let reminder = try self.reminder(externalID, inList: list)
         Self.apply(change, to: reminder)
         try store.save(reminder, commit: true)
     }
 
-    /// Only the fields Perch manages, and only those set.
+    private static func same(_ a: Date, _ b: Date) -> Bool { abs(a.timeIntervalSince(b)) < 1 }
+
+    /// Only the fields Perch manages, and only those set. A due time brings an alarm at that time, as in the Reminders
+    /// app (#53, see #50); only absolute alarms are touched, and only the one at the old due time.
     private static func apply(_ change: ReminderChange, to reminder: EKReminder) {
+        let oldDue = reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) }
+        let oldDateOnly = reminder.dueDateComponents.map { $0.hour == nil } ?? false
+        let absolute = (reminder.alarms ?? []).compactMap(\.absoluteDate)
+        var wanted = change.alarms(absolute, oldDue: oldDue, oldDueDateOnly: oldDateOnly)
+        // An alarm relative to the due date (offset 0) already rings at the due time and moves with it: not twice.
+        if let due = change.dueAt, (reminder.alarms ?? []).contains(where: { $0.absoluteDate == nil && $0.structuredLocation == nil && $0.relativeOffset == 0 }) {
+            wanted.removeAll { Self.same($0, due) }
+        }
+        for alarm in reminder.alarms ?? [] {
+            if let date = alarm.absoluteDate, !wanted.contains(where: { Self.same($0, date) }) { reminder.removeAlarm(alarm) }
+        }
+        for date in wanted where !absolute.contains(where: { Self.same($0, date) }) { reminder.addAlarm(EKAlarm(absoluteDate: date)) }
         if let title = change.title { reminder.title = title }
         if let priority = change.priority { reminder.priority = priority }
         if let completed = change.completed { reminder.isCompleted = completed }
@@ -87,6 +106,7 @@ final class EventKitRemindersStore: RemindersStore {
             reminder.dueDateComponents = components
         }
         if change.clearDue == true { reminder.dueDateComponents = nil }
+        if let notes = change.notes { reminder.notes = notes.isEmpty ? nil : notes }
         if let url = change.url { reminder.url = URL(string: url) }
         if change.clearURL == true { reminder.url = nil }
     }
@@ -146,6 +166,7 @@ final class EventKitRemindersStore: RemindersStore {
             dueAt: r.dueDateComponents.flatMap { Calendar.current.date(from: $0) },
             dueDateOnly: r.dueDateComponents.map { $0.hour == nil } ?? false,
             url: r.url?.absoluteString,
+            notes: r.notes,
             createdAt: r.creationDate
         )
     }

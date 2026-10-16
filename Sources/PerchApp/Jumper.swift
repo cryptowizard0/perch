@@ -14,6 +14,13 @@ enum Jumper {
         }
     }
 
+    /// ✎ (#53): the reminder's link opens Reminders on it; without one, just Reminders.
+    static func openReminder(_ url: URL?) {
+        if let url, NSWorkspace.shared.open(url) { return }
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.reminders") else { return }
+        NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+    }
+
     /// Ghostty: focus the exact terminal over AppleScript (osascript, so a slow reply or the one-time
     /// Automation prompt never blocks the UI). Other terminals, or if that fails: bring the app forward.
     static func jump(to terminal: TerminalLink) {

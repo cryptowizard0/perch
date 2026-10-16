@@ -42,6 +42,10 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var completing: Set<String> = []
     /// How long a clicked circle waits for Undo before the todo is done.
     public var completionDelay: TimeInterval = 3
+    /// A second click this soon after the first is the rest of a double-click, which does nothing more (#53); the app
+    /// sets the system's double-click interval.
+    public var doubleClickInterval: TimeInterval = 0
+    private var lastToggle: (id: String, at: Date)?
     /// The todo popup while it is open (#43). The popup draws it and edits `title`; the rest goes through the methods.
     @Published public var editor: TodoEditor?
     /// The Todo tab's Reminders state; nil without a `RemindersBridge` (then it just shows perchd's todos).
@@ -69,6 +73,8 @@ public final class QueueModel: ObservableObject {
     public var onSession: ((SessionEvent) -> Void)?
     /// Goes to a session's link (its terminal). The app sets it; AppKit stays out of this module.
     public var jump: (String?) -> Void = { _ in }
+    /// Opens a reminder in the Reminders app (✎), or just Reminders when nil, and collapses the notch. The app sets it.
+    public var openReminder: (URL?) -> Void = { _ in }
     /// Plays a chime. The app sets it, like `jump`.
     public var onChime: (ChimeSound) -> Void = { _ in }
     /// A banner's title and text, laid out, in points: how long it stays depends on whether it has to scroll.
@@ -238,10 +244,13 @@ public final class QueueModel: ObservableObject {
         if self.tab != tab { self.tab = tab }
     }
 
-    /// Clicking a todo's circle: crosses it out and sends `done` after `completionDelay`, unless it is clicked again
-    /// (or Undo) first. The timer lives here, not in the view, so it still commits after the notch collapses;
-    /// quitting meanwhile leaves the todo open.
+    /// Clicking a todo's circle or title: crosses it out and sends `done` after `completionDelay`, unless it is clicked
+    /// again (or Undo) first; a double-click's second click is ignored. The timer lives here, not in the view, so it
+    /// still commits after the notch collapses; quitting meanwhile leaves the todo open.
     public func toggleCompletion(_ item: Item) {
+        let now = Date()
+        if let last = lastToggle, last.id == item.id, now.timeIntervalSince(last.at) < doubleClickInterval { return }
+        lastToggle = (item.id, now)
         if completing.contains(item.id) { return undoCompletion(item.id) }
         guard state.items[item.id] != nil else { return }
         completing.insert(item.id)
@@ -272,9 +281,14 @@ public final class QueueModel: ObservableObject {
         editor = .add(fromPanel: fromPanel)
     }
 
-    /// A double-click on a title, or Edit…: the popup, prefilled.
+    /// Edit…: the larger editor, prefilled.
     public func openEdit(_ item: Item) {
         editor = .edit(item)
+    }
+
+    /// ✎: this todo in the Reminders app, for everything Perch doesn't edit (subtasks, flags, alarms, …).
+    public func openInReminders(_ item: Item) {
+        openReminder(bridge?.link(for: item))
     }
 
     /// Tab / Shift-Tab in the popup.
@@ -288,8 +302,8 @@ public final class QueueModel: ObservableObject {
     }
 
     /// Return. Adding: `add` (source human, the chosen priority); the popup stays open, empty and back on Normal for
-    /// the next one. Editing: `update` with the title and priority, then the popup closes. False (and nothing sent)
-    /// while the title is blank.
+    /// the next one. Editing: what changed of the title, notes, due date, priority and URL, then the editor closes.
+    /// False (and nothing sent) while the title is blank.
     @discardableResult
     public func submitEditor() -> Bool {
         guard let editor, let title = editor.submittedTitle else { return false }
@@ -300,12 +314,15 @@ public final class QueueModel: ObservableObject {
             }
             self.editor = .add(fromPanel: editor.fromPanel)
         case .edit(let id):
-            let item = state.items[id]
-            write(Request(op: .update, id: id, patch: Request.Patch(title: title, priority: editor.priority))) {
-                guard let item else { throw RemindersError("no todo with id '\(id)'") }
-                try $0.update(item, title: title, priority: editor.priority)
-            }
             self.editor = nil
+            guard let item = state.items[id] else {
+                show("no todo with id '\(id)'")
+                return true
+            }
+            guard let edited = editor.edited(item) else { return false }
+            let patch = Request.Patch(from: item, to: edited)
+            guard !patch.isEmpty else { return true }
+            write(Request(op: .update, id: id, patch: patch)) { try $0.update(item, ReminderChange(from: item, to: edited)) }
         }
         return true
     }

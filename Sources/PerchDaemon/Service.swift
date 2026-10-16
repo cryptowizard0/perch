@@ -168,6 +168,9 @@ public final class Service {
         if patch.dueAt != nil && patch.clearDue == true {
             throw ServiceError("update takes either due_at or clear_due, not both")
         }
+        if patch.link != nil && patch.clearLink == true {
+            throw ServiceError("update takes either link or clear_link, not both")
+        }
         var item = original
         if let title = patch.title?.trimmingCharacters(in: .whitespacesAndNewlines) {
             guard !title.isEmpty else { throw ServiceError("title must not be empty") }
@@ -198,6 +201,9 @@ public final class Service {
             item.dueAt = nil
             item.dueDateOnly = false
         }
+        if let notes = patch.notes { item.notes = notes }
+        if let link = patch.link?.trimmingCharacters(in: .whitespacesAndNewlines) { item.link = link.isEmpty ? nil : link }
+        if patch.clearLink == true { item.link = nil }
         return item
     }
 
@@ -305,7 +311,7 @@ public final class Service {
                     priority: ItemPriority(reminderPriority: reminder.priority), source: Self.remindersSource,
                     dueAt: reminder.dueAt.map(Self.wholeSeconds), dueDateOnly: reminder.dueAt != nil && reminder.dueDateOnly,
                     link: reminder.url,
-                    meta: [Item.reminderMetaKey: reminder.externalID], key: ref.key,
+                    meta: Self.meta(of: reminder), key: ref.key,
                     createdAt: reminder.createdAt.map(Self.wholeSeconds) ?? old?.createdAt ?? t,
                     updatedAt: old?.updatedAt ?? t
                 )
@@ -326,6 +332,13 @@ public final class Service {
             try store.setTodosAsOf(t)
             return events
         }
+    }
+
+    /// What a cached todo keeps in `meta`: the reminder's identifier, and its notes when it has any.
+    static func meta(of reminder: Reminder) -> [String: String] {
+        var item = Item(title: "", meta: [Item.reminderMetaKey: reminder.externalID])
+        item.notes = reminder.notes
+        return item.meta ?? [:]
     }
 
     /// When the todo cache was last known to match Reminders (shown while no bridge is connected). A cache from before
@@ -448,21 +461,7 @@ public final class Service {
     /// An update to the cached todo `old` so it reads like `new`; nothing to do when they already agree.
     private func planChange(_ old: Item, to new: Item) throws -> TodoPlan {
         guard let reminder = old.reminderID else { throw ServiceError("\(old.id) is not a reminder") }
-        var change = ReminderChange()
-        if new.title != old.title { change.title = new.title }
-        if new.priority != old.priority { change.priority = new.priority.reminderPriority }
-        if (new.status == .done) != (old.status == .done) { change.completed = new.status == .done }
-        if new.dueAt != old.dueAt || new.dueDateOnly != old.dueDateOnly {
-            if let due = new.dueAt {
-                change.dueAt = due
-                change.dueDateOnly = new.dueDateOnly
-            } else {
-                change.clearDue = true
-            }
-        }
-        if new.link != old.link {
-            if let link = new.link { change.url = link } else { change.clearURL = true }
-        }
+        let change = ReminderChange(from: old, to: new)
         guard !change.isEmpty else { return .answer(Response(ok: true, item: old)) }
         return .bridge(TodoWrite(operation: TodoOperation(action: .update, externalID: reminder, change: change)))
     }

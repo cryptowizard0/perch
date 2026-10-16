@@ -214,7 +214,7 @@ import Testing
         try await until { model.todos.openCount == 0 }
 
         let after = try #require(store.entry(id))
-        #expect(after.notes == original.notes && after.flagged && after.list == original.list)
+        #expect(after.reminder.notes == original.reminder.notes && after.flagged && after.list == original.list)
         #expect(after.reminder.dueAt == due && after.reminder.url == "https://x.example")
         #expect(after.reminder.createdAt == original.reminder.createdAt)
         #expect(after.reminder.title == "Call Lin back" && after.reminder.priority == 1 && after.reminder.completed)

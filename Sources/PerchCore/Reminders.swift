@@ -13,10 +13,11 @@ public struct Reminder: Codable, Equatable, Sendable {
     /// The due date components have no time: `dueAt` is that day's midnight here.
     public var dueDateOnly: Bool
     public var url: String?
+    public var notes: String?
     public var createdAt: Date?
 
     public init(externalID: String, title: String, priority: Int = 0, completed: Bool = false, dueAt: Date? = nil,
-                dueDateOnly: Bool = false, url: String? = nil, createdAt: Date? = nil) {
+                dueDateOnly: Bool = false, url: String? = nil, notes: String? = nil, createdAt: Date? = nil) {
         self.externalID = externalID
         self.title = title
         self.priority = priority
@@ -24,11 +25,12 @@ public struct Reminder: Codable, Equatable, Sendable {
         self.dueAt = dueAt
         self.dueDateOnly = dueDateOnly
         self.url = url
+        self.notes = notes
         self.createdAt = createdAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case title, priority, completed, url
+        case title, priority, completed, url, notes
         case externalID = "external_id"
         case dueAt = "due_at"
         case dueDateOnly = "due_date_only"
@@ -44,12 +46,13 @@ public struct Reminder: Codable, Equatable, Sendable {
         dueAt = try c.decodeIfPresent(Date.self, forKey: .dueAt)
         dueDateOnly = try c.decodeIfPresent(Bool.self, forKey: .dueDateOnly) ?? false
         url = try c.decodeIfPresent(String.self, forKey: .url)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
     }
 }
 
 /// What Perch changes on a reminder. Unset fields stay as they are, and so does everything Perch doesn't manage
-/// (notes, alarms, repeat rules, subtasks, flags, tags, images).
+/// (repeat rules, subtasks, flags, tags, location reminders, images). Alarms only follow the due time (`alarms`).
 public struct ReminderChange: Codable, Equatable, Sendable {
     public var title: String?
     /// EventKit's 0–9 (`ItemPriority.reminderPriority`).
@@ -60,24 +63,27 @@ public struct ReminderChange: Codable, Equatable, Sendable {
     public var dueDateOnly: Bool?
     /// Removes the due date. Never together with `dueAt`.
     public var clearDue: Bool?
+    /// The notes; empty removes them.
+    public var notes: String?
     public var url: String?
     /// Removes the URL. Never together with `url`.
     public var clearURL: Bool?
 
     public init(title: String? = nil, priority: Int? = nil, completed: Bool? = nil, dueAt: Date? = nil,
-                dueDateOnly: Bool? = nil, clearDue: Bool? = nil, url: String? = nil, clearURL: Bool? = nil) {
+                dueDateOnly: Bool? = nil, clearDue: Bool? = nil, notes: String? = nil, url: String? = nil, clearURL: Bool? = nil) {
         self.title = title
         self.priority = priority
         self.completed = completed
         self.dueAt = dueAt
         self.dueDateOnly = dueDateOnly
         self.clearDue = clearDue
+        self.notes = notes
         self.url = url
         self.clearURL = clearURL
     }
 
     enum CodingKeys: String, CodingKey {
-        case title, priority, completed, url
+        case title, priority, completed, url, notes
         case dueAt = "due_at"
         case dueDateOnly = "due_date_only"
         case clearDue = "clear_due"
@@ -85,6 +91,38 @@ public struct ReminderChange: Codable, Equatable, Sendable {
     }
 
     public var isEmpty: Bool { self == ReminderChange() }
+
+    /// What turns the todo `old` into `new`: only the fields Perch manages that differ.
+    public init(from old: Item, to new: Item) {
+        self.init()
+        if new.title != old.title { title = new.title }
+        if new.priority != old.priority { priority = new.priority.reminderPriority }
+        if (new.status == .done) != (old.status == .done) { completed = new.status == .done }
+        if new.dueAt != old.dueAt || new.dueDateOnly != old.dueDateOnly {
+            if let due = new.dueAt {
+                dueAt = due
+                dueDateOnly = new.dueDateOnly
+            } else {
+                clearDue = true
+            }
+        }
+        if new.notes != old.notes { notes = new.notes ?? "" }
+        if new.link != old.link {
+            if let link = new.link { url = link } else { clearURL = true }
+        }
+    }
+
+    /// The reminder's absolute alarm times after this change, the way the Reminders app keeps them (#53): a due time
+    /// comes with an alarm at that time, which follows the time when it moves and goes when the time does. Every other
+    /// alarm stays. `oldDue`: the due date before the change.
+    public func alarms(_ existing: [Date], oldDue: Date?, oldDueDateOnly: Bool) -> [Date] {
+        guard dueAt != nil || clearDue == true else { return existing }
+        func same(_ a: Date, _ b: Date) -> Bool { abs(a.timeIntervalSince(b)) < 1 }
+        var alarms = existing
+        if let oldDue, !oldDueDateOnly { alarms.removeAll { same($0, oldDue) } }
+        if let due = dueAt, dueDateOnly != true, !alarms.contains(where: { same($0, due) }) { alarms.append(due) }
+        return alarms
+    }
 }
 
 /// A todo write perchd hands to the bridge (#52), pushed on the bridge's watch connection. The bridge applies it to the
@@ -165,4 +203,16 @@ extension Item {
     public static let reminderMetaKey = "reminder"
 
     public var reminderID: String? { meta?[Self.reminderMetaKey] }
+
+    /// A todo's notes (#53), kept in `meta` like the reminder's identifier. Setting nil or blank removes them.
+    public var notes: String? {
+        get { meta?[Self.notesMetaKey] }
+        set {
+            var meta = self.meta ?? [:]
+            meta[Self.notesMetaKey] = newValue.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+            self.meta = meta.isEmpty ? nil : meta
+        }
+    }
+
+    public static let notesMetaKey = "notes"
 }

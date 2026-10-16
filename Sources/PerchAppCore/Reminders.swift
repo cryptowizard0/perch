@@ -48,6 +48,9 @@ public protocol RemindersStore: AnyObject {
     func createReminder(inList list: String, _ fields: ReminderChange) throws -> String
     /// Whether the reminder is still in the list.
     func containsReminder(_ externalID: String, inList list: String) -> Bool
+    /// The reminder's identifier on this Mac (EventKit's `calendarItemIdentifier`), which the Reminders app's links
+    /// use; nil when it isn't in the list.
+    func localIdentifier(of externalID: String, inList list: String) -> String?
     /// Completing a repeating reminder does whatever EventKit does with it.
     func updateReminder(_ externalID: String, inList list: String, _ change: ReminderChange) throws
     func deleteReminder(_ externalID: String, inList list: String) throws
@@ -204,8 +207,21 @@ public final class RemindersBridge {
 
     /// Changes only what is given: the title and priority Perch shows, or completion.
     public func update(_ item: Item, title: String? = nil, priority: ItemPriority? = nil, completed: Bool? = nil) throws {
-        let change = ReminderChange(title: title, priority: priority?.reminderPriority, completed: completed)
+        try update(item, ReminderChange(title: title, priority: priority?.reminderPriority, completed: completed))
+    }
+
+    /// The larger editor's save (#53): exactly `change`, nothing else.
+    public func update(_ item: Item, _ change: ReminderChange) throws {
+        guard !change.isEmpty else { return }
         try store.updateReminder(try reminderID(item), inList: try readyList().id, change)
+    }
+
+    /// ✎ (#53): the Reminders app's link to this reminder, which opens Reminders on its list (checked on macOS 15, see
+    /// #50). Nil when it can't be found (no access, not in the list): then just open Reminders.
+    public func link(for item: Item) -> URL? {
+        guard let reminder = item.reminderID, let list,
+              let local = store.localIdentifier(of: reminder, inList: list.id) else { return nil }
+        return URL(string: "x-apple-reminderkit://REMCDReminder/\(local)")
     }
 
     public func delete(_ item: Item) throws {

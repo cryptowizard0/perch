@@ -11,9 +11,10 @@ final class FakeRemindersStore: RemindersStore {
     struct Entry: Equatable {
         var reminder: Reminder
         var list: String
-        var notes: String?
         var flagged = false
         var completedAt: Date?
+        /// Absolute alarms.
+        var alarms: [Date] = []
     }
 
     var authorization: RemindersAuthorization
@@ -76,6 +77,10 @@ final class FakeRemindersStore: RemindersStore {
         entries.contains { $0.reminder.externalID == externalID && $0.list == list }
     }
 
+    func localIdentifier(of externalID: String, inList list: String) -> String? {
+        containsReminder(externalID, inList: list) ? "local-\(externalID)" : nil
+    }
+
     func updateReminder(_ externalID: String, inList list: String, _ change: ReminderChange) throws {
         try readable(list)
         guard let i = entries.firstIndex(where: { $0.reminder.externalID == externalID && $0.list == list }) else {
@@ -86,6 +91,9 @@ final class FakeRemindersStore: RemindersStore {
     }
 
     private func apply(_ change: ReminderChange, to i: Int) {
+        entries[i].alarms = change.alarms(entries[i].alarms, oldDue: entries[i].reminder.dueAt,
+                                          oldDueDateOnly: entries[i].reminder.dueDateOnly)
+        if let notes = change.notes { entries[i].reminder.notes = notes.isEmpty ? nil : notes }
         if let title = change.title { entries[i].reminder.title = title }
         if let priority = change.priority { entries[i].reminder.priority = priority }
         if let completed = change.completed {
@@ -121,12 +129,13 @@ final class FakeRemindersStore: RemindersStore {
 
     @discardableResult
     func phoneAdd(_ title: String, priority: Int = 0, list name: String = "Perch", dueAt: Date? = nil, url: String? = nil,
-                  notes: String? = nil, flagged: Bool = false, completedAt: Date? = nil, createdAt: Date = Date()) -> String {
+                  notes: String? = nil, flagged: Bool = false, alarms: [Date] = [], completedAt: Date? = nil,
+                  createdAt: Date = Date()) -> String {
         let id = nextID("rem")
         let list = allLists.first { $0.title == name }!.id
         let reminder = Reminder(externalID: id, title: title, priority: priority, completed: completedAt != nil, dueAt: dueAt,
-                                url: url, createdAt: createdAt)
-        entries.append(Entry(reminder: reminder, list: list, notes: notes, flagged: flagged, completedAt: completedAt))
+                                url: url, notes: notes, createdAt: createdAt)
+        entries.append(Entry(reminder: reminder, list: list, flagged: flagged, completedAt: completedAt, alarms: alarms))
         changed()
         return id
     }

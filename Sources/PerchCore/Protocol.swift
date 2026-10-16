@@ -110,9 +110,15 @@ public struct Request: Codable, Sendable {
         public var dueDateOnly: Bool?
         /// Removes `due_at`. Cannot be combined with `due_at`.
         public var clearDue: Bool?
+        /// A todo's notes (#53, `Item.notes`); empty removes them.
+        public var notes: String?
+        public var link: String?
+        /// Removes `link`. Cannot be combined with `link`.
+        public var clearLink: Bool?
 
         public init(title: String? = nil, kind: ItemKind? = nil, status: ItemStatus? = nil, priority: ItemPriority? = nil,
-                    dueAt: Date? = nil, dueDateOnly: Bool? = nil, clearDue: Bool? = nil) {
+                    dueAt: Date? = nil, dueDateOnly: Bool? = nil, clearDue: Bool? = nil, notes: String? = nil,
+                    link: String? = nil, clearLink: Bool? = nil) {
             self.title = title
             self.kind = kind
             self.status = status
@@ -120,17 +126,41 @@ public struct Request: Codable, Sendable {
             self.dueAt = dueAt
             self.dueDateOnly = dueDateOnly
             self.clearDue = clearDue
+            self.notes = notes
+            self.link = link
+            self.clearLink = clearLink
         }
 
         enum CodingKeys: String, CodingKey {
-            case title, kind, status, priority
+            case title, kind, status, priority, notes, link
             case dueAt = "due_at"
             case dueDateOnly = "due_date_only"
             case clearDue = "clear_due"
+            case clearLink = "clear_link"
         }
 
         public var isEmpty: Bool {
             title == nil && kind == nil && status == nil && priority == nil && dueAt == nil && clearDue != true
+                && notes == nil && link == nil && clearLink != true
+        }
+
+        /// What turns `old` into `new`: title, priority, due date, notes and link, only where they differ.
+        public init(from old: Item, to new: Item) {
+            self.init()
+            if new.title != old.title { title = new.title }
+            if new.priority != old.priority { priority = new.priority }
+            if new.dueAt != old.dueAt || new.dueDateOnly != old.dueDateOnly {
+                if let due = new.dueAt {
+                    dueAt = due
+                    dueDateOnly = new.dueDateOnly
+                } else {
+                    clearDue = true
+                }
+            }
+            if new.notes != old.notes { notes = new.notes ?? "" }
+            if new.link != old.link {
+                if let link = new.link { self.link = link } else { clearLink = true }
+            }
         }
     }
 }

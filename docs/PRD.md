@@ -77,7 +77,7 @@ v0.1 只做一个闭环：agent 在等你 → 刘海亮 → 就地处理或跳�
 | markdown 双向同步 | daemon 持有 SQLite 时，手改文件再同步是冲突和重复 id 的集中产地；改为只读镜像 + 追加式收件箱 |
 | 音乐控制、系统 HUD、文件中转 | 现有 13 家都在做，不是本产品的差异化 |
 | 项目、标签、子任务、重复任务、拖动排序、"今天完成的" | todo 只是底座，不追求完整的任务管理 |
-| Perch 自己的到期提醒、推迟、日历（Todo tab） | 提醒只由 Reminders 自己发一次；刘海里的时间不能和"agent 在等你"抢信号，收起态永远不管 todo。到期日期只在 Todo tab 的行里显示（#53），不参与排序 |
+| Perch 自己的到期提醒、推迟、日历（Todo tab） | 提醒只由 Reminders 自己发一次（Perch 设时间时加的 alarm 也是 Reminders 发的，#53）；刘海里的时间不能和"agent 在等你"抢信号，收起态永远不管 todo。到期日期只在 Todo tab 的行里显示（#53），不参与排序 |
 | notice 转 task（Todo tab） | notice 是 agent 的告知，不是人的待办；Todo tab 只放 "Perch" 列表里的待办 |
 | agent 给人留 todo（agent 图标、跳回链接、给 agent 的说明） | Todo tab 只给人自己写的待办；`perch add` 不变，只是不推荐给 agent |
 | 在刘海面板里直接打字、任何输入语法（优先级标记、`@15:00`） | 刘海面板永远不拿键盘焦点；打字只在单独的弹窗里，输入什么存什么 |
@@ -287,7 +287,7 @@ v0.2 时 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task�
 
 **实时性指标**：CLI / hook 调用到刘海更新 ≤ 200 ms，靠 daemon 推事件，不轮询。
 
-## Todo tab（2026-10-15，#41 / #42 / #43；2026-10-16 起是 Reminders 的 "Perch" 列表，#50）
+## Todo tab（2026-10-15，#41 / #42 / #43；2026-10-16 起是 Reminders 的 "Perch" 列表，#50；日期、✎、大编辑器 #53）
 
 展开态的第二个 tab："Perch" Reminders 列表里的待办（#50，见下方"Reminders"），按优先级分组。样子跟着 Sapphire 的刘海：黑底面板、粗大标题加一行灰色摘要、导航图标在刘海旁边的条带里。
 
@@ -304,7 +304,9 @@ v0.2 时 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task�
 - 没有 Reminders 权限或列表时，整个 tab 只有一行说明和一个按钮（见"Reminders"）。
 - 只显示 open 的 task（notice、request、等待中的、做完的都不显示），按 High / Normal / Low 分组。组标题带数量、和 Agents 的组标题同一个样式、空组不显示；High 的组标题白色，其余灰色。**优先级不用颜色**：橙、红、绿、蓝只属于 agent 状态。
 - 组内最老的在前；改了优先级的待办按创建时间排进新组。
-- 每行一行：圆圈 + 标题，太长尾部截断，悬停显示完整标题。没有时间、来源、链接。
+- 每行一行：`○ 标题 … 日期 ✎`（#53）。标题太长尾部截断；悬停显示完整标题和完整日期（"Friday, October 16, 2026 at 15:00"）。没有来源、链接。
+- 日期（有到期日期时）：灰色；今天是 "Today"，明天 "Tomorrow"，一周内是星期几（"Thursday"），再往后 "Oct 20"，不是今年的带年份（"Jan 5, 2027"），过去的日期也是这种写法；有时间的后面加时间（"Today 15:00"）。过期的是白色，从不用 agent 的颜色；只有日期的那天结束才算过期。日期不参与排序，仍然是优先级分组、组内最老的在前。标签由 `TodoList.dueLabel` 算（可注入 now 和日历）。
+- ✎ 一直显示：点了用 Reminders 的链接 `x-apple-reminderkit://REMCDReminder/<本机标识符>`（EventKit 的 `calendarItemIdentifier`）打开那条提醒，Reminders 切到它所在的列表（macOS 15 实测，见 #50），刘海收起；找不到那条提醒时只打开 Reminders。备注、子任务、旗标、提醒等 Perch 不编辑的东西都在那里改。
 - 列表超过面板最大高度时滚动；底部固定一行 "+ Add a todo"。
 
 **交互**
@@ -312,20 +314,23 @@ v0.2 时 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task�
 | 操作 | 效果 |
 | --- | --- |
 | 点圆圈 | 打勾、标题划掉、出现 Undo；3 秒后在 Reminders 里完成，行消失。3 秒内点 Undo 或再点圆圈就取消，Reminders 不动。计时在刘海的数据模型里，不在视图里，所以刘海收起后照样完成；3 秒内退出 Perch，待办保持未完成 |
-| 单击标题 | 什么都不做（防误点） |
-| 双击标题、右键 → Edit… | 打开弹窗（编辑），预填标题和优先级 |
+| 单击标题 | 和点圆圈一样：完成，带 3 秒 Undo（#53；整行都是好点的目标，点错了 Undo 就行） |
+| 双击 | 什么都不多做：第二下落在系统的双击间隔里就忽略（`QueueModel.doubleClickInterval`），所以就是一次单击；过了间隔再点才是 Undo |
+| ✎ | 在 Reminders 里打开那条提醒，刘海收起 |
+| 右键 → Edit… | 打开大编辑器（#53），预填 |
 | 右键 → Priority ▸ | High / Normal / Low，当前的打勾；改完移到新组 |
 | 右键 → Delete | 立刻删掉那条提醒，不确认；它进 Reminders 的"最近删除" |
 | "+ Add a todo" | 打开弹窗（添加），面板保持展开，弹窗在面板正下方 |
 | ⌥⇧Space（任何地方） | 打开弹窗（添加），在刘海正下方，刘海保持收起；再按一次关掉。`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改，重启生效 |
 
-**弹窗**：刘海面板永远不拿键盘焦点，所有打字都在这个单独的小弹窗里。它是不激活 App 却能成为 key window 的面板（M2 快速录入同一个技巧），所以终端一直是前台 App；深色外观。
+**弹窗**：刘海面板永远不拿键盘焦点，所有打字都在单独的弹窗里：添加用小弹窗，编辑用大编辑器（#53）。它是不激活 App 却能成为 key window 的面板（M2 快速录入同一个技巧），所以终端一直是前台 App；深色外观。
 - 一个标题输入框，下面一排 High / Normal / Low 按钮，默认 Normal。Tab 选下一个优先级，Shift-Tab 上一个，按钮也能点（输入法正在组字时 Tab 留给输入法）。
 - **不解析**：去掉首尾空白后原样存成标题，没有优先级标记、没有 `@15:00`。空白输入按 Return 什么都不做。
 - 添加：Return 在 "Perch" 列表里建一条提醒（选中的优先级），弹窗不关、清空、回到 Normal，可以连续加。面板展开时新加的那一行高亮 1 秒。
-- 编辑：Return 改那条提醒的标题和优先级并关闭（别的字段不动）；Esc 什么都不改。
+- 编辑（#53）：大一点的同类弹窗，照着 Reminders 的详情做：标题、备注、日期开关加时间开关（打开日期是今天；打开时间是今天的下一个整点、别的日子 09:00）、High / Normal / Low、URL。Return 在任何一栏都保存并关闭（备注里 Shift / Option-Return 换行），Tab / Shift-Tab 在栏之间移动（备注里也是，不插入制表符），Esc 什么都不改。只写改了的字段；重复规则、子任务、标签、旗标、位置提醒、图片一律不动。备注随快照进缓存（`meta.notes`），编辑器才看得到。
+- 时间会提醒：Reminders App 设了时间就同时加一个那个时间的提醒（alarm），只设 EventKit 的到期日期组件不会（#50 的 spike）。所以 Perch（刘海编辑器、`perch add --due @15:00`）设时间时也加一个那个时间的绝对提醒；时间改了，原来在旧时间的那个跟着走；变成只有日期或去掉日期时它也去掉。别的提醒（自定义时间、位置、相对的）不动。
 - Esc 或点别处关闭。从面板打开时，面板在弹窗关闭前一直展开，关掉后恢复正常的悬停收起。
-- 弹窗的状态（添加 / 编辑、标题、选中的优先级、能不能提交）在刘海的数据模型里（`TodoEditor`），弹窗只负责画和转发按键。
+- 弹窗的状态（添加 / 编辑、标题、优先级、备注、日期、时间、URL、能不能提交）在刘海的数据模型里（`TodoEditor`），弹窗只负责画和转发按键。不是 bridge 的 App 编辑时经 perchd 交给 bridge（`update` 的 patch 多了 `notes` / `link` / `clear_link`）。
 
 **CLI 和文件**：`perch add|update --priority high|normal|low`（`-p`），不给就是 Normal，值不对是用法错误（exit 64）。`perch ls` 和 `todo.md` 的 "To do" 按优先级排（High、Normal、Low，然后是原来的队列顺序），标出 High 和 Low。`inbox.md` 没有优先级语法，进来的都是 Normal。HTTP 客户端不带 `priority` 照常工作。#51 起 todo 来自 Reminders：`perch ls`、`todo.md` 照常显示（每条都有短 id，手机上加的也有）。
 

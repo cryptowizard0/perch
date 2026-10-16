@@ -102,3 +102,61 @@ import Testing
         #expect(PanelTab.opening(picked: .todo, panel: Panel(sessions: [])) == .todo)
     }
 }
+
+/// The Todo tab's due dates (#53): a fixed now and calendar, English labels.
+@Suite struct DueLabelTests {
+    var calendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        return c
+    }
+    /// Friday 2026-10-16 10:20 in Shanghai.
+    var now: Date { day(16, 10, 20) }
+
+    func day(_ d: Int, _ hour: Int = 0, _ minute: Int = 0, month: Int = 10, year: Int = 2026) -> Date {
+        calendar.date(from: DateComponents(year: year, month: month, day: d, hour: hour, minute: minute))!
+    }
+
+    func label(_ due: Date?, dateOnly: Bool = true) -> TodoList.DueLabel? {
+        TodoList.dueLabel(Item(title: "x", dueAt: due, dueDateOnly: dateOnly), now: now, calendar: calendar)
+    }
+
+    @Test func daysReadTodayTomorrowWeekdayThenDate() {
+        #expect(label(nil) == nil)
+        #expect(label(day(16))?.text == "Today")
+        #expect(label(day(17))?.text == "Tomorrow")
+        #expect(label(day(18))?.text == "Sunday")
+        #expect(label(day(22))?.text == "Thursday")
+        #expect(label(day(23))?.text == "Oct 23")
+        #expect(label(day(3, month: 12))?.text == "Dec 3")
+        #expect(label(day(5, month: 1, year: 2027))?.text == "Jan 5, 2027")
+        #expect(label(day(14))?.text == "Oct 14")
+        #expect(label(day(20, month: 6, year: 2025))?.text == "Jun 20, 2025")
+    }
+
+    @Test func aTimeIsShownWhenTheReminderHasOne() {
+        #expect(label(day(16, 15), dateOnly: false)?.text == "Today 15:00")
+        #expect(label(day(17, 9, 5), dateOnly: false)?.text == "Tomorrow 09:05")
+        #expect(label(day(23, 18, 30), dateOnly: false)?.text == "Oct 23 18:30")
+        #expect(label(day(16, 15), dateOnly: false)?.full == "Friday, October 16, 2026 at 15:00")
+        #expect(label(day(16))?.full == "Friday, October 16, 2026")
+    }
+
+    /// A whole day is overdue once it is over; a time once it has passed.
+    @Test func overdue() {
+        #expect(label(day(16))?.overdue == false)
+        #expect(label(day(15))?.overdue == true)
+        #expect(label(day(16, 9), dateOnly: false)?.overdue == true)
+        #expect(label(day(16, 11), dateOnly: false)?.overdue == false)
+    }
+
+    /// Dates don't change the order: priority groups, oldest first.
+    @Test func datesDontReorder() {
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        let list = TodoList(items: [
+            Item(id: "old", title: "old", dueAt: day(30), createdAt: t0),
+            Item(id: "new", title: "new", dueAt: day(1), createdAt: t0.addingTimeInterval(60)),
+        ])
+        #expect(list.items.map(\.id) == ["old", "new"])
+    }
+}
