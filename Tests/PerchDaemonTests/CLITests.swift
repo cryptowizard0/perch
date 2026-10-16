@@ -136,6 +136,18 @@ struct CLITests {
         #expect(try cli.run("ls", "--json").json.items?.map(\.title) == ["needs input"])
     }
 
+    /// Help paragraphs are one line each in the source, so ArgumentParser wraps them to the terminal (no breaks in odd
+    /// places): in a wide terminal every paragraph prints as a single line.
+    @Test func helpParagraphsWrapToTheTerminal() throws {
+        let cli = CLI(home: URL(fileURLWithPath: "/tmp/perch-test-help"))
+        let add = try cli.run(["add", "--help"], env: ["COLUMNS": "300"]).stdout
+        #expect(add.contains("\nWith --kind request --wait, blocks until someone responds and prints the answer (exit 0). If the request"))
+        #expect(add.contains("\nOpen and done tasks are todos: they live in the \"Perch\" list in Apple Reminders, so adding one needs Perch.app"))
+        let update = try cli.run(["update", "--help"], env: ["COLUMNS": "300"]).stdout
+        #expect(update.contains("\nSnooze: perch update <id> --due +30m. Keep a notice as a task: perch update <id> --kind task (it stops"))
+        #expect(update.contains("changed through Perch.app: --status open reopens a done one"))
+    }
+
     @Test func dueSyntax() throws {
         let d = try TestDaemon()
         let cli = CLI(home: d.home)

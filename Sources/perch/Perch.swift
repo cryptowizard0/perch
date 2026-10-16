@@ -73,11 +73,11 @@ struct Add: ParsableCommand {
         discussion: """
         With --key, adding again updates the same item instead of creating a new one.
 
-        With --kind request --wait, blocks until someone responds and prints the answer (exit 0).
+        With --kind request --wait, blocks until someone responds and prints the answer (exit 0). \
         If the request expires (--expires), is closed or removed first, exits 3 with no answer.
 
-        Open and done tasks are todos: they live in the "Perch" list in Apple Reminders, so adding one needs
-        Perch.app running (it fails otherwise, and nothing is queued). --source, --meta and --expires are not
+        Open and done tasks are todos: they live in the "Perch" list in Apple Reminders, so adding one needs \
+        Perch.app running (it fails otherwise, and nothing is queued). --source, --meta and --expires are not \
         stored for them.
         """
     )
@@ -226,10 +226,10 @@ struct Update: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Change an item's title, kind, status, priority or due time.",
         discussion: """
-        Snooze: perch update <id> --due +30m. Keep a notice as a task: perch update <id> --kind task
+        Snooze: perch update <id> --due +30m. Keep a notice as a task: perch update <id> --kind task \
         (it stops expiring). Requests keep their kind.
 
-        Open and done tasks are todos in the "Perch" Reminders list, changed through Perch.app: --status open
+        Open and done tasks are todos in the "Perch" Reminders list, changed through Perch.app: --status open \
         reopens a done one, --status dismissed deletes it, and a waiting task set to open moves into Reminders.
         """
     )
