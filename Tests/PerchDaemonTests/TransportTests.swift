@@ -12,7 +12,7 @@ import Testing
         #expect(try d.client.send(Request(op: .get, id: added.id)).item == added)
         #expect(try d.client.send(Request(op: .list)).items == [added])
         #expect(try d.client.send(Request(op: .respond, id: added.id, value: "allow")).item?.response == "allow")
-        let other = try #require(try d.client.send(Request(op: .add, item: Item(title: "b"))).item)
+        let other = try #require(try d.client.send(Request(op: .add, item: Item(title: "b", status: .waiting))).item)
         #expect(try d.client.send(Request(op: .done, id: other.id)).item?.status == .done)
         #expect(try d.client.send(Request(op: .remove, id: other.id)).ok)
         #expect(try d.client.send(Request(op: .list, filter: .init(all: true))).items?.map(\.id) == [added.id])
@@ -20,7 +20,7 @@ import Testing
 
     @Test func minimalJSONOverHTTP() throws {
         let d = try TestDaemon()
-        let (status, body) = try d.post(#"{"op":"add","item":{"title":"from hermes","source":"hermes"}}"#)
+        let (status, body) = try d.post(#"{"op":"add","item":{"title":"from hermes","source":"hermes","status":"waiting"}}"#)
         #expect(status == 200)
         let item = try #require(try PerchJSON.decoder.decode(Response.self, from: Data(body.utf8)).item)
         #expect(item.source == "hermes")
@@ -38,7 +38,7 @@ import Testing
 
     @Test func survivesRestartOnSameDatabase() throws {
         let d = try TestDaemon()
-        let item = try #require(try d.client.send(Request(op: .add, item: Item(title: "persist"))).item)
+        let item = try #require(try d.client.send(Request(op: .add, item: Item(title: "persist", kind: .notice))).item)
         let reopened = try Store(path: d.daemon.config.databasePath)
         #expect(try reopened.get(id: item.id) == item)
     }

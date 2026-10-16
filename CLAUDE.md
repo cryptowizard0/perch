@@ -14,6 +14,8 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 
 **2026-10-15（#41 / #42 / #43，M12）**：todo 作为展开态的 **Todo tab** 回来，只放人手写的待办，任何地方都没有日期和时间。展开时刘海左边的条带是 Agents（小怪物，Needs you 橙点 / Failed 红点）和 Todo（清单，灰色未完成数）两个图标；有 Needs you / Failed 会话时总是打开在 Agents，否则打开在上次手动选的 tab（只在内存里），打开着从不自己换 tab。Todo tab 按 High / Normal / Low 分组（优先级不用颜色），组内最老的在前；点圆圈 3 秒后 `done`（Undo 可撤，计时在 `QueueModel`，收起后照样完成）；双击标题 / 右键 Edit… 编辑，右键 Priority ▸ / Delete（立刻 `rm`）。**刘海面板永远不拿键盘焦点**：打字只在单独的弹窗里（不激活 App 却能成为 key 的 `NSPanel`，`PerchApp/TodoPopup.swift`），⌥⇧Space 在刘海下面打开（刘海保持收起），"+ Add a todo" 在面板下面打开（面板保持展开）；输入什么存什么，不解析。收起态（小怪物、运行数、横幅、声音）只管 agent，todo 永远不影响它。逻辑在 `PerchAppCore` 的 `PanelTab` / `TodoList` / `TodoEditor` 和 `QueueModel`。设计见 `docs/PRD.md` 的"Todo tab"。
 
+**2026-10-16（#50 / #51，M13）**：todo 的唯一真相搬到 Apple Reminders 里叫 **"Perch"** 的列表（隔离运行，即设了 `PERCH_HOME`，用 "Perch Dev"），iCloud 把它同步到手机；上面 #41 说的"只放人手写的待办"从此是"放 "Perch" 列表里的待办"。只有 Perch.app 拿得到 Reminders 权限（launchd 起的 perchd 拿不到），所以 App 是 **bridge**：`bridge_register` 报名（perchd 同时只收一个，断开时下一个接手），把列表的完整快照（未完成 + 7 天内完成的）用 `todo_snapshot` 发给 perchd（连上时、每次 `EKEventStoreChanged`、自己写完立刻发），自己的 Todo tab 直接写 Reminders（完成、添加、改优先级、删除，Perch 不管的字段一律不动）。perchd 只存快照的只读缓存（open / done 的 task item，source `reminders`）和短 id 引用表 `todo_refs`（schema v5，迁移删掉旧的 open / done task）。Todo tab 没有权限或列表时只有一个按钮：Connect Reminders / Open System Settings / Create Perch list（被删的列表从不自动重建）；列表不在 iCloud 时写 "Not syncing — no iCloud"；空状态只有 "All clear"。#52 之前 CLI 对 todo 的写一律失败（"Todo needs Perch.app running with Reminders access"），`inbox.md` 的行留在文件里。接缝是 `PerchAppCore/Reminders.swift` 的 `RemindersStore`，EventKit 实现在 `PerchApp/EventKitReminders.swift`；测试只用假 Reminders。
+
 **2026-10-12（v0.5，#31 / M11）**：接入 Grok Build（xAI 的 `grok` CLI），v0.5 接更多 agent（#24）的第一个。刘海永远不能批准 Grok，只提示"Answer in the terminal"。
 
 ## 仓库结构
@@ -22,7 +24,7 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 Package.swift            SwiftPM：PerchCore（库）、perch（CLI）、perchd（daemon）、PerchApp（刘海 App）
 Sources/PerchCore/       模型、wire protocol、路径、纯解析/渲染。所有客户端共享，不含任何 I/O
 Sources/PerchClient/     Unix socket 客户端（CLI 和刘海 App 共用）；sysctl 读进程（hook 找 agent、perchd 存活检测）
-Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd、自检和设置行（`Setup` / `AppSetup` / `SetupModel`）、开机启动（`LoginItem`）、tab 和 Todo tab（`PanelTab` / `TodoList` / `TodoEditor`）
+Sources/PerchAppCore/    刘海 App 的可测逻辑（库，不含 AppKit）：几何、队列状态、提醒、快捷键解析、连接 perchd、自检和设置行（`Setup` / `AppSetup` / `SetupModel`）、开机启动（`LoginItem`）、tab 和 Todo tab（`PanelTab` / `TodoList` / `TodoEditor`）、Reminders 接缝和 bridge（`RemindersStore` / `RemindersBridge`）
 Sources/PerchDaemon/     daemon 的全部逻辑（库，便于测试）：SQLite、请求处理、socket/HTTP、文件镜像
 Sources/PerchSetup/      安装 Perch（库，有 I/O）：agent hook 文件读写、perchd 的 launchd agent、agents.json、固定安装位置、状态评估（纯函数 `Setup.evaluate`）、卸载；CLI / perchd / 刘海 App 共用
 Tests/PerchSetupTests/   状态评估的纯函数测试；`perch setup` / `uninstall` 的端到端测试在 PerchDaemonTests/SetupCLITests（临时 HOME + 假 launchctl）
@@ -63,11 +65,11 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 
 ## 不可动摇的架构决定
 
-1. **daemon 是唯一真相。** 只有 `perchd` 打开 SQLite。CLI、刘海 App、Hermes 全是客户端，谁都不直接碰数据库。
+1. **daemon 是唯一真相。** 只有 `perchd` 打开 SQLite。CLI、刘海 App、Hermes 全是客户端，谁都不直接碰数据库。例外是 todo（#51）：它的真相是 Reminders 的 "Perch" 列表，perchd 只存可重建的缓存，只有 bridge App 写 Reminders。
 2. **CLI 是唯一契约。** 任何能跑 shell 的 agent 零学习成本接入；存储格式可以随时换，CLI 参数不能随便改。全部子命令支持 `--json`；`add --key` 幂等。
 3. **推事件，不轮询。** daemon 通过 socket 广播 `Event`，刘海 UI 订阅。CLI 调用到刘海更新 ≤ 200 ms。
 4. **传输层。** Unix socket `~/.perch/perchd.sock`（本机），加 `127.0.0.1:7331` HTTP（给跑在容器里、够不着 socket 的客户端，`host.docker.internal:7331`；本机的 Hermes 走 hook，见下）。两者跑同一套 JSON（`Sources/PerchCore/Protocol.swift`）：socket 上是 newline-delimited JSON，HTTP 上是 `POST /rpc`；`watch` 保持连接并逐行推送带 `event` 的 `Response`。
-5. **文件是单向的。** `~/.perch/todo.md` 是 daemon 渲染的只读镜像；`~/.perch/inbox.md` 是追加式收件箱，daemon 监听到 `- [ ] …` 就吸收进库并清空。**没有双向同步，永远不要实现。**
+5. **文件是单向的。** `~/.perch/todo.md` 是 daemon 渲染的只读镜像；`~/.perch/inbox.md` 是追加式收件箱，daemon 监听到 `- [ ] …` 就吸收进库并清空（#51 起暂停，等 #52 经 bridge 写进 Reminders）。**没有双向同步，永远不要实现。** Reminders（#51）也不是双向同步：只有一个真相（"Perch" 列表），SQLite 里只是它最近一次快照的只读缓存加短 id 引用，丢了能重建，缓存只由快照写。
 6. **刘海只是快捷通道，不是唯一通道。** hook 等刘海响应 15–30 秒，超时不返回决定，终端原生提示照常弹出。任何情况下都不会因为 Perch 而默认放行。
 7. **一种语言。** 全部 Swift 5.9 / macOS 14+。daemon 和 CLI 打成单二进制。
 
@@ -75,6 +77,7 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 
 一张 `items` 表，字段与 `Item`（`Sources/PerchCore/Models.swift`）一一对应，JSON 用 snake_case，日期 ISO-8601：
 `id`（4 位可手打，如 `t7k2`）、`title`、`kind`（task / notice / request）、`status`（open / waiting / done / dismissed）、`priority`（high / normal / low，默认 normal；schema v4，#42）、`source`（自由字符串）、`due_at`（刘海不再用，只为兼容留着）、`link`、`meta`、`key`、request 专用的 `options` / `response` / `expires_at`、`created_at` / `updated_at`。
+todo（#51，schema v5）：open / done 的 task 是 "Perch" Reminders 列表的缓存，只有 bridge 的 `todo_snapshot` 写；`todo_refs`（`id` ↔ `external_id`（`calendarItemExternalIdentifier`）↔ `key`）给它们短 id，引用从不删（提醒回来短 id 不变）。缓存的 item：source `reminders`、`meta.reminder` 是外部标识符；字段对应：优先级 1–4 → high、0 / 5 → normal、6–9 → low（写 1 / 0 / 9），完成 → done，到期 → `due_at`，URL → link，创建时间 → `created_at`。等待中的 task、notice、request 仍是 perchd 自己的。
 `kind` 区分 task 和 notice 是刻意的："agent 完成了"不是待办，混在一起会稀释橙色信号。
 优先级（#42）：`perch add|update --priority high|normal|low`（`-p`），值不对是用法错误（exit 64）；JSON 里缺省就是 normal（HTTP 客户端照旧）；`update` 的 patch 可以改它，同 `key` 重新 add 也会改。`queueOrdered`（`perch ls`、`todo.md`）把 open 的 task 按 High / Normal / Low 排在一起，各组内还是原来的队列顺序；`ls` 和 `todo.md` 标出 High / Low。inbox 没有优先级语法。schema v4 是 `ALTER TABLE items ADD COLUMN priority … DEFAULT 'normal'`，老数据都是 Normal。
 
@@ -158,7 +161,7 @@ PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permissi
 
 ## 范围守卫（不要做）
 
-dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里回答 agent 提问）、MCP server、markdown 双向同步、音乐控制、系统 HUD、文件中转、项目 / 标签 / 子任务 / 重复任务、云同步、iPhone、日历、多用户。Todo tab（#41）另外不做：到期时间 / 提醒 / 推迟、notice 转 task、agent 给人留 todo、在刘海面板里打字或任何输入语法、删除确认 / 撤销。
+dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里回答 agent 提问）、MCP server、markdown 双向同步、音乐控制、系统 HUD、文件中转、项目 / 标签 / 子任务 / 重复任务、自己的同步（多设备只通过 Apple Reminders 的 "Perch" 列表）、iPhone App、日历、多用户。Todo tab（#41）另外不做：Perch 自己的到期提醒 / 推迟、notice 转 task、agent 给人留 todo、在刘海面板里打字或任何输入语法、删除确认 / 撤销。Reminders（#50）另外不做：读 "Perch" 以外的列表或选别的列表、没有权限时的本地 todo 模式、迁移旧的本地 todo、在提醒里写任何 Perch 专用的标记、request / notice / 等待中的 task 进 Reminders、todo 影响收起态。
 遇到"顺手加一个"的冲动，先看 `docs/PRD.md` 的"不做，及原因"。
 
 ## 代码与提交约定
@@ -178,5 +181,6 @@ dispatch（从刘海派任务给 agent）、stop / cancel、reply（在刘海里
 - ~~Claude 桌面 App 里的会话能否沿父进程链找到 agent 的 pid~~ 已定（M7 实测）：能。桌面 App 每个会话一个 `claude` 进程（`Claude` → `disclaimer` → `claude`），会话进程退出就移除。Codex 桌面 App（ChatGPT.app）所有会话共用一个 `codex app-server` 进程，只有退出 App 才会按 pid 清掉。
 - ~~全屏 App 下刘海面板是否可见~~ 已定（M8 实测）：可见。`NotchPanel` 是 `.fullScreenAuxiliary` + `.canJoinAllSpaces`、层级在菜单栏之上，全屏 Ghostty 里能悬停展开、能看到脉冲。
 - ~~`SMAppService` 在 ad-hoc 签名、未公证的 App 上能不能用~~ 已定（2026-10-12 实测，#28）：能。ad-hoc 签名、没有 TeamIdentifier 的测试 bundle 调 `SMAppService.mainApp.register()` 后状态 notFound → enabled，`unregister()` 后回到 notRegistered，所以不需要给 App 另装 launchd agent 兜底。注销 / 重新登录后真的启动、出现在 系统设置 → 通用 → 登录项、菜单里取消后消失：2026-10-12 维护者在第二台 Mac 上验收通过。
+- Perch.app 的签名（#51）：现在是 ad-hoc 签名，designated requirement 改成 `identifier "dev.perch.app"`（`scripts/bundle-app.sh`），Reminders 权限才能跨重新编译和升级保留（默认的 cdhash 每次编译都丢，探针验证过）。已知风险：任何自称这个 bundle id 的 App 都继承权限。自签证书或 Developer ID 留到公开分发之前再定；hardened runtime 没开，不需要 entitlement。
 - hook 等刘海的超时：先用 20 秒（M4 定，`perch hooks install claude-code --wait N` 可改），用一周后再看。
 - ~~开源许可证~~ 已定（2026-10-08，#4）：MIT，见 `LICENSE`。借来的第三方文件保留自己的版权头和许可证（NotchDo 是 MIT，`CGSSpace.swift` 是 MPL-2.0），Boring Notch（GPL-3.0）仍然不能碰。

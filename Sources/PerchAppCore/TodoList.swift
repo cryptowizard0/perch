@@ -1,8 +1,9 @@
 import Foundation
 import PerchCore
 
-/// The Todo tab (#41): the human's open tasks, grouped High / Normal / Low, oldest first in each group. Notices,
-/// requests and closed items stay out, and nothing here reads a date: priority is the only order besides age.
+/// The Todo tab (#41): the open todos (the "Perch" Reminders list, #51), grouped High / Normal / Low, oldest first in
+/// each group. Notices, requests, waiting and closed items stay out, and nothing here reads a date: priority is the
+/// only order besides age.
 public struct TodoList: Equatable, Sendable {
     public struct Group: Equatable, Sendable, Identifiable {
         public var priority: ItemPriority
@@ -15,11 +16,9 @@ public struct TodoList: Equatable, Sendable {
     public let groups: [Group]
     public let openCount: Int
     public let highCount: Int
-    /// Whether there has ever been a todo (open or done), for the empty state.
-    public let hadAny: Bool
 
-    /// `items`: any items (only open tasks are kept). `hadAny`: a todo has existed before, even if none is open now.
-    public init(items: some Sequence<Item>, hadAny: Bool) {
+    /// `items`: any items (only open tasks are kept).
+    public init(items: some Sequence<Item>) {
         let open = items.filter { $0.kind == .task && $0.status == .open }
         groups = ItemPriority.allCases.compactMap { priority in
             let members = open.filter { $0.priority == priority }
@@ -28,12 +27,11 @@ public struct TodoList: Equatable, Sendable {
         }
         openCount = open.count
         highCount = open.filter { $0.priority == .high }.count
-        self.hadAny = hadAny || !open.isEmpty
     }
 
-    /// The gray line under the title: "6 open · 2 high", "6 open", "All clear", or "Nothing to do yet.".
+    /// The gray line under the title: "6 open · 2 high", "6 open", or "All clear".
     public var summary: String {
-        guard openCount > 0 else { return hadAny ? "All clear" : "Nothing to do yet." }
+        guard openCount > 0 else { return "All clear" }
         return highCount > 0 ? "\(openCount) open · \(highCount) high" : "\(openCount) open"
     }
 

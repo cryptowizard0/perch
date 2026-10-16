@@ -1,15 +1,17 @@
+import AppKit
 import PerchAppCore
 import PerchCore
 import SwiftUI
 
 /// The expanded band, left of the notch (#41): the Agents icon (the mascot) and the Todo icon (a checklist). The
 /// current tab is white, the other gray. Agents carries an orange dot while a session needs you, else a red one while
-/// one failed; Todo carries the open count, gray, hidden at 0. Clicking switches tabs.
+/// one failed; Todo carries the open count, gray, hidden at 0 (and while the Reminders list can't be read). Clicking
+/// switches tabs.
 struct TabStrip: View {
     @ObservedObject var queue: QueueModel
 
     var body: some View {
-        let count = queue.todos.openCount
+        let count = queue.showsTodos ? queue.todos.openCount : 0
         HStack(spacing: 14) {
             tabButton(.agents, help: "Agents") {
                 MascotIcon(color: color(.agents))
@@ -76,19 +78,27 @@ struct MascotIcon: View {
 }
 
 /// The Todo tab: a big title over the summary line, then the open todos grouped High / Normal / Low, one line each.
+/// They are the "Perch" Reminders list (#51); without it, the tab is a line and one button.
 struct TodoTab: View {
     @ObservedObject var queue: QueueModel
 
     var body: some View {
         let todos = queue.todos
+        let reminders = queue.reminders ?? .ready(iCloud: true)
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Todo").font(.system(size: 20, weight: .bold)).foregroundStyle(.white)
-                Text(queue.online ? todos.summary : " ").font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                HStack(spacing: 6) {
+                    Text(queue.online && reminders.isReady ? todos.summary : " ")
+                    if let note = reminders.note { Text("· \(note)") }
+                }
+                .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
             }
             .padding(.leading, 2)
             .frame(maxWidth: .infinity, minHeight: PanelLayout.titleHeight, alignment: .bottomLeading)
-            if !queue.online {
+            if !reminders.isReady {
+                RemindersPrompt(state: reminders, listName: queue.remindersListName, queue: queue)
+            } else if !queue.online {
                 Text("perchd is not running — start it with `perchd` or `perchd install`")
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.55))
@@ -107,6 +117,43 @@ struct TodoTab: View {
                 }
                 AddTodoRow { queue.openAdd(fromPanel: true) }
             }
+        }
+    }
+}
+
+/// The Todo tab without the list: why, and the one thing to do about it.
+struct RemindersPrompt: View {
+    var state: RemindersState
+    var listName: String
+    var queue: QueueModel
+
+    var body: some View {
+        VStack(spacing: 10) {
+            if let message = state.message(listName: listName) {
+                Text(message).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
+            }
+            if let button = state.button(listName: listName) {
+                Button(button, action: act)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 12).padding(.vertical, 5)
+                    .background(Capsule().fill(.white.opacity(0.9)))
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: PanelLayout.remindersHeight)
+    }
+
+    private func act() {
+        switch state {
+        case .connect:
+            Task { @MainActor in await queue.connectReminders() }
+        case .openSettings:
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders")!)
+        case .createList:
+            queue.createRemindersList()
+        case .ready:
+            break
         }
     }
 }

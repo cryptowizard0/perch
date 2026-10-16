@@ -77,7 +77,7 @@ extension PerchClient {
             guard let line = try socket.readLine() else { throw ClientError.disconnected }
             let ack = try Self.decodeResponse(line)
             guard ack.ok else { throw ClientError.badResponse(ack.error ?? "watch refused") }
-            return EventStream(socket: socket)
+            return EventStream(socket: socket, watcher: ack.watcher)
         } catch {
             socket.close()
             if let error = error as? SocketError { throw ClientError.transport(error.description) }
@@ -90,15 +90,20 @@ extension PerchClient {
 public enum Push: Sendable {
     case item(Event)
     case session(SessionEvent)
+    /// A Reminders bridge registered (true) or left (false).
+    case bridge(Bool)
 }
 
 /// Events pushed by perchd, one per `next()` / `nextPush()`.
 public final class EventStream {
     private let socket: BufferedSocket
     private var closed = false
+    /// This subscription's id, for `bridge_register` / `todo_snapshot` (nil from a perchd older than #51).
+    public let watcher: String?
 
-    init(socket: BufferedSocket) {
+    init(socket: BufferedSocket, watcher: String?) {
         self.socket = socket
+        self.watcher = watcher
     }
 
     deinit {
@@ -116,7 +121,7 @@ public final class EventStream {
         return nil
     }
 
-    /// The next item or session event, or `nil` when perchd hangs up.
+    /// The next item, session or bridge event, or `nil` when perchd hangs up.
     public func nextPush(timeout: TimeInterval? = nil) throws -> Push? {
         socket.setReadTimeout(timeout)
         while true {
@@ -131,6 +136,7 @@ public final class EventStream {
             guard response.ok else { throw ClientError.badResponse(response.error ?? "error on watch stream") }
             if let event = response.event { return .item(event) }
             if let event = response.sessionEvent { return .session(event) }
+            if let bridge = response.bridge { return .bridge(bridge) }
         }
     }
 

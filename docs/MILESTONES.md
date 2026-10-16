@@ -118,3 +118,21 @@
 - [x] `swift build` / `swift test` 通过；数据模型的测试连真实的进程内 perchd
 - [ ] 人工验收：终端在前台时 ⌥⇧Space 打开弹窗、打字进弹窗、Esc 后键盘回到终端；悬停、点击、切 tab 动画、"减少动态效果"、有刘海的屏上的条带
 - [ ] 维护者真实用一天后验收
+
+## M13 — Todo 搬进 Apple Reminders（#50：#51 / #52 / #53）
+
+设计见 #50 和 `docs/PRD.md` 的"Todo tab"里的 Reminders 一节。
+
+**#51 bridge**
+- [x] `RemindersStore` 协议（PerchAppCore）是通往 EventKit 的唯一接缝；`EventKitRemindersStore`（PerchApp）尽量薄；测试用内存里的假 Reminders，从不碰真的
+- [x] Todo tab 状态：Connect Reminders / Open System Settings / Create Perch list（列表被删后从不自动重建）/ 就绪，不在 iCloud 时 "Not syncing — no iCloud"；找列表按记下的标识符、再按名字（优先 iCloud）、都没有就建；隔离运行用 "Perch Dev"
+- [x] `bridge_register`：perchd 同时只收一个 bridge，它断开时下一个报名的接手（watch 上广播 bridge 来去）
+- [x] `todo_snapshot`：连上时、每次 Reminders 变化、自己写完立刻发；perchd 的只读缓存（task item）+ 短 id 引用表（`todo_refs`，schema v5），重写 `todo.md`、广播 watch 事件
+- [x] 字段对应（优先级 1–4 High、0 / 5 Normal、6–9 Low；写 1 / 0 / 9）；刘海里完成（保留 3 秒 Undo）、添加、改优先级、删除直接写 Reminders，Perch 不管的字段不动
+- [x] schema v5 删掉旧的 open / done task；等待中的 task、notice、request 不动
+- [x] CLI 对 todo 的写一律失败（"Todo needs Perch.app running with Reminders access"、exit 1、`--json` 错误格式）；`inbox.md` 的行留在文件里（#52 再吸收）
+- [x] 空状态只有 "All clear"
+- [x] 签名：designated requirement `identifier "dev.perch.app"`；Info.plist 加 `NSRemindersFullAccessUsageDescription`
+- [x] `swift build` / `swift test` 通过；CLAUDE.md、PRD 更新
+- [ ] 人工验收（真 Mac + iPhone）：Connect 能用；手机 ↔ 刘海双向都能看到变化；重新编译的 App 保留 Reminders 权限
+- [ ] 测量 App 写入 → `EKEventStoreChanged` 的延迟和真实的 iCloud 手机 → Mac 延迟，记在 #50 的评论里

@@ -5,31 +5,29 @@ import PerchCore
 import Testing
 @testable import PerchDaemon
 
-/// The entry popup through QueueModel against a real perchd (#43): add, edit, delete, the highlight.
+/// The entry popup through QueueModel against a real perchd (#43), as the Reminders bridge (#51): add, edit, delete,
+/// the highlight. What it writes lands in the (fake) Reminders list.
 @MainActor
 @Suite struct TodoEditorModelTests {
     func until(timeout: TimeInterval = 5, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition() {
-            guard Date() < deadline else { Issue.record("timed out"); return }
-            try await Task.sleep(nanoseconds: 5_000_000)
-        }
+        try await RemindersBridgeTests().until(timeout: timeout, condition)
     }
 
-    func connected(_ d: TestDaemon) async throws -> QueueModel {
-        let model = QueueModel()
-        model.connect(client: d.client)
-        try await until { model.online }
-        return model
+    func connected(_ d: TestDaemon, _ store: FakeRemindersStore) async throws -> QueueModel {
+        try await RemindersBridgeTests().bridge(d, store)
     }
 
-    func all(_ d: TestDaemon) throws -> [Item] {
-        try d.client.send(Request(op: .list, filter: Request.Filter(all: true))).items ?? []
+    /// A todo from the phone, once the tab shows it.
+    func phoneAdd(_ model: QueueModel, _ store: FakeRemindersStore, _ title: String, priority: Int = 0) async throws -> Item {
+        let id = store.phoneAdd(title, priority: priority)
+        try await until { model.todos.items.contains { $0.reminderID == id } }
+        return try #require(model.todos.items.first { $0.reminderID == id })
     }
 
     @Test func returnAddsAndTheEditorStaysOpenEmptyOnNormal() async throws {
         let d = try TestDaemon()
-        let model = try await connected(d)
+        let store = FakeRemindersStore()
+        let model = try await connected(d, store)
         defer { model.disconnect() }
         model.openAdd(fromPanel: false)
         #expect(model.editor == .add(fromPanel: false))
@@ -41,60 +39,61 @@ import Testing
         model.editor?.title = "Book flights"
         #expect(model.submitEditor())
         try await until { model.todos.openCount == 2 }
-        let items = try all(d)
-        #expect(Set(items.map(\.title)) == ["Renew the domain", "Book flights"])
-        #expect(items.first { $0.title == "Renew the domain" }?.priority == .high)
-        #expect(items.first { $0.title == "Book flights" }?.priority == .normal)
-        #expect(items.allSatisfy { $0.source == "human" && $0.kind == .task })
+        #expect(Set(store.entries.map(\.reminder.title)) == ["Renew the domain", "Book flights"])
+        #expect(store.entry(titled: "Renew the domain")?.reminder.priority == 1)
+        #expect(store.entry(titled: "Book flights")?.reminder.priority == 0)
+        #expect(model.todos.groups.map(\.priority) == [.high, .normal])
     }
 
     @Test func whatYouTypeIsTheTitleExactly() async throws {
         let d = try TestDaemon()
-        let model = try await connected(d)
+        let store = FakeRemindersStore()
+        let model = try await connected(d, store)
         defer { model.disconnect() }
         model.openAdd(fromPanel: false)
         model.editor?.title = "  Call Lin @15:00 !h  "
         #expect(model.submitEditor())
         try await until { model.todos.openCount == 1 }
-        let item = try #require(try all(d).first)
-        #expect(item.title == "Call Lin @15:00 !h" && item.priority == .normal && item.dueAt == nil)
+        let item = try #require(store.entries.first?.reminder)
+        #expect(item.title == "Call Lin @15:00 !h" && item.priority == 0 && item.dueAt == nil)
     }
 
     @Test func blankInputAddsNothing() async throws {
         let d = try TestDaemon()
-        let model = try await connected(d)
+        let store = FakeRemindersStore()
+        let model = try await connected(d, store)
         defer { model.disconnect() }
         model.openAdd(fromPanel: true)
         model.editor?.title = "   "
         #expect(!model.submitEditor())
         #expect(model.editor?.title == "   ")
         try await Task.sleep(nanoseconds: 200_000_000)
-        #expect(try all(d).isEmpty)
+        #expect(store.entries.isEmpty)
     }
 
     @Test func escapeClosesWithoutAChange() async throws {
         let d = try TestDaemon()
-        let model = try await connected(d)
+        let store = FakeRemindersStore()
+        let model = try await connected(d, store)
         defer { model.disconnect() }
-        let item = try #require(try d.client.send(Request(op: .add, item: Item(title: "x"))).item)
-        try await until { model.todos.openCount == 1 }
-        model.openEdit(try #require(model.state.items[item.id]))
+        let item = try await phoneAdd(model, store, "x")
+        let before = store.entries
+        model.openEdit(item)
         model.editor?.title = "changed"
         model.cycleEditorPriority(forward: true)
         model.closeEditor()
         #expect(model.editor == nil)
         try await Task.sleep(nanoseconds: 200_000_000)
-        let stored = try #require(try d.client.send(Request(op: .get, id: item.id)).item)
-        #expect(stored.title == "x" && stored.priority == .normal)
+        #expect(store.entries == before)
     }
 
     @Test func returnInEditSavesTitleAndPriorityAndCloses() async throws {
         let d = try TestDaemon()
-        let model = try await connected(d)
+        let store = FakeRemindersStore()
+        let model = try await connected(d, store)
         defer { model.disconnect() }
-        let item = try #require(try d.client.send(Request(op: .add, item: Item(title: "Call Lin", priority: .low))).item)
-        try await until { model.todos.openCount == 1 }
-        model.openEdit(try #require(model.state.items[item.id]))
+        let item = try await phoneAdd(model, store, "Call Lin", priority: 9)
+        model.openEdit(item)
         #expect(model.editor == .edit(item))
         model.editor?.title = " Call Lin back "
         model.cycleEditorPriority(forward: true)  // Low → High
@@ -102,39 +101,41 @@ import Testing
         #expect(model.editor == nil)
         try await until { model.state.items[item.id]?.title == "Call Lin back" }
         #expect(model.todos.groups.first?.priority == .high)
-        #expect(try d.client.send(Request(op: .get, id: item.id)).item?.priority == .high)
+        #expect(store.entry(try #require(item.reminderID))?.reminder.priority == 1)
+        #expect(store.entry(try #require(item.reminderID))?.reminder.title == "Call Lin back")
     }
 
     @Test func anEditedTodoThatGoesAwayClosesTheEditor() async throws {
         let d = try TestDaemon()
-        let model = try await connected(d)
+        let store = FakeRemindersStore()
+        let model = try await connected(d, store)
         defer { model.disconnect() }
-        let item = try #require(try d.client.send(Request(op: .add, item: Item(title: "x"))).item)
-        try await until { model.todos.openCount == 1 }
-        model.openEdit(try #require(model.state.items[item.id]))
-        _ = try d.client.send(Request(op: .done, id: item.id))
+        let item = try await phoneAdd(model, store, "x")
+        model.openEdit(item)
+        store.phoneComplete(try #require(item.reminderID))
         try await until { model.editor == nil }
     }
 
     @Test func deleteRemovesTheTodoAtOnce() async throws {
         let d = try TestDaemon()
-        let model = try await connected(d)
+        let store = FakeRemindersStore()
+        let model = try await connected(d, store)
         defer { model.disconnect() }
-        let item = try #require(try d.client.send(Request(op: .add, item: Item(title: "x"))).item)
-        try await until { model.todos.openCount == 1 }
-        model.delete(try #require(model.state.items[item.id]))
+        let item = try await phoneAdd(model, store, "x")
+        model.delete(item)
         try await until { model.todos.openCount == 0 }
-        #expect(try all(d).isEmpty)
+        #expect(store.entries.isEmpty)
+        #expect(try d.client.send(Request(op: .list, filter: Request.Filter(all: true))).items == [])
     }
 
     @Test func aTodoAddedWhileThePanelIsOpenHighlightsBriefly() async throws {
         let d = try TestDaemon()
-        let model = try await connected(d)
+        let store = FakeRemindersStore()
+        let model = try await connected(d, store)
         defer { model.disconnect() }
         model.highlightDuration = 0.3
         // Collapsed: no highlight.
-        let quiet = try #require(try d.client.send(Request(op: .add, item: Item(title: "quiet"))).item)
-        try await until { model.todos.openCount == 1 }
+        let quiet = try await phoneAdd(model, store, "quiet")
         #expect(model.highlighted.isEmpty)
 
         model.expanded = true

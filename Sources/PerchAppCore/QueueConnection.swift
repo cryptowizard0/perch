@@ -7,10 +7,12 @@ import PerchCore
 /// every reconnect starts with a fresh snapshot. Never polls while connected.
 public final class QueueConnection: @unchecked Sendable {
     public enum Update: Sendable {
-        /// The active items and the done tasks, then every session.
-        case snapshot([Item], [Session])
+        /// The active items, every session, and this connection's watcher id (for the Reminders bridge).
+        case snapshot([Item], [Session], watcher: String?)
         case event(Event)
         case session(SessionEvent)
+        /// A Reminders bridge registered (true) or left (false).
+        case bridge(Bool)
         case offline(String)
     }
 
@@ -64,16 +66,15 @@ public final class QueueConnection: @unchecked Sendable {
                     return true
                 }) else { return }
                 // Subscribed first, so nothing that happens after the snapshot can be missed.
-                // The done tasks only tell the Todo tab whether there ever were any ("All clear" vs "Nothing to do yet.").
-                let items = try (client.send(Request(op: .list)).items ?? [])
-                    + (client.send(Request(op: .list, filter: Request.Filter(status: .done, kind: .task))).items ?? [])
+                let items = try client.send(Request(op: .list)).items ?? []
                 let sessions = try client.send(Request(op: .sessions)).sessions ?? []
-                send(.snapshot(items, sessions))
+                send(.snapshot(items, sessions, watcher: stream.watcher))
                 delay = Self.backoff.lowerBound
                 while let push = try stream.nextPush() {
                     switch push {
                     case .item(let event): send(.event(event))
                     case .session(let event): send(.session(event))
+                    case .bridge(let connected): send(.bridge(connected))
                     }
                 }
                 if !isStopped { send(.offline("perchd stopped")) }

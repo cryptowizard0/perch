@@ -60,3 +60,21 @@ final class TestDaemon {
         try http("POST /rpc HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n\(headers)Content-Length: \(json.utf8.count)\r\n\r\n\(json)")
     }
 }
+
+extension TestDaemon {
+    /// Stands in for the Reminders bridge over the wire (#51): registers a watcher and sends `reminders` as the list's
+    /// snapshot. Keep the returned stream: the bridge leaves when it closes.
+    @discardableResult
+    func bridge(_ reminders: [Reminder]) throws -> EventStream {
+        let stream = try client.watch()
+        let registered = try client.send(Request(op: .bridgeRegister, watcher: stream.watcher))
+        precondition(registered.bridge == true, "another bridge is registered")
+        try snapshot(reminders, from: stream)
+        return stream
+    }
+
+    func snapshot(_ reminders: [Reminder], from bridge: EventStream) throws {
+        let sent = try client.send(Request(op: .todoSnapshot, watcher: bridge.watcher, reminders: reminders))
+        precondition(sent.ok, sent.error ?? "snapshot refused")
+    }
+}

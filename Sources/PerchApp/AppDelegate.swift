@@ -57,8 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         queueWatch = queue.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.updateQueueHotKeys() } }
         }
-        // The perchd the self-check installs: ~/.perch, or under $HOME / $PERCH_HOME when they are overridden.
-        queue.connect(client: PerchClient(socketPath: SetupEnvironment.current.socket.path))
+        // The perchd the self-check installs: ~/.perch, or under $HOME / $PERCH_HOME when they are overridden. The app
+        // offers itself as the Reminders bridge (#51): "Perch Dev" for isolated runs, so they never touch real todos.
+        let reminders = RemindersBridge(store: EventKitRemindersStore(), listName: RemindersBridge.listName())
+        queue.connect(client: PerchClient(socketPath: SetupEnvironment.current.socket.path), reminders: reminders)
     }
 
     /// "Uninstall Perch…": the same uninstall as `perch uninstall` (data kept), no more opening at login, the app to

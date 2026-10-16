@@ -37,16 +37,16 @@ import Testing
 
     @Test func snapshotThenEvents() throws {
         let d = try TestDaemon()
-        _ = try d.client.send(Request(op: .add, item: Item(title: "already there")))
+        _ = try d.client.send(Request(op: .add, item: Item(title: "already there", kind: .notice)))
         let recorder = Recorder()
         let connection = connect(d.daemon.config.socketPath, recorder)
         defer { connection.stop() }
 
         let first = recorder.wait { !$0.isEmpty }
-        guard case .snapshot(let items, _) = first.first else { Issue.record("expected a snapshot, got \(first)"); return }
+        guard case .snapshot(let items, _, _) = first.first else { Issue.record("expected a snapshot, got \(first)"); return }
         #expect(items.map(\.title) == ["already there"])
 
-        _ = try d.client.send(Request(op: .add, item: Item(title: "pushed")))
+        _ = try d.client.send(Request(op: .add, item: Item(title: "pushed", kind: .notice)))
         let all = recorder.wait { $0.count >= 2 }
         guard case .event(let event) = all.last else { Issue.record("expected an event, got \(all)"); return }
         #expect(event.type == .added && event.item.title == "pushed")
@@ -63,9 +63,9 @@ import Testing
         #expect(why.hasPrefix("perchd is not running"))
 
         let d = try TestDaemon(home: home)
-        _ = try d.client.send(Request(op: .add, item: Item(title: "after start")))
+        _ = try d.client.send(Request(op: .add, item: Item(title: "after start", kind: .notice)))
         let updates = recorder.wait { $0.contains { if case .snapshot = $0 { return true } else { return false } } }
-        let snapshot = updates.compactMap { if case .snapshot(let items, _) = $0 { return items } else { return nil } }.first
+        let snapshot = updates.compactMap { if case .snapshot(let items, _, _) = $0 { return items } else { return nil } }.first
         #expect(snapshot?.map(\.title) == ["after start"])
     }
 

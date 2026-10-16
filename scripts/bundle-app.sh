@@ -6,6 +6,8 @@
 #   CONFIG=debug scripts/bundle-app.sh
 #   APP=/Applications/Perch.app scripts/bundle-app.sh
 # Not sandboxed, ad-hoc signed (codesign -s -). Real signing and notarization come with productization.
+# The app's designated requirement is its bundle id, not the default cdhash, so macOS keeps its Reminders access
+# across rebuilds and upgrades (#51). Known risk: any app claiming dev.perch.app inherits that access.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -32,6 +34,6 @@ sed "s/__VERSION__/$SHORT/g" packaging/Info.plist > "$APP/Contents/Info.plist"
 plutil -lint -s "$APP/Contents/Info.plist"
 # Nested code first, then the bundle (which seals it).
 codesign --force --sign - "$APP/Contents/Helpers/perch" "$APP/Contents/Helpers/perchd"
-codesign --force --sign - "$APP"
+codesign --force --sign - --requirements '=designated => identifier "dev.perch.app"' "$APP"
 
 echo "$APP"

@@ -1,10 +1,10 @@
 import Foundation
 import PerchCore
 
-/// The `items` and `sessions` tables. Columns map 1:1 to `Item` / `Session`; dates are ISO-8601 UTC text,
+/// The `items`, `sessions` and `todo_refs` tables. Columns map 1:1 to `Item` / `Session`; dates are ISO-8601 UTC text,
 /// `meta` / `options` are JSON text. Only perchd opens this database.
 public final class Store {
-    public static let schemaVersion = 4
+    public static let schemaVersion = 5
 
     let db: SQLiteDatabase
 
@@ -213,6 +213,19 @@ public final class Store {
             PRAGMA user_version = 4;
             """)
         }
+        if version < 5 {
+            // Todos live in the "Perch" Reminders list (#51): open and done tasks become a cache of it, with these
+            // references (short id ↔ reminder ↔ key). The old local todos go; waiting tasks, notices and requests stay.
+            try db.execute("""
+            CREATE TABLE todo_refs (
+                id          TEXT PRIMARY KEY,
+                external_id TEXT NOT NULL UNIQUE,
+                key         TEXT UNIQUE
+            );
+            DELETE FROM items WHERE kind = 'task' AND status IN ('open', 'done');
+            PRAGMA user_version = 5;
+            """)
+        }
     }
 }
 
@@ -295,5 +308,41 @@ extension Store {
         s.updatedAt = try date(15)
         s.transcriptPath = row.text(16)
         return s
+    }
+}
+
+// MARK: - Todo references
+
+/// A cached todo's short id, the reminder it stands for, and the key it was added with. Kept after the reminder leaves
+/// the snapshot, so a reminder that comes back (reopened, back in sync) keeps its id. Losing them only renumbers.
+public struct TodoRef: Equatable, Sendable {
+    public var id: String
+    public var externalID: String
+    public var key: String?
+}
+
+extension Store {
+    public func todoRefs() throws -> [TodoRef] {
+        var refs: [TodoRef] = []
+        try db.run("SELECT id, external_id, key FROM todo_refs") { row in
+            if let id = row.text(0), let external = row.text(1) { refs.append(TodoRef(id: id, externalID: external, key: row.text(2))) }
+        }
+        return refs
+    }
+
+    public func insert(_ ref: TodoRef) throws {
+        try db.run("INSERT INTO todo_refs (id, external_id, key) VALUES (?, ?, ?)", [.text(ref.id), .text(ref.externalID), SQLValue(ref.key)])
+    }
+
+    /// Whether `id` is (or was) a cached todo: those change only through the bridge.
+    public func isTodo(id: String) throws -> Bool {
+        var found = false
+        try db.run("SELECT 1 FROM todo_refs WHERE id = ?", [.text(id)]) { _ in found = true }
+        return found
+    }
+
+    /// The cached todos: the items with a reference.
+    public func todos() throws -> [Item] {
+        try select("WHERE id IN (SELECT id FROM todo_refs)", [])
     }
 }

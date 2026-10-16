@@ -20,8 +20,8 @@ struct AcceptanceTests {
         #expect(d.daemon.subscriberCount == 2)
 
         // Each terminal adds; then an agent re-adds the same key four times.
-        let idA = try cli.run("add", "from terminal A").stdout
-        let idB = try cli.run("add", "from terminal B").stdout
+        let idA = try cli.run("add", "from terminal A", "--kind", "notice").stdout
+        let idB = try cli.run("add", "from terminal B", "--kind", "notice").stdout
         for n in [1, 2, 3, 3] {
             try cli.run("add", "claude needs input (\(n))", "--status", "waiting", "--source", "claude-code", "--key", "session-42")
         }
@@ -49,7 +49,7 @@ struct AcceptanceTests {
         let stream = try d.client.watch()
         try CLI.warmUp()
         let started = Date()
-        try CLI(home: d.home).run("add", "latency probe")
+        try CLI(home: d.home).run("add", "latency probe", "--kind", "notice")
         _ = try stream.next(timeout: 1)
         // Includes launching the perch process; the M2 budget is 200 ms end to end.
         #expect(Date().timeIntervalSince(started) < 0.2)
@@ -58,7 +58,7 @@ struct AcceptanceTests {
 
 /// M2 acceptance: `perch add` in a terminal → the notch's model has the item, ≤ 200 ms end to end
 /// (process launch + socket + daemon + push + main-thread apply). Rendering is measured in the real app
-/// by scripts/measure-latency.sh. The probes are High todos (#42): each lands in the Todo tab's High group.
+/// by scripts/measure-latency.sh. The probes are waiting tasks: todos come from Reminders (#51), not the CLI.
 @MainActor
 @Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
 struct NotchLatencyTests {
@@ -78,7 +78,7 @@ struct NotchLatencyTests {
         var worst: TimeInterval = 0
         for n in 1...5 {
             let started = Date()
-            let add = try cli.start(["add", "latency probe \(n)", "-p", "high"])
+            let add = try cli.start(["add", "latency probe \(n)", "--status", "waiting"])
             // Wait for the process off the main actor: blocking it until `perch` exits would hold back the very
             // main-queue delivery being timed (and the other main-actor suites'), measuring process exit instead.
             let id = try await Task.detached { try add().stdout }.value
@@ -89,7 +89,7 @@ struct NotchLatencyTests {
             worst = max(worst, applied.timeIntervalSince(started))
         }
         #expect(worst < 0.2, "worst CLI → notch model latency \(Int(worst * 1000)) ms")
-        #expect(model.todos.groups.map(\.priority) == [.high] && model.todos.openCount == 5)
+        #expect(model.state.items.count == 5)
     }
 }
 

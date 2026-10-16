@@ -21,7 +21,12 @@ import Foundation
 /// - `session_seen` + `id` → `sessions`; a done session becomes idle (someone looked at the result)
 /// - `session_remove` + `id` → `sessions`, the removed one; a later report brings it back
 /// - `sessions` → `sessions`, all of them
-/// - `watch` → stream of events (item events in `event`, session events in `session_event`)
+/// - `watch` → stream of events (item events in `event`, session events in `session_event`). The acknowledgement
+///   carries `watcher`, the id of this subscription; `bridge` pushes (no `event`) say a bridge came or went
+/// - `bridge_register` + `watcher` → `bridge`: true when this watcher is now the Reminders bridge (#51), false when
+///   another one already is (the app stays a plain client). The bridge leaves when its watch connection closes
+/// - `todo_snapshot` + `watcher` + `reminders` → ok; the bridge's full read of the "Perch" list replaces perchd's
+///   todo cache (open and done task items), assigning short ids to new reminders
 public struct Request: Codable, Sendable {
     public enum Op: String, Codable, Sendable {
         case ping, add, list, get, done, respond, remove, update, watch
@@ -31,6 +36,8 @@ public struct Request: Codable, Sendable {
         case sessionReport = "session_report"
         case sessionSeen = "session_seen"
         case sessionRemove = "session_remove"
+        case bridgeRegister = "bridge_register"
+        case todoSnapshot = "todo_snapshot"
     }
     public var op: Op
     public var item: Item?
@@ -44,9 +51,14 @@ public struct Request: Codable, Sendable {
     public var key: String?
     /// When the client observed what it reports (`session_end`); perchd uses its own clock if absent.
     public var at: Date?
+    /// The watch subscription a bridge op speaks for (`bridge_register`, `todo_snapshot`).
+    public var watcher: String?
+    /// `todo_snapshot`: every reminder in the list (incomplete, and completed in the last 7 days).
+    public var reminders: [Reminder]?
 
     public init(op: Op, item: Item? = nil, id: String? = nil, value: String? = nil, filter: Filter? = nil,
-                patch: Patch? = nil, session: Session? = nil, report: SessionReport? = nil, key: String? = nil, at: Date? = nil) {
+                patch: Patch? = nil, session: Session? = nil, report: SessionReport? = nil, key: String? = nil, at: Date? = nil,
+                watcher: String? = nil, reminders: [Reminder]? = nil) {
         self.op = op
         self.item = item
         self.id = id
@@ -57,6 +69,8 @@ public struct Request: Codable, Sendable {
         self.report = report
         self.key = key
         self.at = at
+        self.watcher = watcher
+        self.reminders = reminders
     }
 
     /// For `list`. Without `status`, only active items (open, waiting) are returned unless `all` is true.
@@ -112,9 +126,14 @@ public struct Response: Codable, Sendable {
     public var version: String?
     public var sessions: [Session]?
     public var sessionEvent: SessionEvent?
+    /// The watch acknowledgement: this subscription's id, for `bridge_register` / `todo_snapshot`.
+    public var watcher: String?
+    /// `bridge_register`: whether the caller is now the bridge. On the watch stream (no `event`): whether a bridge
+    /// is connected, pushed when one registers or leaves.
+    public var bridge: Bool?
 
     public init(ok: Bool, error: String? = nil, item: Item? = nil, items: [Item]? = nil, event: Event? = nil, version: String? = nil,
-                sessions: [Session]? = nil, sessionEvent: SessionEvent? = nil) {
+                sessions: [Session]? = nil, sessionEvent: SessionEvent? = nil, watcher: String? = nil, bridge: Bool? = nil) {
         self.ok = ok
         self.error = error
         self.item = item
@@ -123,10 +142,12 @@ public struct Response: Codable, Sendable {
         self.version = version
         self.sessions = sessions
         self.sessionEvent = sessionEvent
+        self.watcher = watcher
+        self.bridge = bridge
     }
 
     enum CodingKeys: String, CodingKey {
-        case ok, error, item, items, event, version, sessions
+        case ok, error, item, items, event, version, sessions, watcher, bridge
         case sessionEvent = "session_event"
     }
 

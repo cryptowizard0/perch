@@ -27,6 +27,10 @@ public final class Daemon {
     let service: Service
     let sessions: SessionRegistry
     private var subscribers: [UUID: (Response) -> Void] = [:]
+    /// Watchers that can be the bridge (the Unix socket), and so hear when one comes or goes.
+    private var bridgeCandidates: Set<UUID> = []
+    /// The watcher that is the Reminders bridge (#51): the one app that reads and writes the "Perch" list.
+    private var bridge: UUID?
     private var expiryTimer: DispatchSourceTimer?
     private var livenessTimer: DispatchSourceTimer?
     private let mirror: MirrorWriter
@@ -78,6 +82,11 @@ public final class Daemon {
     public func perform(_ request: Request) -> Response {
         queue.sync {
             if request.op.isSession { return applySession(request) }
+            switch request.op {
+            case .bridgeRegister: return registerBridge(request.watcher)
+            case .todoSnapshot: return applySnapshot(request)
+            default: break
+            }
             let (response, events) = service.handle(request)
             afterChange(events)
             return response
@@ -90,6 +99,36 @@ public final class Daemon {
         publish(sessionEvents: outcome.events)
         afterChange(outcome.resolveRequestsOf.map(service.resolveRequests(session:)) ?? [])
         return outcome.response
+    }
+
+    /// On `queue`: the first watcher to ask becomes the bridge; later ones stay plain clients until it leaves.
+    private func registerBridge(_ watcher: String?) -> Response {
+        guard let id = watcher.flatMap(UUID.init(uuidString:)), bridgeCandidates.contains(id) else {
+            return .failure("bridge_register needs the watcher id of an open watch connection")
+        }
+        if bridge == nil {
+            bridge = id
+            announceBridge(true)
+        }
+        return Response(ok: true, bridge: bridge == id)
+    }
+
+    /// On `queue`: only the bridge's snapshots reach the todo cache.
+    private func applySnapshot(_ request: Request) -> Response {
+        guard let bridge, request.watcher.flatMap(UUID.init(uuidString:)) == bridge else {
+            return .failure("only the Reminders bridge sends todo snapshots; register with bridge_register first")
+        }
+        do {
+            afterChange(try service.applySnapshot(request.reminders ?? []))
+            return Response(ok: true)
+        } catch {
+            return .failure("internal error: \(error)")
+        }
+    }
+
+    /// Whether a Reminders bridge is connected.
+    var hasBridge: Bool {
+        queue.sync { bridge != nil }
     }
 
     /// Session id → transcript path perchd is watching (running / waiting Claude Code sessions).
@@ -126,19 +165,33 @@ public final class Daemon {
         afterChange(ended.flatMap { service.resolveRequests(session: $0.session.id) })
     }
 
-    /// Registers a watcher. `sink` first receives the `{"ok":true}` acknowledgement, then one
-    /// `Response` per event. It is called on the daemon queue and must not block.
-    public func subscribe(_ sink: @escaping (Response) -> Void) -> UUID {
+    /// Registers a watcher. `sink` first receives the `{"ok":true}` acknowledgement (with the watcher's id), then one
+    /// `Response` per event. It is called on the daemon queue and must not block. `canBridge`: false for HTTP, whose
+    /// watchers can't be the Reminders bridge and so never get its comings and goings.
+    public func subscribe(canBridge: Bool = true, _ sink: @escaping (Response) -> Void) -> UUID {
         queue.sync {
             let id = UUID()
-            sink(Response(ok: true, version: PerchVersion.string))
+            sink(Response(ok: true, version: PerchVersion.string, watcher: id.uuidString))
             subscribers[id] = sink
+            if canBridge { bridgeCandidates.insert(id) }
             return id
         }
     }
 
+    /// A watcher hung up. If it was the bridge, everyone hears so, and the next app to register takes over.
     public func unsubscribe(_ id: UUID) {
-        queue.sync { _ = subscribers.removeValue(forKey: id) }
+        queue.sync {
+            subscribers.removeValue(forKey: id)
+            bridgeCandidates.remove(id)
+            guard bridge == id else { return }
+            bridge = nil
+            announceBridge(false)
+        }
+    }
+
+    private func announceBridge(_ connected: Bool) {
+        let message = Response(ok: true, bridge: connected)
+        for id in bridgeCandidates { subscribers[id]?(message) }
     }
 
     var subscriberCount: Int {
@@ -157,6 +210,10 @@ public final class Daemon {
         (try? service.store.list(nil)) ?? []
     }
 
+    /// Inbox lines become todos, todos live in Reminders (#51), and perchd cannot hand writes to the bridge yet (#52):
+    /// until it can, lines stay in the file rather than being lost.
+    static let absorbsInbox = false
+
     /// How long an unterminated last line must stay unchanged before it counts as finished (#6).
     static let inboxSettle: TimeInterval = 1
 
@@ -165,6 +222,7 @@ public final class Daemon {
     /// appended during ingestion is never lost. A last line without its newline may be half written: it waits
     /// until the file has not changed for `inboxSettle` (`settled` is what the file held then).
     private func ingestInbox(settled: String? = nil) -> [Event] {
+        guard Self.absorbsInbox else { return [] }
         let url = URL(fileURLWithPath: config.inboxPath)
         for _ in 0..<5 {
             guard let before = try? String(contentsOf: url, encoding: .utf8) else { return [] }

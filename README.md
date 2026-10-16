@@ -10,7 +10,7 @@ The loop it is built for: **an agent is waiting for you → the notch lights up 
 - **A pixel cyclops lives in the notch** and acts out the most urgent state: it trots while an agent runs, waves at you when one needs you, and hops when one starts needing you, fails or finishes.
 - **Allow / Deny in the notch** for commands on your allowlist (`npm test`, `git status`, …). Everything else shows the full command and *Answer in the terminal*.
 - **Click a row** to go back to its terminal (the exact Ghostty tab) or its desktop app.
-- **A Todo tab** for your own todos, grouped High / Normal / Low. Add one from anywhere with ⌥⇧Space without leaving your terminal.
+- **A Todo tab** for your own todos, grouped High / Normal / Low. They live in a Reminders list called "Perch", so they're on your iPhone too. Add one from anywhere with ⌥⇧Space without leaving your terminal.
 - Works with **Claude Code** and **Codex** (in the terminal or their desktop apps) and **Grok** (the `grok` CLI), through their hooks. No changes to how you run them.
 
 macOS 14+. Prebuilt for Apple silicon; builds from source on any Mac, Intel included. On displays without a notch it sits in a small capsule at the top of the screen.
@@ -191,21 +191,19 @@ perch allowlist init                   # write ~/.perch/allowlist.json to edit
 
 The expanded notch has two tabs, picked from the icons left of the notch: **Agents** (the mascot; an orange dot while a session needs you, red while one failed) and **Todo** (a checklist with your open count). The panel opens on Agents whenever a session needs you or failed; otherwise on the tab you last picked. Todos never change the folded notch.
 
-The Todo tab is a plain list of the todos you write yourself, grouped High / Normal / Low, oldest first. There are no dates or times.
+The Todo tab shows the **"Perch" list in Apple Reminders**, grouped High / Normal / Low, oldest first. Add a todo on your iPhone and it shows up in the notch; complete or add one in the notch and it's in Reminders, and on your phone through iCloud. The first time you open the tab, click **Connect Reminders** and allow access; Perch finds the "Perch" list or creates it in iCloud. If you delete the list, the tab offers **Create Perch list**; Perch never recreates it on its own. High and Low match Reminders' High and Low; Normal is "no priority" (Medium on the phone also shows as Normal).
 
 | | |
 | --- | --- |
 | ⌥⇧Space, anywhere | Add a todo in a small popup under the notch; your terminal stays in front |
 | *+ Add a todo* | The same popup, under the panel |
 | In the popup | Type the title (stored exactly as typed). Tab / Shift-Tab picks High / Normal / Low. Return adds and stays open for the next one. Esc closes. |
-| Click a todo's circle | Done after 3 seconds; *Undo* takes it back |
+| Click a todo's circle | Completed in Reminders after 3 seconds; *Undo* takes it back |
 | Double-click a title, or right-click → *Edit…* | Edit its title and priority |
-| Right-click → *Priority* / *Delete* | Re-rank it, or delete it at once |
+| Right-click → *Priority* / *Delete* | Re-rank it, or delete it at once (it goes to Reminders' Recently Deleted) |
 
 ```bash
-perch add "Renew the domain" -p high   # high | normal | low (default normal)
-perch update <id> --priority low
-perch ls                               # open todos by priority, High and Low marked
+perch ls                               # open todos by priority, High and Low marked, each with a short id
 defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"   # another shortcut (relaunch Perch)
 ```
 

@@ -4,8 +4,13 @@ import PerchClient
 import PerchCore
 
 /// What the notch shows, fed by `QueueConnection`, and what its rows and hotkeys do. Main thread only.
-/// The Agents tab renders `panel` (agent sessions, and the requests Allow / Deny answer); the Todo tab renders `todos`.
+/// The Agents tab renders `panel` (agent sessions, and the requests Allow / Deny answer); the Todo tab renders `todos`
+/// (perchd's cache of the "Perch" Reminders list) or, without the list, `reminders`' button.
 /// The folded notch (mascot, running count, banner, sounds) only ever follows sessions.
+///
+/// With a `RemindersBridge`, the app offers itself to perchd as the Reminders bridge (#51). perchd takes one: that app
+/// sends the list's snapshots and writes its own Todo tab's changes straight to Reminders. Any other app is a plain
+/// client, and takes over when perchd says the bridge left.
 @MainActor
 public final class QueueModel: ObservableObject {
     @Published public private(set) var state = QueueState()
@@ -38,6 +43,10 @@ public final class QueueModel: ObservableObject {
     public var completionDelay: TimeInterval = 3
     /// The todo popup while it is open (#43). The popup draws it and edits `title`; the rest goes through the methods.
     @Published public var editor: TodoEditor?
+    /// The Todo tab's Reminders state; nil without a `RemindersBridge` (then it just shows perchd's todos).
+    @Published public private(set) var reminders: RemindersState?
+    /// Whether perchd took this app as the Reminders bridge.
+    @Published public private(set) var isBridge = false
     /// Todos added while the panel was open, marked new for `highlightDuration`.
     @Published public private(set) var highlighted: Set<String> = []
     public var highlightDuration: TimeInterval = 1
@@ -46,6 +55,8 @@ public final class QueueModel: ObservableObject {
     public var expanded = false {
         didSet {
             guard expanded != oldValue, expanded else { return }
+            // Access may have been revoked in System Settings while nobody looked.
+            remindersChanged(listChanged: false)
             let opening = PanelTab.opening(picked: pickedTab, panel: panel)
             if tab != opening { tab = opening }
         }
@@ -78,6 +89,13 @@ public final class QueueModel: ObservableObject {
     private var pickedTab: PanelTab = .agents
     /// Pending completions that have not sent `done` yet; cancelling one is Undo.
     private var completions: [String: DispatchWorkItem] = [:]
+    private var bridge: RemindersBridge?
+    /// This connection's watch id, which bridge requests speak for; nil while offline.
+    private var watcher: String?
+    private var registering = false
+    /// A snapshot is being read or sent; `snapshotAgain`: something changed meanwhile, so read once more after it.
+    private var snapshotting = false
+    private var snapshotAgain = false
 
     public init() {}
 
@@ -92,10 +110,22 @@ public final class QueueModel: ObservableObject {
     }
 
     /// The Todo tab: open tasks by priority (completing ones included, crossed out, until they are done).
-    public var todos: TodoList { TodoList(items: state.items.values, hadAny: state.hadTodos) }
+    public var todos: TodoList { TodoList(items: state.items.values) }
 
-    public func connect(client: PerchClient = PerchClient()) {
+    /// Whether the Todo tab shows todos: the list is readable, or this app doesn't use Reminders itself.
+    public var showsTodos: Bool { reminders?.isReady ?? true }
+
+    /// The Reminders list's name, for the Todo tab's messages.
+    public var remindersListName: String { bridge?.listName ?? "Perch" }
+
+    /// `reminders`: this app's access to the "Perch" list; nil to only show what perchd caches.
+    public func connect(client: PerchClient = PerchClient(), reminders: RemindersBridge? = nil) {
         self.client = client
+        if let reminders {
+            bridge = reminders
+            self.reminders = reminders.state
+            reminders.store.observeChanges { [weak self] in self?.remindersChanged() }
+        }
         let connection = QueueConnection(client: client) { [weak self] update in
             MainActor.assumeIsolated { self?.handle(update) }
         }
@@ -108,15 +138,20 @@ public final class QueueModel: ObservableObject {
         connection?.stop()
         connection = nil
         ticker?.invalidate()
+        watcher = nil
+        isBridge = false
     }
 
     public func handle(_ update: QueueConnection.Update) {
         switch update {
-        case .snapshot(let items, let all):
+        case .snapshot(let items, let all, let watcher):
             state.replace(with: items)
             sessions = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
             online = true
             offlineReason = nil
+            self.watcher = watcher
+            isBridge = false
+            registerBridge()
         case .event(let event):
             state.apply(event)
             if expanded && event.type == .added && event.item.kind == .task && event.item.status == .open {
@@ -133,11 +168,16 @@ public final class QueueModel: ObservableObject {
             if let sound = chime.sound(from: before, to: after, now: Date()) { onChime(sound) }
             if showsBanners, banners.update(id: event.session.id, from: before, to: after) { setBanner(banners.current) }
             onSession?(event)
+        case .bridge(let connected):
+            // The bridge left: offer to take over (the first app to ask wins).
+            if !connected { registerBridge() }
         case .offline(let reason):
             online = false
             offlineReason = reason
             sessions = [:]
             setBanner(nil)
+            watcher = nil
+            isBridge = false
         }
         // A todo that is done (here or anywhere) or gone has nothing left to undo.
         for id in completing where state.items[id] == nil { finishCompletion(id) }
@@ -212,7 +252,9 @@ public final class QueueModel: ObservableObject {
     /// Right-click → Priority: moves the todo to that group (by its creation time, like any other).
     public func setPriority(_ item: Item, _ priority: ItemPriority) {
         guard item.priority != priority else { return }
-        send(Request(op: .update, id: item.id, patch: Request.Patch(priority: priority)))
+        write(Request(op: .update, id: item.id, patch: Request.Patch(priority: priority))) {
+            try $0.update(item, priority: priority)
+        }
     }
 
     /// ⌥⇧Space (`fromPanel` false) or "+ Add a todo": the popup, empty and on Normal.
@@ -243,10 +285,16 @@ public final class QueueModel: ObservableObject {
         guard let editor, let title = editor.submittedTitle else { return false }
         switch editor.mode {
         case .add:
-            send(Request(op: .add, item: Item(title: title, kind: .task, priority: editor.priority, source: "human")))
+            write(Request(op: .add, item: Item(title: title, kind: .task, priority: editor.priority, source: "human"))) {
+                try $0.add(title: title, priority: editor.priority)
+            }
             self.editor = .add(fromPanel: editor.fromPanel)
         case .edit(let id):
-            send(Request(op: .update, id: id, patch: Request.Patch(title: title, priority: editor.priority)))
+            let item = state.items[id]
+            write(Request(op: .update, id: id, patch: Request.Patch(title: title, priority: editor.priority))) {
+                guard let item else { throw RemindersError("no todo with id '\(id)'") }
+                try $0.update(item, title: title, priority: editor.priority)
+            }
             self.editor = nil
         }
         return true
@@ -255,7 +303,100 @@ public final class QueueModel: ObservableObject {
     /// Right-click → Delete: `rm` at once, no confirmation, no undo.
     public func delete(_ item: Item) {
         undoCompletion(item.id)
-        send(Request(op: .remove, id: item.id))
+        write(Request(op: .remove, id: item.id)) { try $0.delete(item) }
+    }
+
+    // MARK: - Reminders (#51)
+
+    /// "Connect Reminders": the system prompt, then the list; then this app offers to be the bridge.
+    public func connectReminders() async {
+        guard let bridge else { return }
+        await bridge.connect()
+        remindersChanged()
+    }
+
+    /// "Create Perch list", after the list was deleted.
+    public func createRemindersList() {
+        guard let bridge else { return }
+        do {
+            try bridge.createList()
+        } catch {
+            show(String(describing: error))
+        }
+        remindersChanged()
+    }
+
+    /// Reminders changed (here, on the phone, in System Settings): look at the list again and tell perchd.
+    /// `listChanged` false: only a look at the access, which tells perchd only if the state moved.
+    private func remindersChanged(listChanged: Bool = true) {
+        guard let bridge else { return }
+        bridge.refresh()
+        let moved = reminders != bridge.state
+        if moved { reminders = bridge.state }
+        guard listChanged || moved else { return }
+        isBridge ? sendSnapshot() : registerBridge()
+    }
+
+    /// Offers this app as the bridge, once it can read the list. perchd answers whether it took it.
+    private func registerBridge() {
+        guard let bridge, bridge.state.isReady, let watcher, !isBridge, !registering else { return }
+        registering = true
+        let client = self.client
+        actions.async { [weak self] in
+            let taken = (try? client.send(Request(op: .bridgeRegister, watcher: watcher)))?.bridge == true
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.registering = false
+                    // Reconnected meanwhile: offer the new connection instead.
+                    guard self.watcher == watcher else { return self.registerBridge() }
+                    guard taken else { return }
+                    self.isBridge = true
+                    self.sendSnapshot()
+                }
+            }
+        }
+    }
+
+    /// Reads the list and sends it to perchd, one snapshot at a time and in order; a change meanwhile reads again.
+    /// Nothing while access is missing (perchd keeps what it had); an empty list once the list itself is gone.
+    private func sendSnapshot() {
+        guard isBridge, let bridge, let watcher else { return }
+        guard bridge.state.isReady || bridge.state == .createList else { return }
+        guard !snapshotting else { snapshotAgain = true; return }
+        snapshotting = true
+        Task { @MainActor [weak self] in
+            let read: Result<[Reminder], Error>
+            do { read = .success(try await bridge.snapshot()) } catch { read = .failure(error) }
+            guard let self else { return }
+            switch read {
+            case .success(let reminders):
+                // Reconnected (or no longer the bridge) while reading: the new connection sends its own.
+                guard self.isBridge, self.watcher == watcher else { break }
+                // The actions queue keeps snapshots in the order they were read.
+                self.send(Request(op: .todoSnapshot, watcher: watcher, reminders: reminders))
+            case .failure(let error):
+                self.show("Couldn't read Reminders: \(error)")
+            }
+            self.snapshotting = false
+            if self.snapshotAgain {
+                self.snapshotAgain = false
+                self.sendSnapshot()
+            }
+        }
+    }
+
+    /// A Todo tab change. The bridge writes it to Reminders and sends the snapshot at once (no waiting for EventKit's
+    /// change notification); any other app asks perchd (`request`), which refuses todo writes until #52.
+    private func write(_ request: Request, failed: (@MainActor () -> Void)? = nil, _ change: (RemindersBridge) throws -> Void) {
+        guard isBridge, let bridge else { return send(request, failed: failed) }
+        do {
+            try change(bridge)
+        } catch {
+            failed?()
+            show(String(describing: error))
+        }
+        sendSnapshot()
     }
 
     private func highlight(_ id: String) {
@@ -266,9 +407,11 @@ public final class QueueModel: ObservableObject {
     }
 
     private func commitCompletion(_ id: String) {
-        guard completions.removeValue(forKey: id) != nil else { return }
-        // Stays crossed out until the done event removes the row; a failure brings it back.
-        send(Request(op: .done, id: id)) { [weak self] in self?.finishCompletion(id) }
+        guard completions.removeValue(forKey: id) != nil, let item = state.items[id] else { return finishCompletion(id) }
+        // Stays crossed out until the snapshot (or done event) removes the row; a failure brings it back.
+        write(Request(op: .done, id: id), failed: { [weak self] in self?.finishCompletion(id) }) {
+            try $0.update(item, completed: true)
+        }
     }
 
     private func finishCompletion(_ id: String) {

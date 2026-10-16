@@ -41,9 +41,9 @@ import Testing
     }
 
     @Test func identicalReAddIsANoOp() {
-        let (first, _) = add(Item(title: "same", key: "k"))
+        let (first, _) = add(Item(title: "same", status: .waiting, key: "k"))
         clock.now = start.addingTimeInterval(5)
-        let (second, events) = add(Item(title: "same", key: "k"))
+        let (second, events) = add(Item(title: "same", status: .waiting, key: "k"))
         #expect(second == first)
         #expect(events.isEmpty)
     }
@@ -59,11 +59,11 @@ import Testing
     }
 
     @Test func differentKeysAndNoKeyStaySeparate() throws {
-        _ = add(Item(title: "a", key: "k1"))
-        _ = add(Item(title: "a", key: "k2"))
-        _ = add(Item(title: "a"))
-        _ = add(Item(title: "a"))
-        _ = add(Item(title: "a", key: "  "))  // blank key = no key
+        _ = add(Item(title: "a", kind: .notice, key: "k1"))
+        _ = add(Item(title: "a", kind: .notice, key: "k2"))
+        _ = add(Item(title: "a", kind: .notice))
+        _ = add(Item(title: "a", kind: .notice))
+        _ = add(Item(title: "a", kind: .notice, key: "  "))  // blank key = no key
         #expect(try service.store.count() == 5)
     }
 }

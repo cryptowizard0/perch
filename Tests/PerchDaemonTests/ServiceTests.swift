@@ -26,7 +26,7 @@ import Testing
     }
 
     @Test func addAssignsIdAndTimestampsAndEmitsAdded() throws {
-        let (response, events) = call(Request(op: .add, item: Item(id: "zzzz", title: "  write docs  ",
+        let (response, events) = call(Request(op: .add, item: Item(id: "zzzz", title: "  write docs  ", status: .waiting,
                                                                         createdAt: .distantPast, updatedAt: .distantPast)))
         let item = try #require(response.item)
         #expect(item.title == "write docs")
@@ -58,8 +58,8 @@ import Testing
     }
 
     @Test func listFiltersAndHidesClosedByDefault() throws {
-        let a = try add(Item(title: "a", source: "human"))
-        let b = try add(Item(title: "b", source: "codex"))
+        let a = try add(Item(title: "a", status: .waiting, source: "human"))
+        let b = try add(Item(title: "b", status: .waiting, source: "codex"))
         let c = try add(Item(title: "c", kind: .notice, source: "codex"))
         call(Request(op: .done, id: a.id))
 
@@ -70,7 +70,7 @@ import Testing
     }
 
     @Test func doneIsIdempotent() throws {
-        let item = try add(Item(title: "x"))
+        let item = try add(Item(title: "x", status: .waiting))
         let (first, events) = call(Request(op: .done, id: item.id))
         #expect(first.item?.status == .done)
         #expect(events.map(\.type) == [.updated])
@@ -88,7 +88,7 @@ import Testing
     }
 
     @Test func respondValidates() throws {
-        let task = try add(Item(title: "t"))
+        let task = try add(Item(title: "t", status: .waiting))
         #expect(call(Request(op: .respond, id: task.id, value: "allow")).0.error?.contains("not a request") == true)
 
         let request = try add(Item(title: "r", kind: .request))
@@ -101,7 +101,7 @@ import Testing
     }
 
     @Test func removeDeletesAndEmitsRemoved() throws {
-        let item = try add(Item(title: "gone"))
+        let item = try add(Item(title: "gone", kind: .notice))
         let (response, events) = call(Request(op: .remove, id: item.id))
         #expect(response.item == item)
         #expect(events.map(\.type) == [.removed])
@@ -111,6 +111,62 @@ import Testing
     @Test func unknownIdsAndMissingIds() {
         #expect(call(Request(op: .done, id: "nope")).0.error == "no item with id 'nope'")
         #expect(call(Request(op: .remove)).0.error == "missing id")
+    }
+
+    /// Todos live in the "Perch" Reminders list (#51); perchd only caches them from the bridge's snapshots. Until it
+    /// can hand writes to the bridge (#52), it refuses them and stores nothing.
+    @Test func todoWritesAreRefused() throws {
+        let refused = "Todo needs Perch.app running with Reminders access"
+        for item in [Item(title: "x"), Item(title: "x", status: .done), Item(title: "x", priority: .high, key: "k")] {
+            let (response, events) = call(Request(op: .add, item: item))
+            #expect(response.error == refused && events.isEmpty)
+        }
+        #expect(try service.store.count() == 0)
+
+        _ = try service.applySnapshot([Reminder(externalID: "r1", title: "from the phone")])
+        let todo = try #require(call(Request(op: .list)).0.items?.first)
+        for request in [Request(op: .done, id: todo.id), Request(op: .remove, id: todo.id),
+                        Request(op: .update, id: todo.id, patch: .init(priority: .high))] {
+            let (response, events) = call(request)
+            #expect(response.error == refused && events.isEmpty)
+        }
+        #expect(call(Request(op: .list)).0.items == [todo])
+
+        // Waiting tasks, notices and requests are perchd's own, as before.
+        let waiting = try add(Item(title: "approve in Telegram", status: .waiting, source: "hermes"))
+        #expect(call(Request(op: .done, id: waiting.id)).0.item?.status == .done)
+        #expect(try add(Item(title: "codex finished", kind: .notice)).kind == .notice)
+        #expect(try add(Item(title: "npm test", kind: .request)).status == .open)
+    }
+
+    /// The cache follows the snapshot: new reminders get short ids (kept while they come and go), changes update,
+    /// missing ones are removed, and an identical snapshot emits nothing.
+    @Test func snapshotsReplaceTheCache() throws {
+        let due = Date(timeIntervalSince1970: 1_900_000_000)
+        let created = Date(timeIntervalSince1970: 1_700_000_000)
+        var events = try service.applySnapshot([
+            Reminder(externalID: "r1", title: "Buy milk", priority: 5, dueAt: due, url: "https://x", createdAt: created),
+            Reminder(externalID: "r2", title: "Filed taxes", completed: true),
+        ])
+        #expect(events.map(\.type) == [.added, .added])
+        let milk = try #require(events.first?.item)
+        #expect(milk.id.count == 4 && milk.kind == .task && milk.status == .open && milk.priority == .normal)
+        #expect(milk.dueAt == due && milk.link == "https://x" && milk.createdAt == created && milk.source == "reminders")
+        #expect(events.last?.item.status == .done)
+        #expect(try service.applySnapshot([
+            Reminder(externalID: "r1", title: "Buy milk", priority: 5, dueAt: due, url: "https://x", createdAt: created),
+            Reminder(externalID: "r2", title: "Filed taxes", completed: true),
+        ]).isEmpty)
+
+        events = try service.applySnapshot([Reminder(externalID: "r1", title: "Buy oat milk", priority: 1, createdAt: created)])
+        #expect(events.map(\.type) == [.updated, .removed])
+        #expect(events.first?.item.id == milk.id && events.first?.item.priority == .high && events.first?.item.dueAt == nil)
+        // Back again (reopened on the phone): the same short id.
+        events = try service.applySnapshot([Reminder(externalID: "r2", title: "Filed taxes")])
+        #expect(events.map(\.type) == [.added, .removed])
+        #expect(events.first?.item.status == .open && events.last?.item.id == milk.id)
+        events = try service.applySnapshot([Reminder(externalID: "r1", title: "Buy oat milk")])
+        #expect(events.first { $0.type == .added }?.item.id == milk.id)
     }
 
     @Test func pingReportsVersion() {

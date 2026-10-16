@@ -291,6 +291,7 @@ struct Watch: ParsableCommand {
             case nil: throw CLIError("perchd stopped")
             case .item(let event): json ? printJSON(event) : print(Format.event(event))
             case .session(let event): json ? printJSON(event) : print(Format.sessionEvent(event))
+            case .bridge: break  // for the notch apps, not people
             }
         }
     }

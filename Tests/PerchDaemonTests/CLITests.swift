@@ -90,7 +90,7 @@ struct CLITests {
     @Test func addPrintsIdAndLsShowsIt() throws {
         let d = try TestDaemon()
         let cli = CLI(home: d.home)
-        let id = try cli.run("add", "review PR #42", "--source", "codex", "--link", "https://x/pr/42").stdout
+        let id = try cli.run("add", "review PR #42", "--status", "waiting", "--source", "codex", "--link", "https://x/pr/42").stdout
         #expect(id.count == 4)
         let listed = try cli.run("ls", "--json").json.items ?? []
         #expect(listed.map(\.id) == [id])
@@ -107,7 +107,7 @@ struct CLITests {
         #expect(added.item?.meta == ["cwd": "/tmp"])
         #expect(try cli.run("get", id, "--json").json.item == added.item)
         #expect(try cli.run("respond", id, "allow", "--json").json.item?.response == "allow")
-        let task = try #require(try cli.run("add", "t", "--json").json.item)
+        let task = try #require(try cli.run("add", "t", "--status", "waiting", "--json").json.item)
         #expect(try cli.run("done", task.id, "--json").json.item?.status == .done)
         #expect(try cli.run("rm", task.id, "--json").json.ok)
         #expect(try cli.run("ls", "--all", "--json").json.items?.map(\.id) == [id])
@@ -140,9 +140,9 @@ struct CLITests {
         let d = try TestDaemon()
         let cli = CLI(home: d.home)
         let before = Date()
-        let relative = try #require(try cli.run("add", "in half an hour", "--due", "+30m", "--json").json.item?.dueAt)
+        let relative = try #require(try cli.run("add", "in half an hour", "--status", "waiting", "--due", "+30m", "--json").json.item?.dueAt)
         #expect(abs(relative.timeIntervalSince(before) - 1800) < 5)
-        let clock = try #require(try cli.run("add", "at three", "--due", "@15:00", "--json").json.item?.dueAt)
+        let clock = try #require(try cli.run("add", "at three", "--status", "waiting", "--due", "@15:00", "--json").json.item?.dueAt)
         #expect(Calendar.current.component(.hour, from: clock) == 15)
         #expect(clock > before && clock.timeIntervalSince(before) <= 86_400)
         let bad = try cli.run("add", "x", "--due", "soon")
@@ -224,10 +224,10 @@ struct UpdateCLITests {
     @Test func snoozeRetitleAndPromote() throws {
         let d = try TestDaemon()
         let cli = CLI(home: d.home)
-        let id = try cli.run("add", "codex finished", "--kind", "notice", "--expires", "300").stdout
+        let id = try cli.run("add", "codex finished", "--kind", "notice", "--status", "waiting", "--expires", "300").stdout
         let before = Date()
         let snoozed = try cli.run("update", id, "--due", "+30m", "--kind", "task", "--title", "follow up", "--json").json.item
-        #expect(snoozed?.kind == .task)
+        #expect(snoozed?.kind == .task && snoozed?.status == .waiting)
         #expect(snoozed?.title == "follow up")
         #expect(snoozed?.expiresAt == nil)
         #expect(abs((snoozed?.dueAt ?? .distantPast).timeIntervalSince(before) - 1800) < 5)
@@ -241,7 +241,7 @@ struct UpdateCLITests {
     @Test func errors() throws {
         let d = try TestDaemon()
         let cli = CLI(home: d.home)
-        let id = try cli.run("add", "t").stdout
+        let id = try cli.run("add", "t", "--status", "waiting").stdout
         let nothing = try cli.run("update", id)
         #expect(nothing.status == 64)
         #expect(nothing.stderr == "perch: give at least one of --title, --kind, --priority, --due, --no-due")
@@ -249,5 +249,46 @@ struct UpdateCLITests {
                 == "--due and --no-due cannot be combined")
         #expect(try cli.run("update", id, "--kind", "bogus").stderr == "perch: --kind must be task or notice")
         #expect(try cli.run("update", "zzzz", "--title", "x", "--json").json.error == "no item with id 'zzzz'")
+    }
+}
+
+/// Todos live in the "Perch" Reminders list (#51). Until perchd hands CLI writes to the bridge (#52), they fail with
+/// one readable line; reading them, and everything agents do, works as before.
+@Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
+struct TodoCLITests {
+    let refused = "Todo needs Perch.app running with Reminders access"
+
+    @Test func todoWritesFailReadably() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let bridge = try d.bridge([Reminder(externalID: "r1", title: "Buy milk", priority: 1)])
+        defer { bridge.close() }
+        let todo = try #require(try cli.run("ls", "--json").json.items?.first)
+        #expect(todo.title == "Buy milk" && todo.id.count == 4)
+        #expect(try cli.run("ls").stdout.contains("Buy milk"))
+
+        for args in [["add", "Book flights"], ["add", "x", "--status", "done"], ["done", todo.id],
+                     ["update", todo.id, "-p", "low"], ["rm", todo.id]] {
+            let plain = try cli.run(args)
+            #expect(plain.status == 1 && plain.stdout.isEmpty)
+            #expect(plain.stderr == "perch: \(refused)")
+            let json = try cli.run(args + ["--json"])
+            #expect(json.status == 1)
+            #expect(json.stdout == #"{"error":"\#(refused)","ok":false}"#)
+        }
+        #expect(try cli.run("ls", "--json").json.items == [todo])
+    }
+
+    @Test func requestsNoticesAndWaitingTasksWorkAsBefore() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let request = try cli.run("add", "npm test", "--kind", "request").stdout
+        let notice = try cli.run("add", "codex finished", "--kind", "notice", "--expires", "300").stdout
+        let waiting = try cli.run("add", "approve in Telegram", "--status", "waiting", "--source", "hermes").stdout
+        #expect(try cli.run("respond", request, "allow").status == 0)
+        #expect(try cli.run("update", waiting, "-p", "high").status == 0)
+        #expect(try cli.run("done", waiting).status == 0)
+        #expect(try cli.run("rm", notice).status == 0)
+        #expect(try cli.run("ls", "--all", "--json").json.items?.map(\.id).sorted() == [request, waiting].sorted())
     }
 }

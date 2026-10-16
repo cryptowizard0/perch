@@ -117,7 +117,7 @@ import Testing
         let d = try TestDaemon()
         let stream = try d.client.watch()
         _ = try d.client.send(Request(op: .sessionStart, session: Session(id: "s1", source: "claude-code", title: "perch")))
-        _ = try d.client.send(Request(op: .add, item: Item(title: "a task")))
+        _ = try d.client.send(Request(op: .add, item: Item(title: "a task", status: .waiting)))
         guard case .session(let started) = try stream.nextPush(timeout: 5) else { Issue.record("expected session"); return }
         #expect(started.type == .started && started.session.id == "s1")
         guard case .session(let updated) = try stream.nextPush(timeout: 5) else { Issue.record("expected session"); return }
@@ -127,7 +127,7 @@ import Testing
 
         let itemsOnly = try d.client.watch()
         _ = try d.client.send(Request(op: .sessionEnd, id: "s1"))
-        _ = try d.client.send(Request(op: .add, item: Item(title: "second")))
+        _ = try d.client.send(Request(op: .add, item: Item(title: "second", status: .waiting)))
         guard case .session(let ended) = try stream.nextPush(timeout: 5) else { Issue.record("expected session"); return }
         #expect(ended.type == .ended && ended.session.id == "s1")
         #expect(try itemsOnly.next(timeout: 5)?.item.title == "second")

@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-15 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）"
+最后更新：2026-10-16 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）进行中**：#51（bridge）代码、测试、文档完成，等真 Mac + iPhone 人工验收和延迟测量，见下方"Todo 搬进 Reminders（M13）"；#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）未开始
 
 ## 发布
 
@@ -33,6 +33,7 @@
 | M8 | Agent 面板 UI；刘海 todo UI 下线 | ✅ 完成 | #18 面板 ✅；#19 交互 + todo 下线 ✅；#20 验收 ✅（2026-10-08，用户确认） |
 | M11 | Grok Build（#31，v0.5 第一个新 agent） | ✅ 完成 | 363 个测试；2026-10-12 维护者真实会话验收通过，PR #33 合并为 `1f83a18`，#31 已关（见"M11 进度"） |
 | M12 | Todo tab（#41：#42 / #43） | 🚧 待验收 | #42 已合并（PR #46）；#43 代码和文档完成，等维护者用一天后验收（见"Todo tab（M12）"） |
+| M13 | Todo 搬进 Apple Reminders（#50：#51 / #52 / #53） | 🚧 进行中 | #51 bridge 代码完成，等人工验收（见"Todo 搬进 Reminders（M13）"）；#52、#53 未开始 |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -528,6 +529,21 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
 - 测试：`TodoModelTests` / `TodoEditorModelTests`（QueueModel + 进程内 perchd）、`TodoListTests` / `PanelTabTests` / `TodoEditorTests` / `HotKeyTests`（纯函数）、`PriorityCLITests`（真实 `perch`）、`StartupTests.migratesAV3DatabaseToNormalPriority`。
 - 坑：perchd 的 `created_at` 精确到秒，同一秒加的待办在组内按 id 排；测顺序的用一步一秒的假时钟（`SteppingClock`）。所有 `@MainActor` 测试共用主线程，全量并行跑时 200 ms 的延迟测试偶尔超（`cliToNotchModelUnder200ms` 以前就有），所以 #42 没有另加进程内的 200 ms 测试，而是让这个验收测试改加 High 待办。
 - 截图（隔离 perchd + `PERCH_PIN_EXPANDED`，本机只有无刘海的外接屏，是胶囊样式）：两个 tab、三种弹窗位置都对。悬停、点击、键盘焦点、全局快捷键只能人工验。
+
+## Todo 搬进 Reminders（M13，#50 / #51，2026-10-16）
+
+设计在 #50（父 issue）和三个切片 #51 → #52 → #53。完整行为见 `docs/PRD.md` 的"同步"和"Todo tab"里的 Reminders 一节，这里只记实现和坑。
+
+- **#51 bridge**：
+  - 接缝：`PerchAppCore/Reminders.swift` 的 `RemindersStore`（@MainActor 协议）是通往 EventKit 的唯一接缝，`RemindersBridge` 管权限、找列表（记下的标识符存在 defaults 的 `RemindersList.<名字>`）、写；`RemindersState` 是 Todo tab 的状态和文案。`PerchApp/EventKitReminders.swift` 是薄实现（授权后换一个新的 `EKEventStore`，旧的看不到列表）。
+  - 线上协议：`watch` 的确认带 `watcher`（订阅 id）；`bridge_register` / `todo_snapshot` 是普通请求，带这个 id。bridge 的生命期就是它的 watch 连接，断开时 perchd 在 watch 上推 `{"bridge":false}`（`Push.bridge`），别的 App 收到就报名。
+  - perchd：`Daemon` 记 bridge；`Service.applySnapshot` 对比缓存（`todo_refs` 里有的 item 就是缓存的 todo）发 added / updated / removed。引用（短 id ↔ `calendarItemExternalIdentifier` ↔ key）从不删，提醒回来时短 id 不变。缓存的 item：source `reminders`，`meta.reminder` 是外部标识符（bridge 写的时候靠它找提醒）。`Service.isTodoShaped`（open / done 的 task）的写一律拒绝，`Daemon.absorbsInbox = false` 让 inbox 的行留在文件里，两处都等 #52。
+  - App：`QueueModel.connect(client:reminders:)`；有权限且找到列表就报名，是 bridge 时 Todo tab 的写直接调 `RemindersBridge`，写完立刻发快照（一次只发一个，读的时候又有变化就再读一次）；不是 bridge 的 App 照旧发请求给 perchd（#51 里会被拒绝）。列表被删时 bridge 发空快照；没权限时不发，缓存不动。面板展开时重看一次权限（系统设置里撤销不一定有通知）。
+  - 签名：`scripts/bundle-app.sh` 用 `--requirements '=designated => identifier "dev.perch.app"'`，`codesign -d -r-` 能看到。
+- 测试：`RemindersBridgeTests` / `RemindersStateTests`（进程内 perchd + 真 `QueueModel` + `FakeRemindersStore`，手机那边用 `phone…` 方法），`TodoModelTests` / `TodoEditorModelTests` 改成走假 Reminders，`TodoCLITests`（真实 `perch`），`ServiceTests.snapshotsReplaceTheCache` / `todoWritesAreRefused`，`WatchTests.watchersHearWhenTheBridgeComesAndGoes`，`StartupTests.migratingToV5DropsTheOldTodosOnly`。CLI 测试要缓存的 todo 时用 `TestDaemon.bridge(_:)`（线上的假 bridge）。原来往 perchd 加 open task 的管道测试改用等待中的 task 或 notice；五个 inbox 吸收测试先 `.disabled`，#52 打开。
+- 坑：假 Reminders 默认不为 App 自己的写发变化通知（`notifiesOwnWrites`），这样测试能证明 bridge 写完自己发快照。`FakeRemindersStore` 是 @MainActor，不能当非隔离函数的默认参数。
+- 已知限制：bridge 的权限被撤销时它仍是 bridge（缓存停在撤销前），别的有权限的 App 要等它退出才能接手；刚连上、`bridge_register` 还没回来的一瞬间，刘海里的写会被 perchd 拒绝（闪一下错误，不丢数据）。HTTP 上不能当 bridge，HTTP 的 watch 也收不到 bridge 来去。
+- 没做（要人）：真 Mac + iPhone 的验收（Connect、双向、重新编译后权限还在）、两个延迟（App 写 → `EKEventStoreChanged`、iCloud 手机 → Mac）记到 #50 的评论。本机不能合成点击，Connect 弹窗要人点。`x-apple-reminderkit://` 深链接和"只设时间会不会提醒"的 spike 属于 #53。
 
 ## 未决问题
 

@@ -49,11 +49,15 @@ enum HTTPConnection {
             return reply(writer, 400, "invalid request: \(describe(error))")
         }
 
+        // The Reminders bridge is the notch app on this Mac, over the Unix socket; containers can't take its place.
+        if request.op == .bridgeRegister || request.op == .todoSnapshot {
+            return reply(writer, 200, "the Reminders bridge connects over the Unix socket, not HTTP")
+        }
         if request.op == .watch {
             // Newline-delimited JSON until the client disconnects; body length is delimited by close.
             writer.send(Data("HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n".utf8))
             socket.setReadTimeout(nil)
-            let id = daemon.subscribe { writer.sendLine($0) }
+            let id = daemon.subscribe(canBridge: false) { writer.sendLine($0) }
             while (try? socket.readLine()) != nil {}
             daemon.unsubscribe(id)
             return

@@ -42,6 +42,8 @@ public final class Service {
                 return (.failure("watch streams events; it is handled by the connection, not as a single call"), [])
             case .sessionStart, .sessionEnd, .sessions, .sessionReport, .sessionSeen, .sessionRemove:
                 return (.failure("session ops are handled by SessionRegistry"), [])
+            case .bridgeRegister, .todoSnapshot:
+                return (.failure("bridge ops are handled by the daemon"), [])
             }
         } catch let error as ServiceError {
             return (.failure(error.message), [])
@@ -64,6 +66,7 @@ public final class Service {
         // Round up so storing whole seconds never shortens the window an agent asked for.
         item.expiresAt = item.expiresAt.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.up)) }
         item.response = nil
+        if Self.isTodoShaped(item) { throw ServiceError(Self.todoWriteRefused) }
         if item.kind == .request {
             if (item.options ?? []).isEmpty { item.options = ["allow", "deny"] }
         } else {
@@ -71,6 +74,7 @@ public final class Service {
         }
         return try store.transaction {
             if let key = item.key, let existing = try store.find(key: key) {
+                if try store.isTodo(id: existing.id) { throw ServiceError(Self.todoWriteRefused) }
                 return try upsert(existing, with: item, at: t)
             }
             item.id = try freshID()
@@ -104,6 +108,7 @@ public final class Service {
         } else {
             item = try existing(id)
         }
+        try refuseTodo(item)
         guard item.status != .done else { return (Response(ok: true, item: item), []) }
         item.status = .done
         return try save(item)
@@ -133,6 +138,7 @@ public final class Service {
 
     private func remove(_ id: String?) throws -> (Response, [Event]) {
         let item = try existing(id)
+        try refuseTodo(item)
         try store.delete(id: item.id)
         return (Response(ok: true, item: item), [Event(type: .removed, item: item, at: timestamp())])
     }
@@ -145,6 +151,7 @@ public final class Service {
             throw ServiceError("update takes either due_at or clear_due, not both")
         }
         var item = try existing(id)
+        try refuseTodo(item)
         let original = item
         if let title = patch.title?.trimmingCharacters(in: .whitespacesAndNewlines) {
             guard !title.isEmpty else { throw ServiceError("title must not be empty") }
@@ -163,6 +170,8 @@ public final class Service {
         if let priority = patch.priority { item.priority = priority }
         if let due = patch.dueAt { item.dueAt = Self.wholeSeconds(due) }
         if patch.clearDue == true { item.dueAt = nil }
+        // A notice kept as a task would be a todo, and todos live in Reminders.
+        if Self.isTodoShaped(item) && !Self.isTodoShaped(original) { throw ServiceError(Self.todoWriteRefused) }
         guard item != original else { return (Response(ok: true, item: original), []) }
         return try save(item)
     }
@@ -228,6 +237,70 @@ public final class Service {
         }
     }
 
+    // MARK: - Todos (#51)
+
+    /// Todos live in the "Perch" Reminders list; only the bridge app writes them. Until perchd can hand writes to the
+    /// bridge (#52), a todo write from anyone else is refused, never queued.
+    static let todoWriteRefused = "Todo needs Perch.app running with Reminders access"
+
+    /// What todos are cached as. Every other item (waiting tasks, notices, requests) stays perchd's own.
+    static func isTodoShaped(_ item: Item) -> Bool {
+        item.kind == .task && (item.status == .open || item.status == .done)
+    }
+
+    private func refuseTodo(_ item: Item) throws {
+        if try store.isTodo(id: item.id) { throw ServiceError(Self.todoWriteRefused) }
+    }
+
+    /// The source cached todos carry: they come from Reminders, whoever wrote them there.
+    public static let remindersSource = "reminders"
+
+    /// Replaces the todo cache with the bridge's full read of the list: new reminders get a short id, changed ones are
+    /// updated, and cached todos missing from it are removed. Only what changed emits an event.
+    public func applySnapshot(_ reminders: [Reminder]) throws -> [Event] {
+        try store.transaction {
+            var refs = Dictionary(try store.todoRefs().map { ($0.externalID, $0) }, uniquingKeysWith: { a, _ in a })
+            let cached = Dictionary(try store.todos().map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let t = timestamp()
+            var events: [Event] = []
+            var present: Set<String> = []
+            for reminder in reminders {
+                let ref: TodoRef
+                if let known = refs[reminder.externalID] {
+                    ref = known
+                } else {
+                    ref = TodoRef(id: try freshID(), externalID: reminder.externalID, key: nil)
+                    try store.insert(ref)
+                    refs[reminder.externalID] = ref
+                }
+                guard present.insert(ref.id).inserted else { continue }
+                let old = cached[ref.id]
+                var item = Item(
+                    id: ref.id, title: reminder.title, kind: .task, status: reminder.completed ? .done : .open,
+                    priority: ItemPriority(reminderPriority: reminder.priority), source: Self.remindersSource,
+                    dueAt: reminder.dueAt.map(Self.wholeSeconds), link: reminder.url,
+                    meta: [Item.reminderMetaKey: reminder.externalID], key: ref.key,
+                    createdAt: reminder.createdAt.map(Self.wholeSeconds) ?? old?.createdAt ?? t,
+                    updatedAt: old?.updatedAt ?? t
+                )
+                if let old {
+                    guard item != old else { continue }
+                    item.updatedAt = t
+                    try store.update(item)
+                    events.append(Event(type: .updated, item: item, at: t))
+                } else {
+                    try store.insert(item)
+                    events.append(Event(type: .added, item: item, at: t))
+                }
+            }
+            for (id, gone) in cached.sorted(by: { $0.key < $1.key }) where !present.contains(id) {
+                try store.delete(id: id)
+                events.append(Event(type: .removed, item: gone, at: t))
+            }
+            return events
+        }
+    }
+
     // MARK: - Helpers
 
     private func save(_ changed: Item) throws -> (Response, [Event]) {
@@ -248,7 +321,7 @@ public final class Service {
     private func freshID() throws -> String {
         for _ in 0..<100 {
             let id = Item.newID()
-            if try store.get(id: id) == nil { return id }
+            if try store.get(id: id) == nil, try !store.isTodo(id: id) { return id }
         }
         throw ServiceError("could not allocate a free id")
     }

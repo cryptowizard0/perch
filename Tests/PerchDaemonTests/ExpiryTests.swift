@@ -15,7 +15,7 @@ import Testing
         let later = add(Item(title: "notice", kind: .notice, expiresAt: now.addingTimeInterval(90)))
         let answered = add(Item(title: "answered", kind: .request, expiresAt: now.addingTimeInterval(30)))
         _ = service.handle(Request(op: .respond, id: answered.id, value: "allow"))
-        _ = add(Item(title: "no expiry"))
+        _ = add(Item(title: "no expiry", status: .waiting))
 
         #expect(service.nextExpiry() == now.addingTimeInterval(30))
         now = now.addingTimeInterval(30)

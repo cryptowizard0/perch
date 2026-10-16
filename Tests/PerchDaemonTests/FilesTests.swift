@@ -22,7 +22,7 @@ import Testing
         let d = try TestDaemon()
         let path = d.daemon.config.mirrorPath
         #expect(read(path).contains("Nothing waiting."))
-        let item = try #require(try d.client.send(Request(op: .add, item: Item(title: "review PR #42"))).item)
+        let item = try #require(try d.client.send(Request(op: .add, item: Item(title: "review PR #42", status: .waiting))).item)
         #expect(read(path).contains("- [ ] review PR #42 — human · `\(item.id)`"))
         let mode = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? Int
         #expect(mode == 0o444)
@@ -30,7 +30,19 @@ import Testing
         #expect(!read(path).contains("review PR #42"))
     }
 
-    @Test func inboxLinesBecomeTasksAndAreCleared() throws {
+    /// Inbox lines are todos, todos live in Reminders (#51), and perchd can't hand them to the bridge yet (#52): they
+    /// wait in the file rather than being lost.
+    @Test func inboxLinesWaitInTheFileForNow() throws {
+        let d = try TestDaemon()
+        let inbox = d.daemon.config.inboxPath
+        let lines = "# keep me\n- [ ] buy milk\n- [ ] call mom +2h\n"
+        try Data(lines.utf8).write(to: URL(fileURLWithPath: inbox), options: .atomic)
+        Thread.sleep(forTimeInterval: Daemon.inboxSettle + 0.3)
+        #expect(read(inbox) == lines)
+        #expect(try d.client.send(Request(op: .list)).items == [])
+    }
+
+    @Test(.disabled("#52: inbox lines become reminders through the bridge; until then they stay in the file")) func inboxLinesBecomeTasksAndAreCleared() throws {
         let d = try TestDaemon()
         let inbox = d.daemon.config.inboxPath
         #expect(FileManager.default.fileExists(atPath: inbox))
@@ -49,7 +61,7 @@ import Testing
     }
 
     /// #6: a line still being written (no newline yet) is not absorbed half-done.
-    @Test func aHalfWrittenInboxLineWaitsForTheRest() throws {
+    @Test(.disabled("#52: inbox lines become reminders through the bridge; until then they stay in the file")) func aHalfWrittenInboxLineWaitsForTheRest() throws {
         let d = try TestDaemon()
         let inbox = d.daemon.config.inboxPath
         let handle = try #require(FileHandle(forWritingAtPath: inbox))
@@ -65,7 +77,7 @@ import Testing
     }
 
     /// Editors that save without a final newline still get their last line in, once the file settles.
-    @Test func aLastLineWithoutNewlineGoesInOnceTheFileSettles() throws {
+    @Test(.disabled("#52: inbox lines become reminders through the bridge; until then they stay in the file")) func aLastLineWithoutNewlineGoesInOnceTheFileSettles() throws {
         let d = try TestDaemon()
         let inbox = d.daemon.config.inboxPath
         try Data("- [ ] first\n- [ ] no newline".utf8).write(to: URL(fileURLWithPath: inbox), options: .atomic)
@@ -74,7 +86,7 @@ import Testing
         #expect(eventually { read(inbox) == "" })
     }
 
-    @Test func inboxWrittenByShellAppendAndAtomicSave() throws {
+    @Test(.disabled("#52: inbox lines become reminders through the bridge; until then they stay in the file")) func inboxWrittenByShellAppendAndAtomicSave() throws {
         let d = try TestDaemon()
         let inbox = d.daemon.config.inboxPath
         // `echo … >> inbox.md`
@@ -97,7 +109,7 @@ import Testing
         #expect(try eventually { (try d.client.send(Request(op: .list)).items?.count ?? 0) == 3 })
     }
 
-    @Test func inboxAlreadyFullAtStartupIsIngested() throws {
+    @Test(.disabled("#52: inbox lines become reminders through the bridge; until then they stay in the file")) func inboxAlreadyFullAtStartupIsIngested() throws {
         let home = URL(fileURLWithPath: "/tmp/perch-test-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: home) }
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)

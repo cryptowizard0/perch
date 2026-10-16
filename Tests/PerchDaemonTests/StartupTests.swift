@@ -31,7 +31,7 @@ import Testing
             CREATE TABLE items (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL,
                 source TEXT NOT NULL, due_at TEXT, link TEXT, meta TEXT, key TEXT UNIQUE, options TEXT, response TEXT,
                 expires_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-            INSERT INTO items VALUES ('t7k2', 'kept', 'task', 'open', 'human', NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+            INSERT INTO items VALUES ('t7k2', 'kept', 'task', 'waiting', 'hermes', NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                 '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z');
             PRAGMA user_version = 1;
             """)
@@ -42,7 +42,7 @@ import Testing
         #expect(try store.sessions().map(\.id) == ["s1"])
         var version = 0
         try store.db.run("PRAGMA user_version") { version = $0.int(0) }
-        #expect(version == Store.schemaVersion && version == 4)
+        #expect(version == Store.schemaVersion && version == 5)
     }
 
     /// A v3 database (before todo priority, #41) gains the priority column; every existing item is Normal.
@@ -59,9 +59,9 @@ import Testing
                 status TEXT NOT NULL, prompt TEXT, last_message TEXT, detail TEXT, error TEXT, pid INTEGER, pid_started_at TEXT,
                 started_at TEXT NOT NULL, turn_started_at TEXT NOT NULL, status_at TEXT NOT NULL, updated_at TEXT NOT NULL,
                 transcript_path TEXT);
-            INSERT INTO items VALUES ('t7k2', 'open task', 'task', 'open', 'human', NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+            INSERT INTO items VALUES ('t7k2', 'waiting task', 'task', 'waiting', 'hermes', NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                 '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z');
-            INSERT INTO items VALUES ('d0ne', 'done task', 'task', 'done', 'human', NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+            INSERT INTO items VALUES ('d0ne', 'a notice', 'notice', 'open', 'codex', NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                 '2027-01-15T08:00:00Z', '2027-01-15T09:00:00Z');
             INSERT INTO items VALUES ('rq22', 'npm test', 'request', 'waiting', 'claude-code', NULL, NULL, NULL, NULL,
                 '["allow","deny"]', NULL, NULL, '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z');
@@ -74,11 +74,43 @@ import Testing
         #expect(items.allSatisfy { $0.priority == .normal })
         var version = 0
         try store.db.run("PRAGMA user_version") { version = $0.int(0) }
-        #expect(version == 4)
+        #expect(version == 5)
         var high = try #require(try store.get(id: "t7k2"))
         high.priority = .high
         try store.update(high)
         #expect(try Store(path: path).get(id: "t7k2")?.priority == .high)
+    }
+
+    /// v5 (#51): todos move to the "Perch" Reminders list. The old open and done tasks are deleted (no migration into
+    /// Reminders); waiting and dismissed tasks, notices and requests stay, and the cache starts empty.
+    @Test func migratingToV5DropsTheOldTodosOnly() throws {
+        let path = "/tmp/perch-test-v4-\(UUID().uuidString.prefix(8)).db"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            let v4 = try SQLiteDatabase(path: path)
+            try v4.execute("""
+            CREATE TABLE items (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL,
+                source TEXT NOT NULL, due_at TEXT, link TEXT, meta TEXT, key TEXT UNIQUE, options TEXT, response TEXT,
+                expires_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'normal');
+            CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT NOT NULL, title TEXT NOT NULL, cwd TEXT, link TEXT,
+                status TEXT NOT NULL, prompt TEXT, last_message TEXT, detail TEXT, error TEXT, pid INTEGER, pid_started_at TEXT,
+                started_at TEXT NOT NULL, turn_started_at TEXT NOT NULL, status_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                transcript_path TEXT);
+            INSERT INTO items (id, title, kind, status, source, created_at, updated_at) VALUES
+                ('open', 'buy milk', 'task', 'open', 'human', '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z'),
+                ('done', 'filed taxes', 'task', 'done', 'human', '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z'),
+                ('wait', 'approve in Telegram', 'task', 'waiting', 'hermes', '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z'),
+                ('gone', 'old', 'task', 'dismissed', 'human', '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z'),
+                ('note', 'codex finished', 'notice', 'open', 'codex', '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z'),
+                ('rq22', 'npm test', 'request', 'done', 'claude-code', '2027-01-15T08:00:00Z', '2027-01-15T08:00:00Z');
+            PRAGMA user_version = 4;
+            """)
+        }
+        let store = try Store(path: path)
+        #expect(Set(try store.list(Request.Filter(all: true)).map(\.id)) == ["wait", "gone", "note", "rq22"])
+        #expect(try store.todos().isEmpty && store.todoRefs().isEmpty)
+        // Reopening leaves everything as it is.
+        #expect(try Store(path: path).count() == 4)
     }
 
     @Test func pingOverUnixSocket() throws {
@@ -146,8 +178,8 @@ extension StartupTests {
             // Allowlisted requests are still how the hooks ask; Hermes still posts items; people add their own.
             kept.append(try add(Item(title: "npm test", kind: .request, source: "claude-code", meta: ["session_id": "s2"])))
             kept.append(try add(Item(title: "perch · rm -rf x", status: .waiting, source: "hermes", key: "hermes:default:c1")))
-            kept.append(try add(Item(title: "review the PR", source: "claude-code")))
-            kept.append(try add(Item(title: "write docs", key: "claude-code:mine")))
+            kept.append(try add(Item(title: "review the PR", status: .waiting, source: "claude-code")))
+            kept.append(try add(Item(title: "write docs", status: .waiting, key: "claude-code:mine")))
             try? FileManager.default.removeItem(atPath: d.daemon.config.socketPath)  // perchd's startup does this
         }
         let restarted = try TestDaemon(home: home, removeHome: false)

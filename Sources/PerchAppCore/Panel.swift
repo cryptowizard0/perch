@@ -199,17 +199,22 @@ public enum PanelLayout {
     public static let todoRowHeight: CGFloat = 26
     /// "+ Add a todo", fixed under the list (#43).
     public static let addRowHeight: CGFloat = 30
+    /// The Todo tab without its list (#51): a line and one button (Connect Reminders, …).
+    public static let remindersHeight: CGFloat = 80
 
     /// The expanded notch below the band, for the tab it shows.
-    public static func listHeight(_ tab: PanelTab, panel: Panel, todos: TodoList, online: Bool = true) -> CGFloat {
+    public static func listHeight(_ tab: PanelTab, panel: Panel, todos: TodoList, reminders: RemindersState? = nil,
+                                  online: Bool = true) -> CGFloat {
         switch tab {
         case .agents: return listHeight(panel, online: online)
-        case .todo: return todoHeight(todos, online: online)
+        case .todo: return todoHeight(todos, reminders: reminders, online: online)
         }
     }
 
-    /// The title and summary, the groups, then "+ Add a todo" (or, with perchd offline, a one-line message).
-    public static func todoHeight(_ todos: TodoList, online: Bool = true) -> CGFloat {
+    /// The title and summary, the groups, then "+ Add a todo" (or, with perchd offline, a one-line message; without
+    /// the Reminders list, its message and button).
+    public static func todoHeight(_ todos: TodoList, reminders: RemindersState? = nil, online: Bool = true) -> CGFloat {
+        if let reminders, !reminders.isReady { return titleHeight + remindersHeight }
         guard online else { return titleHeight + messageHeight }
         let groups = todos.groups.reduce(CGFloat(0)) { $0 + headerHeight + CGFloat($1.items.count) * todoRowHeight }
         return min(titleHeight + groups + addRowHeight, maxListHeight)

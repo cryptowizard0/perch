@@ -23,7 +23,7 @@ import Testing
     }
 
     @Test func changesOnlyTheFieldsThatAreSet() throws {
-        let item = try add(Item(title: "old", source: "codex", link: "https://x", meta: ["a": "b"]))
+        let item = try add(Item(title: "old", status: .waiting, source: "codex", link: "https://x", meta: ["a": "b"]))
         let due = clock.addingTimeInterval(1800.7)
         let (response, events) = update(item.id, .init(title: "  new  ", dueAt: due))
         let updated = try #require(response.item)
@@ -37,40 +37,44 @@ import Testing
     }
 
     @Test func clearDue() throws {
-        let item = try add(Item(title: "t", dueAt: clock.addingTimeInterval(60)))
+        let item = try add(Item(title: "t", status: .waiting, dueAt: clock.addingTimeInterval(60)))
         #expect(update(item.id, .init(clearDue: true)).0.item?.dueAt == nil)
         #expect(update(item.id, .init(dueAt: clock, clearDue: true)).0.error
                 == "update takes either due_at or clear_due, not both")
     }
 
+    /// A notice kept as a task would be a todo, and todos live in Reminders (#51): refused until #52 hands it to the
+    /// bridge. A waiting notice becomes a waiting task, which stays perchd's, and stops expiring.
     @Test func noticeBecomesTaskAndStopsExpiring() throws {
         let notice = try add(Item(title: "codex finished", kind: .notice, source: "codex",
                                   expiresAt: clock.addingTimeInterval(300)))
-        let task = try #require(update(notice.id, .init(kind: .task)).0.item)
-        #expect(task.kind == .task)
-        #expect(task.status == .open)
-        #expect(task.expiresAt == nil)
-        #expect(try service.store.nextExpiry() == nil)
+        #expect(update(notice.id, .init(kind: .task)).0.error == "Todo needs Perch.app running with Reminders access")
+        #expect(try service.store.get(id: notice.id) == notice)
+        let waiting = try add(Item(title: "approve in Telegram", kind: .notice, status: .waiting, source: "hermes",
+                                   expiresAt: clock.addingTimeInterval(300)))
+        let task = try #require(update(waiting.id, .init(kind: .task)).0.item)
+        #expect(task.kind == .task && task.status == .waiting && task.expiresAt == nil)
+        #expect(try service.store.nextExpiry() == clock.addingTimeInterval(300))
     }
 
     @Test func requestsKeepTheirKind() throws {
         let request = try add(Item(title: "npm test", kind: .request))
         #expect(update(request.id, .init(kind: .task)).0.error
                 == "\(request.id) is a request; its kind cannot change")
-        let task = try add(Item(title: "t"))
+        let task = try add(Item(title: "t", status: .waiting))
         #expect(update(task.id, .init(kind: .request)).0.error
                 == "\(task.id) cannot become a request; add a new one with --kind request")
     }
 
     @Test func identicalUpdateEmitsNothing() throws {
-        let item = try add(Item(title: "same", dueAt: clock))
+        let item = try add(Item(title: "same", status: .waiting, dueAt: clock))
         let (response, events) = update(item.id, .init(title: "same", kind: .task, dueAt: clock))
         #expect(response.item == item)
         #expect(events.isEmpty)
     }
 
     @Test func rejectsEmptyPatchesAndBadInput() throws {
-        let item = try add(Item(title: "t"))
+        let item = try add(Item(title: "t", status: .waiting))
         let empty = "update needs at least one of: title, kind, priority, due_at, clear_due"
         #expect(update(item.id, nil).0.error == empty)
         #expect(update(item.id, .init()).0.error == empty)
