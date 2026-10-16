@@ -5,11 +5,14 @@ import PerchCore
 import SwiftUI
 
 /// The todo popup's window (#43): a non-activating panel that still becomes key, so you type into it while the app
-/// you were in stays frontmost (the M2 quick-entry technique). Tab / Shift-Tab cycle the priority instead of moving
-/// focus; Esc or clicking elsewhere closes it. Always dark.
+/// you were in stays frontmost (the M2 quick-entry technique). Adding: Tab / Shift-Tab cycle the priority instead of
+/// moving focus. Editing (#53, the larger editor): Tab moves between fields, and Return saves from any of them
+/// (Shift- or Option-Return starts a new line in the notes). Esc or clicking elsewhere closes it. Always dark.
 final class TodoPopupPanel: NSPanel {
     var onCancel: (() -> Void)?
     var onTab: ((_ forward: Bool) -> Void)?
+    /// Set while the larger editor shows: Return saves, Tab is left alone.
+    var onReturn: (() -> Void)?
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -39,8 +42,18 @@ final class TodoPopupPanel: NSPanel {
         let composing = (firstResponder as? NSTextView)?.hasMarkedText() ?? false
         if event.type == .keyDown && !composing {
             switch Int(event.keyCode) {
-            case 48:  // kVK_Tab
-                onTab?(!event.modifierFlags.contains(.shift))
+            case 48:  // kVK_Tab: adding cycles the priority; the larger editor moves between fields (notes included)
+                if onReturn == nil {
+                    onTab?(!event.modifierFlags.contains(.shift))
+                } else if event.modifierFlags.contains(.shift) {
+                    selectPreviousKeyView(nil)
+                } else {
+                    selectNextKeyView(nil)
+                }
+                return
+            case 36, 76:  // Return, Enter: the larger editor saves (Shift / Option: a new line in the notes)
+                guard let onReturn, event.modifierFlags.isDisjoint(with: [.shift, .option]) else { break }
+                onReturn()
                 return
             case 53:  // kVK_Escape
                 onCancel?()
@@ -62,6 +75,8 @@ final class TodoPopupController {
     private let focus = PopupFocus()
     private var cancellables: Set<AnyCancellable> = []
     static let size = CGSize(width: 420, height: 88)
+    /// The larger editor (#53).
+    static let editorSize = CGSize(width: 440, height: 318)
     static let gap: CGFloat = 8
 
     init(queue: QueueModel, notchWindow: NotchWindowController) {
@@ -103,10 +118,11 @@ final class TodoPopupController {
 
     private func show(_ opened: Opened?) {
         notchWindow.notch.held = opened?.fromPanel == true
-        guard opened != nil else {
+        guard let opened else {
             if panel.isVisible { panel.orderOut(nil) }
             return
         }
+        panel.onReturn = opened.mode == .add ? nil : { [weak queue] in queue?.submitEditor() }
         place()
         panel.makeKeyAndOrderFront(nil)
         focus.tick += 1
@@ -114,7 +130,7 @@ final class TodoPopupController {
 
     private func place() {
         guard let editor = queue.editor else { return }
-        let size = Self.size
+        let size = editor.isLarge ? Self.editorSize : Self.size
         var frame: CGRect
         // Below the panel whenever it is expanded, even for a ⌥⇧Space popup the notch expanded under afterwards.
         if editor.fromPanel || notchWindow.notch.expanded {
@@ -133,8 +149,28 @@ final class PopupFocus: ObservableObject {
     @Published var tick = 0
 }
 
-/// The title field over the High / Normal / Low buttons. Everything it shows comes from `QueueModel.editor`.
+/// Adding: the small popup. Editing: the larger editor.
 struct TodoPopupView: View {
+    @ObservedObject var queue: QueueModel
+    @ObservedObject var focus: PopupFocus
+
+    var body: some View {
+        Group {
+            if queue.editor?.isLarge == true {
+                TodoEditorView(queue: queue, focus: focus)
+            } else {
+                TodoAddView(queue: queue, focus: focus)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.12)))
+    }
+}
+
+/// The add popup (#43): the title field over the High / Normal / Low buttons. Everything it shows comes from
+/// `QueueModel.editor`.
+struct TodoAddView: View {
     @ObservedObject var queue: QueueModel
     @ObservedObject var focus: PopupFocus
     @FocusState private var focused: Bool
@@ -182,9 +218,101 @@ struct TodoPopupView: View {
         }
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.12)))
         .onAppear { focused = true }
         .onChange(of: focus.tick) { focused = true }
+    }
+}
+
+/// The larger editor (#53), modeled on Reminders' detail view: title, notes, a date switch with an optional time,
+/// High / Normal / Low and a URL. Repeat rules, alarms, subtasks, flags and the rest stay as they are (✎ opens
+/// Reminders for those).
+struct TodoEditorView: View {
+    @ObservedObject var queue: QueueModel
+    @ObservedObject var focus: PopupFocus
+    @FocusState private var titleFocused: Bool
+
+    private func binding<T>(_ keyPath: WritableKeyPath<TodoEditor, T>, _ fallback: T) -> Binding<T> {
+        Binding(get: { queue.editor?[keyPath: keyPath] ?? fallback }, set: { queue.editor?[keyPath: keyPath] = $0 })
+    }
+
+    var body: some View {
+        let editor = queue.editor
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Title", text: binding(\.title, ""))
+                .textFieldStyle(.plain)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .focused($titleFocused)
+            ZStack(alignment: .topLeading) {
+                if editor?.notes.isEmpty ?? true {
+                    Text("Notes").font(.system(size: 13)).foregroundStyle(.white.opacity(0.3)).padding(.leading, 5)
+                }
+                TextEditor(text: binding(\.notes, ""))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .scrollContentBackground(.hidden)
+            }
+            .frame(height: 54)
+            Divider().overlay(.white.opacity(0.1))
+            row("calendar", "Date", isOn: Binding(
+                get: { queue.editor?.hasDate ?? false },
+                set: { on in queue.editor?.setHasDate(on, now: Date()) }
+            )) {
+                if editor?.hasDate == true {
+                    DatePicker("", selection: binding(\.date, Date()), displayedComponents: .date)
+                        .labelsHidden().datePickerStyle(.field)
+                }
+            }
+            row("clock", "Time", isOn: Binding(
+                get: { queue.editor?.hasTime ?? false },
+                set: { on in queue.editor?.setHasTime(on, now: Date()) }
+            )) {
+                if editor?.hasTime == true {
+                    DatePicker("", selection: binding(\.date, Date()), displayedComponents: .hourAndMinute)
+                        .labelsHidden().datePickerStyle(.field)
+                }
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark").frame(width: 18).foregroundStyle(.white.opacity(0.5))
+                ForEach(ItemPriority.allCases, id: \.self) { priority in
+                    let selected = editor?.priority == priority
+                    Button { queue.editor?.priority = priority } label: {
+                        Text(priority.label)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .padding(.horizontal, 10).padding(.vertical, 3)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(selected ? 0.22 : 0.06)))
+                            .foregroundStyle(.white.opacity(selected ? 1 : 0.55))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "link").frame(width: 18).foregroundStyle(.white.opacity(0.5))
+                TextField("URL", text: binding(\.url, ""))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            Spacer(minLength: 0)
+            Text("↩ save · ⇧↩ new line in notes · esc cancel")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.4))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(14)
+        .onAppear { titleFocused = true }
+        .onChange(of: focus.tick) { titleFocused = true }
+    }
+
+    private func row(_ icon: String, _ label: String, isOn: Binding<Bool>, @ViewBuilder trailing: () -> some View) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).frame(width: 18).foregroundStyle(.white.opacity(0.5))
+            Toggle(label, isOn: isOn)
+                .toggleStyle(.switch).controlSize(.mini)
+                .font(.system(size: 13)).foregroundStyle(.white.opacity(0.85))
+            Spacer(minLength: 8)
+            trailing()
+        }
+        .frame(height: 22)
     }
 }

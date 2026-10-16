@@ -25,6 +25,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         queue.jump = { Jumper.jump($0) }
+        queue.doubleClickInterval = NSEvent.doubleClickInterval
+        queue.openReminder = { [weak self] url in
+            Jumper.openReminder(url)
+            self?.notchWindow?.notch.close()
+        }
         queue.chimes = ChimeSettings(defaults: .standard)
         queue.onChime = { [weak self] sound in
             guard let self else { return }

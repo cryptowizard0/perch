@@ -11,9 +11,10 @@ final class FakeRemindersStore: RemindersStore {
     struct Entry: Equatable {
         var reminder: Reminder
         var list: String
-        var notes: String?
         var flagged = false
         var completedAt: Date?
+        /// Absolute alarms.
+        var alarms: [Date] = []
     }
 
     var authorization: RemindersAuthorization
@@ -22,6 +23,10 @@ final class FakeRemindersStore: RemindersStore {
     /// The default source for new reminders is iCloud.
     var defaultSourceIsICloud = true
     var notifiesOwnWrites = false
+    /// How long reading the list takes: the bridge acks perchd's todo writes with its next read, so this delays acks.
+    var readDelay: TimeInterval = 0
+    /// Reading the list fails (writes still work).
+    var readFails = false
     private(set) var allLists: [ReminderList] = []
     private(set) var entries: [Entry] = []
     private var observers: [@MainActor () -> Void] = []
@@ -52,17 +57,28 @@ final class FakeRemindersStore: RemindersStore {
     }
 
     func reminders(inList list: String, completedSince: Date) async throws -> [Reminder] {
+        if readDelay > 0 { try await Task.sleep(nanoseconds: UInt64(readDelay * 1e9)) }
+        if readFails { throw RemindersError("the database is busy") }
         try readable(list)
         return entries.filter { $0.list == list && (!$0.reminder.completed || ($0.completedAt ?? .distantPast) >= completedSince) }
             .map(\.reminder)
     }
 
-    func createReminder(inList list: String, title: String, priority: Int) throws -> String {
+    func createReminder(inList list: String, _ fields: ReminderChange) throws -> String {
         try readable(list)
         let id = nextID("rem")
-        entries.append(Entry(reminder: Reminder(externalID: id, title: title, priority: priority, createdAt: Date()), list: list))
+        entries.append(Entry(reminder: Reminder(externalID: id, title: "", createdAt: Date()), list: list))
+        apply(fields, to: entries.count - 1)
         ownWrite()
         return id
+    }
+
+    func containsReminder(_ externalID: String, inList list: String) -> Bool {
+        entries.contains { $0.reminder.externalID == externalID && $0.list == list }
+    }
+
+    func localIdentifier(of externalID: String, inList list: String) -> String? {
+        containsReminder(externalID, inList: list) ? "local-\(externalID)" : nil
     }
 
     func updateReminder(_ externalID: String, inList list: String, _ change: ReminderChange) throws {
@@ -70,13 +86,30 @@ final class FakeRemindersStore: RemindersStore {
         guard let i = entries.firstIndex(where: { $0.reminder.externalID == externalID && $0.list == list }) else {
             throw RemindersError("no reminder \(externalID)")
         }
+        apply(change, to: i)
+        ownWrite()
+    }
+
+    private func apply(_ change: ReminderChange, to i: Int) {
+        entries[i].alarms = change.alarms(entries[i].alarms, oldDue: entries[i].reminder.dueAt,
+                                          oldDueDateOnly: entries[i].reminder.dueDateOnly)
+        if let notes = change.notes { entries[i].reminder.notes = notes.isEmpty ? nil : notes }
         if let title = change.title { entries[i].reminder.title = title }
         if let priority = change.priority { entries[i].reminder.priority = priority }
         if let completed = change.completed {
             entries[i].reminder.completed = completed
             entries[i].completedAt = completed ? Date() : nil
         }
-        ownWrite()
+        if let due = change.dueAt {
+            entries[i].reminder.dueAt = due
+            entries[i].reminder.dueDateOnly = change.dueDateOnly ?? false
+        }
+        if change.clearDue == true {
+            entries[i].reminder.dueAt = nil
+            entries[i].reminder.dueDateOnly = false
+        }
+        if let url = change.url { entries[i].reminder.url = url }
+        if change.clearURL == true { entries[i].reminder.url = nil }
     }
 
     func deleteReminder(_ externalID: String, inList list: String) throws {
@@ -96,12 +129,13 @@ final class FakeRemindersStore: RemindersStore {
 
     @discardableResult
     func phoneAdd(_ title: String, priority: Int = 0, list name: String = "Perch", dueAt: Date? = nil, url: String? = nil,
-                  notes: String? = nil, flagged: Bool = false, completedAt: Date? = nil, createdAt: Date = Date()) -> String {
+                  notes: String? = nil, flagged: Bool = false, alarms: [Date] = [], completedAt: Date? = nil,
+                  createdAt: Date = Date()) -> String {
         let id = nextID("rem")
         let list = allLists.first { $0.title == name }!.id
         let reminder = Reminder(externalID: id, title: title, priority: priority, completed: completedAt != nil, dueAt: dueAt,
-                                url: url, createdAt: createdAt)
-        entries.append(Entry(reminder: reminder, list: list, notes: notes, flagged: flagged, completedAt: completedAt))
+                                url: url, notes: notes, createdAt: createdAt)
+        entries.append(Entry(reminder: reminder, list: list, flagged: flagged, completedAt: completedAt, alarms: alarms))
         changed()
         return id
     }

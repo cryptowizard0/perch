@@ -134,5 +134,26 @@
 - [x] 空状态只有 "All clear"
 - [x] 签名：designated requirement `identifier "dev.perch.app"`；Info.plist 加 `NSRemindersFullAccessUsageDescription`
 - [x] `swift build` / `swift test` 通过；CLAUDE.md、PRD 更新
-- [ ] 人工验收（真 Mac + iPhone）：Connect 能用；手机 ↔ 刘海双向都能看到变化；重新编译的 App 保留 Reminders 权限
+- [x] 人工验收（真 Mac + iPhone，2026-10-16 维护者验收通过）：Connect 能用；手机 ↔ 刘海双向都能看到变化；重新编译的 App 保留 Reminders 权限
 - [ ] 测量 App 写入 → `EKEventStoreChanged` 的延迟和真实的 iCloud 手机 → Mac 延迟，记在 #50 的评论里
+
+**#52 CLI / inbox.md 经 bridge 写**
+- [x] `add` / `done` / `update` / `rm`（和 `update --status dismissed`）对 todo 的写经 perchd 交给 bridge（`todo_op` → `todo_ack` → 快照），`ls` 马上看得到
+- [x] 没有 bridge 或 2 秒内没等到：一行错误、exit 1、`--json` 错误格式，不排队；晚到的 ack 照样记 key，同 `--key` 重试不重复
+- [x] `--due`（只有日期 / 带时间，`due_date_only`，schema v6）、`--link`、`--priority` 写进提醒；同 `--key` 再 add 是改；`--source` / `--meta` / `--expires` 对 todo 不存
+- [x] 等待中的 task `update --status open` 搬进 Reminders（短 id、key 不变）；`ls --status done` 是 7 天内完成的，`update --status open` 重新打开
+- [x] 不是 bridge 的 App 的 Todo tab 写经 perchd 交给 bridge
+- [x] `inbox.md` 只在 bridge 连着时吸收，做完一行删一行；没有 bridge 或 bridge 做不了时留在文件里
+- [x] 没有 bridge 时：`perch ls` stderr "Todos as of HH:MM — Perch.app isn't connected"、`--json` 的 `todos_as_of`、`todo.md` 的 As of 行；缓存是空的不说
+- [x] `swift build` / `swift test` 通过；README、AGENT-SNIPPET、PRD、CLAUDE.md 更新
+- [x] 人工验收（真 Mac，2026-10-16 维护者验收通过）：装好的 Perch.app 连着时 `perch add` / `done` / `rm` 改到 Reminders 和手机；退出 App 后 `perch add` 报错、`perch ls` 带 as of；`inbox.md` 的行在 App 打开后进 Reminders
+
+**#53 日期、✎、大编辑器**
+- [x] spike：`x-apple-reminderkit://REMCDReminder/<UUID>` 能打开那条提醒所在的列表；只设到期时间不加 alarm 就不会像 Reminders 那样提醒（Reminders 自己会加），结果记在 #50
+- [x] 日期标签（Today / Tomorrow / 星期几 / "Oct 20" / 带年份、只有日期 / 带时间、过期白色），固定 now 和日历的测试；不改排序
+- [x] 行：`○ 标题 … 日期 ✎`，悬停完整标题和日期；单击圆圈或标题完成，双击不多做；右键 Edit… / Priority ▸ / Delete
+- [x] ✎ 打开那条提醒（找不到就只打开 Reminders），刘海收起
+- [x] 大编辑器：标题、备注、日期、时间、优先级、URL；Return 保存、Esc 不改；Perch 不管的字段不动；备注进缓存
+- [x] 设时间同时加 alarm（刘海和 CLI 都是），时间改了跟着走，别的 alarm 不动
+- [x] 添加弹窗不变；`swift build` / `swift test` 通过；PRD、CLAUDE.md 更新
+- [x] 人工验收（真 Mac，有 Reminders 权限，2026-10-16 维护者验收通过）：行的样子、✎ 跳过去、大编辑器（日期 / 时间选择器、Return / Esc / Tab）、在刘海里设的时间到点会提醒、iCloud 列表上 ✎ 也能找到那条

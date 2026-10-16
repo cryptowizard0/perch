@@ -6,7 +6,8 @@
 ## Perch（人机共享任务面板）
 - 需要人做决定或提供东西时：`perch add "<一句话说清要什么>" --source <你的名字> --status waiting --key <session_id> --link <当前目录或 PR 链接>`
 - 做完一件值得告知的事：`perch add "<结果>" --kind notice --source <你的名字>`
-- 查看人给你留的任务：`perch ls --source human --json`
+- 查看人的待办（Apple Reminders 里的 "Perch" 列表）：`perch ls --kind task --status open --json`
 - 完成一项：`perch done <id>`；改标题 / 推迟：`perch update <id> --title … --due +30m`
 - 同一件事不要重复 add，用同一个 `--key`。
+- 待办的增改要 Perch.app 在运行：失败时（`{"ok":false,…}`、exit 1）不会排队，告诉人就行；超时后用同一个 `--key` 重试不会重复。
 ```

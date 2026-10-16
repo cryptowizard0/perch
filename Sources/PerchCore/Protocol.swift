@@ -10,7 +10,8 @@ import Foundation
 /// - `ping` → `version`
 /// - `add` + `item` → `item`. perchd assigns `id`, `created_at`, `updated_at`; with `item.key` set, an existing
 ///   item with that key is updated instead (see `Service`). Only `title` is required in the JSON.
-/// - `list` + optional `filter` → `items`, in queue order (see `Item.queueOrder`)
+/// - `list` + optional `filter` → `items`, in queue order (see `Item.queueOrder`). While no Reminders bridge is
+///   connected and the list holds cached todos, also `todos_as_of`: when that cache was last known current (#52)
 /// - `get` / `done` / `remove` + `id` → `item` (`remove` returns the deleted item); `done` also takes `key` instead of `id`
 /// - `respond` + `id` + `value` → `item`; the request is closed with `status: done`
 /// - `update` + `id` + `patch` → `item`. Only the fields set in `patch` change; see `Request.Patch`
@@ -27,6 +28,10 @@ import Foundation
 ///   another one already is (the app stays a plain client). The bridge leaves when its watch connection closes
 /// - `todo_snapshot` + `watcher` + `reminders` → ok; the bridge's full read of the "Perch" list replaces perchd's
 ///   todo cache (open and done task items), assigning short ids to new reminders
+/// - Todo writes (`add` / `done` / `update` / `remove` on open or done tasks, #52) go to the bridge: perchd pushes a
+///   `todo_op` (`TodoOperation`) on its watch connection, the bridge applies it and answers `todo_ack` + `watcher` +
+///   `ack` (`TodoAck`), then sends a snapshot; the writer gets its answer after that snapshot. No bridge, or no answer
+///   within 2 seconds: an error, and nothing is queued
 public struct Request: Codable, Sendable {
     public enum Op: String, Codable, Sendable {
         case ping, add, list, get, done, respond, remove, update, watch
@@ -38,6 +43,7 @@ public struct Request: Codable, Sendable {
         case sessionRemove = "session_remove"
         case bridgeRegister = "bridge_register"
         case todoSnapshot = "todo_snapshot"
+        case todoAck = "todo_ack"
     }
     public var op: Op
     public var item: Item?
@@ -55,10 +61,12 @@ public struct Request: Codable, Sendable {
     public var watcher: String?
     /// `todo_snapshot`: every reminder in the list (incomplete, and completed in the last 7 days).
     public var reminders: [Reminder]?
+    /// `todo_ack`: how a `todo_op` went.
+    public var ack: TodoAck?
 
     public init(op: Op, item: Item? = nil, id: String? = nil, value: String? = nil, filter: Filter? = nil,
                 patch: Patch? = nil, session: Session? = nil, report: SessionReport? = nil, key: String? = nil, at: Date? = nil,
-                watcher: String? = nil, reminders: [Reminder]? = nil) {
+                watcher: String? = nil, reminders: [Reminder]? = nil, ack: TodoAck? = nil) {
         self.op = op
         self.item = item
         self.id = id
@@ -71,6 +79,7 @@ public struct Request: Codable, Sendable {
         self.at = at
         self.watcher = watcher
         self.reminders = reminders
+        self.ack = ack
     }
 
     /// For `list`. Without `status`, only active items (open, waiting) are returned unless `all` is true.
@@ -88,31 +97,70 @@ public struct Request: Codable, Sendable {
     }
 
     /// For `update`. Unset fields stay as they are. `priority` applies to any kind (only open tasks are sorted by it). `kind` switches between task and notice only
-    /// (a notice that becomes a task stops expiring); requests keep their kind.
+    /// (a notice that becomes a task stops expiring); requests keep their kind. `status` (#52) moves tasks and notices:
+    /// an open or done task is a todo, so a waiting task set to open moves into Reminders, and a todo set to dismissed
+    /// is deleted there.
     public struct Patch: Codable, Sendable, Equatable {
         public var title: String?
         public var kind: ItemKind?
+        public var status: ItemStatus?
         public var priority: ItemPriority?
         public var dueAt: Date?
+        /// With `due_at`: it is a whole day, not a moment.
+        public var dueDateOnly: Bool?
         /// Removes `due_at`. Cannot be combined with `due_at`.
         public var clearDue: Bool?
+        /// A todo's notes (#53, `Item.notes`); empty removes them.
+        public var notes: String?
+        public var link: String?
+        /// Removes `link`. Cannot be combined with `link`.
+        public var clearLink: Bool?
 
-        public init(title: String? = nil, kind: ItemKind? = nil, priority: ItemPriority? = nil, dueAt: Date? = nil, clearDue: Bool? = nil) {
+        public init(title: String? = nil, kind: ItemKind? = nil, status: ItemStatus? = nil, priority: ItemPriority? = nil,
+                    dueAt: Date? = nil, dueDateOnly: Bool? = nil, clearDue: Bool? = nil, notes: String? = nil,
+                    link: String? = nil, clearLink: Bool? = nil) {
             self.title = title
             self.kind = kind
+            self.status = status
             self.priority = priority
             self.dueAt = dueAt
+            self.dueDateOnly = dueDateOnly
             self.clearDue = clearDue
+            self.notes = notes
+            self.link = link
+            self.clearLink = clearLink
         }
 
         enum CodingKeys: String, CodingKey {
-            case title, kind, priority
+            case title, kind, status, priority, notes, link
             case dueAt = "due_at"
+            case dueDateOnly = "due_date_only"
             case clearDue = "clear_due"
+            case clearLink = "clear_link"
         }
 
         public var isEmpty: Bool {
-            title == nil && kind == nil && priority == nil && dueAt == nil && clearDue != true
+            title == nil && kind == nil && status == nil && priority == nil && dueAt == nil && clearDue != true
+                && notes == nil && link == nil && clearLink != true
+        }
+
+        /// What turns `old` into `new`: title, priority, due date, notes and link, only where they differ.
+        public init(from old: Item, to new: Item) {
+            self.init()
+            if new.title != old.title { title = new.title }
+            if new.priority != old.priority { priority = new.priority }
+            if new.dueAt != old.dueAt || new.dueDateOnly != old.dueDateOnly {
+                if let due = new.dueAt {
+                    dueAt = due
+                    dueDateOnly = new.dueDateOnly
+                } else {
+                    clearDue = true
+                }
+            }
+            if new.notes != old.notes { notes = new.notes ?? "" }
+            if new.link != old.link {
+                if let link = new.link { self.link = link } else { clearLink = true }
+            }
         }
     }
 }
@@ -131,9 +179,14 @@ public struct Response: Codable, Sendable {
     /// `bridge_register`: whether the caller is now the bridge. On the watch stream (no `event`): whether a bridge
     /// is connected, pushed when one registers or leaves.
     public var bridge: Bool?
+    /// On the bridge's watch stream: a todo write to apply (#52).
+    public var todoOp: TodoOperation?
+    /// `list`, only while no bridge is connected and the list holds cached todos: when the cache was last current.
+    public var todosAsOf: Date?
 
     public init(ok: Bool, error: String? = nil, item: Item? = nil, items: [Item]? = nil, event: Event? = nil, version: String? = nil,
-                sessions: [Session]? = nil, sessionEvent: SessionEvent? = nil, watcher: String? = nil, bridge: Bool? = nil) {
+                sessions: [Session]? = nil, sessionEvent: SessionEvent? = nil, watcher: String? = nil, bridge: Bool? = nil,
+                todoOp: TodoOperation? = nil, todosAsOf: Date? = nil) {
         self.ok = ok
         self.error = error
         self.item = item
@@ -144,11 +197,15 @@ public struct Response: Codable, Sendable {
         self.sessionEvent = sessionEvent
         self.watcher = watcher
         self.bridge = bridge
+        self.todoOp = todoOp
+        self.todosAsOf = todosAsOf
     }
 
     enum CodingKeys: String, CodingKey {
         case ok, error, item, items, event, version, sessions, watcher, bridge
         case sessionEvent = "session_event"
+        case todoOp = "todo_op"
+        case todosAsOf = "todos_as_of"
     }
 
     public static func failure(_ message: String) -> Response { Response(ok: false, error: message) }

@@ -138,3 +138,47 @@ import Testing
                 == ["reqq", "wait", "hig1", "hig2", "norm", "nrm2", "lowo", "low1", "note", "done"])
     }
 }
+
+/// What Perch changes on a reminder (#52 / #53): the diff from one todo to another, and the alarm a time brings.
+@Suite struct ReminderChangeTests {
+    let t = Date(timeIntervalSince1970: 1_900_000_000)
+
+    @Test func theDiffHasOnlyWhatChanged() {
+        var old = Item(id: "a", title: "x", priority: .low, dueAt: t, dueDateOnly: true, link: "https://a")
+        old.notes = "n"
+        #expect(ReminderChange(from: old, to: old).isEmpty)
+        var new = old
+        new.title = "y"
+        new.priority = .high
+        new.notes = nil
+        new.link = nil
+        new.dueAt = t.addingTimeInterval(3600)
+        new.dueDateOnly = false
+        new.status = .done
+        #expect(ReminderChange(from: old, to: new) == ReminderChange(
+            title: "y", priority: 1, completed: true, dueAt: t.addingTimeInterval(3600), dueDateOnly: false,
+            notes: "", clearURL: true))
+        var undated = old
+        undated.dueAt = nil
+        undated.dueDateOnly = false
+        #expect(ReminderChange(from: old, to: undated) == ReminderChange(clearDue: true))
+    }
+
+    /// Like the Reminders app: a time comes with an alarm at that time, which follows the time; other alarms stay.
+    @Test func aTimeBringsItsAlarm() {
+        let other = t.addingTimeInterval(-86_400)
+        let timed = ReminderChange(dueAt: t, dueDateOnly: false)
+        #expect(timed.alarms([], oldDue: nil, oldDueDateOnly: false) == [t])
+        #expect(timed.alarms([other], oldDue: nil, oldDueDateOnly: false) == [other, t])
+        // Moved: the alarm at the old time moves with it.
+        let moved = ReminderChange(dueAt: t.addingTimeInterval(600), dueDateOnly: false)
+        #expect(moved.alarms([t, other], oldDue: t, oldDueDateOnly: false) == [other, t.addingTimeInterval(600)])
+        // A whole day, or no due date: the time's alarm goes; others stay.
+        #expect(ReminderChange(dueAt: t, dueDateOnly: true).alarms([t, other], oldDue: t, oldDueDateOnly: false) == [other])
+        #expect(ReminderChange(clearDue: true).alarms([t, other], oldDue: t, oldDueDateOnly: false) == [other])
+        // Nothing about the due date: alarms untouched.
+        #expect(ReminderChange(title: "y").alarms([t, other], oldDue: t, oldDueDateOnly: false) == [t, other])
+        // Already there: not twice.
+        #expect(timed.alarms([t], oldDue: t, oldDueDateOnly: false) == [t])
+    }
+}

@@ -77,7 +77,7 @@ v0.1 只做一个闭环：agent 在等你 → 刘海亮 → 就地处理或跳�
 | markdown 双向同步 | daemon 持有 SQLite 时，手改文件再同步是冲突和重复 id 的集中产地；改为只读镜像 + 追加式收件箱 |
 | 音乐控制、系统 HUD、文件中转 | 现有 13 家都在做，不是本产品的差异化 |
 | 项目、标签、子任务、重复任务、拖动排序、"今天完成的" | todo 只是底座，不追求完整的任务管理 |
-| Perch 自己的到期提醒、推迟、日历（Todo tab） | 提醒只由 Reminders 自己发一次；刘海里的时间不能和"agent 在等你"抢信号，收起态永远不管 todo。到期日期只在 Todo tab 的行里显示（#53），不参与排序 |
+| Perch 自己的到期提醒、推迟、日历（Todo tab） | 提醒只由 Reminders 自己发一次（Perch 设时间时加的 alarm 也是 Reminders 发的，#53）；刘海里的时间不能和"agent 在等你"抢信号，收起态永远不管 todo。到期日期只在 Todo tab 的行里显示（#53），不参与排序 |
 | notice 转 task（Todo tab） | notice 是 agent 的告知，不是人的待办；Todo tab 只放 "Perch" 列表里的待办 |
 | agent 给人留 todo（agent 图标、跳回链接、给 agent 的说明） | Todo tab 只给人自己写的待办；`perch add` 不变，只是不推荐给 agent |
 | 在刘海面板里直接打字、任何输入语法（优先级标记、`@15:00`） | 刘海面板永远不拿键盘焦点；打字只在单独的弹窗里，输入什么存什么 |
@@ -101,6 +101,7 @@ v0.1 只做一个闭环：agent 在等你 → 刘海亮 → 就地处理或跳�
 | source | string | `human` / `claude-code` / `codex` / `hermes`；自由字符串，新 agent 不用改代码 |
 | priority | enum | `high` / `normal` / `low`，默认 normal（2026-10-15，#41，schema v4）；Todo tab 按它分组，`perch ls` / `todo.md` 按它排序。todo 的优先级来自 Reminders（见"Todo tab"的 Reminders 一节） |
 | due_at | datetime? | 到期时间。v0.2 起刘海不再用它（不显示、不提醒），只为兼容留在 CLI 和库里 |
+| due_date_only | bool | `due_at` 是一整天（那天的零点）而不是某个时刻：只有日期的提醒（#52，schema v6）；JSON 里只在为 true 时出现 |
 | link | string? | URL、文件路径或终端 session 引用，点一下跳回去 |
 | meta | json? | agent 自由塞 cwd、session_id、工具名等 |
 | created_at / updated_at | datetime | — |
@@ -148,17 +149,20 @@ flowchart LR
   D -->|事件推送| UI[刘海 UI]
   D -->|渲染| MD[todo.md 只读镜像]
   IB[inbox.md] -->|监听并吸收| D
+  D <-->|todo 写 / 快照| BR[Perch.app = Reminders bridge]
+  BR <--> RM[Reminders "Perch" 列表]
 ```
 
-所有写入汇到 daemon，所有读取从 daemon 推出，没有任何客户端直接碰 SQLite。
+所有写入汇到 daemon，所有读取从 daemon 推出，没有任何客户端直接碰 SQLite。todo 是例外的一半：真相在 Reminders，daemon 把 todo 的写交给 bridge App 去做（#52），自己只存快照。
 
 **CLI `perch`**
 
 | 命令 | 作用 |
 | --- | --- |
-| `add "<title>" [--kind task\|notice\|request] [--source <s>] [--status waiting] [--due @15:00\|+30m] [--link <ref>] [--key <k>] [--wait]` | 新建；`--key` 幂等，同一 key 重复 add 不产生重复项；`--wait` 阻塞到 request 被回应或超时 |
-| `ls [--status] [--source] [--json]` | 列出 |
-| `done <id>` | 完成 |
+| `add "<title>" [--kind task\|notice\|request] [--source <s>] [--status waiting] [-p high\|normal\|low] [--due @15:00\|+30m\|2026-10-20] [--link <ref>] [--key <k>] [--wait]` | 新建；`--key` 幂等，同一 key 重复 add 不产生重复项；`--wait` 阻塞到 request 被回应或超时。open / done 的 task 是 todo，写进 Reminders（见下） |
+| `ls [--status] [--source] [--kind] [--all] [--json]` | 列出；没有 bridge 时 todo 是旧快照，stderr 说明多旧 |
+| `done <id>` / `done --key <k>` | 完成 |
+| `update <id> [--title] [--kind] [--status] [-p] [--due\|--no-due]` | 修改；`--status open` 重新打开完成的 todo、把等待中的 task 搬进 Reminders，`--status dismissed` 删除 todo |
 | `respond <id> <value>` | 回应 request |
 | `rm <id>` | 删除 |
 | `watch [--json]` | 流式输出事件，用于调试和第三方订阅 |
@@ -168,7 +172,7 @@ flowchart LR
 
 **daemon**：launchd 常驻，SQLite 存储，暴露 Unix socket（本机 CLI 和 UI）和一个 localhost 端口（Hermes 容器通过 `host.docker.internal:port` 访问，和现有 webhook 架构一致）。事件通过 socket 广播推送，不轮询。
 
-**文件**：`todo.md` 是 daemon 渲染的只读镜像，agent 可以 `cat`，也能进 git 或 Obsidian；`inbox.md` 是追加式收件箱，任何人往里写一行 `- [ ] xxx`，daemon 监听到就吸收进库并清空。两个文件都是单向的，没有双向同步。todo 搬进 Reminders 以后（#51），`todo.md` 的 "To do" 是 perchd 缓存的 "Perch" 列表；`inbox.md` 的行要经 bridge 写进 Reminders，#52 之前先留在文件里不吸收。
+**文件**：`todo.md` 是 daemon 渲染的只读镜像，agent 可以 `cat`，也能进 git 或 Obsidian；`inbox.md` 是追加式收件箱，任何人往里写一行 `- [ ] xxx`，daemon 监听到就吸收进库并清空。两个文件都是单向的，没有双向同步。todo 搬进 Reminders 以后（#51），`todo.md` 的 "To do" 是 perchd 缓存的 "Perch" 列表；没有 bridge 连着时，"To do" 下面多一行 `_As of 2026-10-16 14:02 — Perch.app isn't connected_`，说明这是那时的快照（#52）。`inbox.md` 的行经 bridge 写进 Reminders（#52）：只有 bridge 连着时才吸收，一行一行地发，bridge 做完一行才从文件里删掉那一行；没有 bridge、或者 bridge 做不了（比如列表被删了），行就留在文件里，下次再试，永远不丢。
 
 **同步**：Perch 不做自己的同步。todo 的唯一真相是 Reminders 的 "Perch" 列表，iCloud 把它同步到 iPhone 和别的设备；perchd 的 SQLite 里只有这个列表最近一次快照的只读缓存，加一张短 id 引用表，丢了能从 Reminders 重建（只是短 id 会重新分配）。这不是双向同步：只有一边是真相，缓存只由快照写。
 
@@ -283,7 +287,7 @@ v0.2 时 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task�
 
 **实时性指标**：CLI / hook 调用到刘海更新 ≤ 200 ms，靠 daemon 推事件，不轮询。
 
-## Todo tab（2026-10-15，#41 / #42 / #43；2026-10-16 起是 Reminders 的 "Perch" 列表，#50）
+## Todo tab（2026-10-15，#41 / #42 / #43；2026-10-16 起是 Reminders 的 "Perch" 列表，#50；日期、✎、大编辑器 #53）
 
 展开态的第二个 tab："Perch" Reminders 列表里的待办（#50，见下方"Reminders"），按优先级分组。样子跟着 Sapphire 的刘海：黑底面板、粗大标题加一行灰色摘要、导航图标在刘海旁边的条带里。
 
@@ -300,7 +304,9 @@ v0.2 时 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task�
 - 没有 Reminders 权限或列表时，整个 tab 只有一行说明和一个按钮（见"Reminders"）。
 - 只显示 open 的 task（notice、request、等待中的、做完的都不显示），按 High / Normal / Low 分组。组标题带数量、和 Agents 的组标题同一个样式、空组不显示；High 的组标题白色，其余灰色。**优先级不用颜色**：橙、红、绿、蓝只属于 agent 状态。
 - 组内最老的在前；改了优先级的待办按创建时间排进新组。
-- 每行一行：圆圈 + 标题，太长尾部截断，悬停显示完整标题。没有时间、来源、链接。
+- 每行一行：`○ 标题 … 日期 ✎`（#53）。标题太长尾部截断；悬停显示完整标题和完整日期（"Friday, October 16, 2026 at 15:00"）。没有来源、链接。
+- 日期（有到期日期时）：灰色；今天是 "Today"，明天 "Tomorrow"，一周内是星期几（"Thursday"），再往后 "Oct 20"，不是今年的带年份（"Jan 5, 2027"），过去的日期也是这种写法；有时间的后面加时间（"Today 15:00"）。过期的是白色，从不用 agent 的颜色；只有日期的那天结束才算过期。日期不参与排序，仍然是优先级分组、组内最老的在前。标签由 `TodoList.dueLabel` 算（可注入 now 和日历）。
+- ✎ 一直显示：点了用 Reminders 的链接 `x-apple-reminderkit://REMCDReminder/<本机标识符>`（EventKit 的 `calendarItemIdentifier`）打开那条提醒，Reminders 切到它所在的列表（macOS 15 实测，见 #50），刘海收起；找不到那条提醒时只打开 Reminders。备注、子任务、旗标、提醒等 Perch 不编辑的东西都在那里改。
 - 列表超过面板最大高度时滚动；底部固定一行 "+ Add a todo"。
 
 **交互**
@@ -308,27 +314,40 @@ v0.2 时 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task�
 | 操作 | 效果 |
 | --- | --- |
 | 点圆圈 | 打勾、标题划掉、出现 Undo；3 秒后在 Reminders 里完成，行消失。3 秒内点 Undo 或再点圆圈就取消，Reminders 不动。计时在刘海的数据模型里，不在视图里，所以刘海收起后照样完成；3 秒内退出 Perch，待办保持未完成 |
-| 单击标题 | 什么都不做（防误点） |
-| 双击标题、右键 → Edit… | 打开弹窗（编辑），预填标题和优先级 |
+| 单击标题 | 和点圆圈一样：完成，带 3 秒 Undo（#53；整行都是好点的目标，点错了 Undo 就行） |
+| 双击 | 什么都不多做：第二下落在系统的双击间隔里就忽略（`QueueModel.doubleClickInterval`），所以就是一次单击；过了间隔再点才是 Undo |
+| ✎ | 在 Reminders 里打开那条提醒，刘海收起 |
+| 右键 → Edit… | 打开大编辑器（#53），预填 |
 | 右键 → Priority ▸ | High / Normal / Low，当前的打勾；改完移到新组 |
 | 右键 → Delete | 立刻删掉那条提醒，不确认；它进 Reminders 的"最近删除" |
 | "+ Add a todo" | 打开弹窗（添加），面板保持展开，弹窗在面板正下方 |
 | ⌥⇧Space（任何地方） | 打开弹窗（添加），在刘海正下方，刘海保持收起；再按一次关掉。`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改，重启生效 |
 
-**弹窗**：刘海面板永远不拿键盘焦点，所有打字都在这个单独的小弹窗里。它是不激活 App 却能成为 key window 的面板（M2 快速录入同一个技巧），所以终端一直是前台 App；深色外观。
+**弹窗**：刘海面板永远不拿键盘焦点，所有打字都在单独的弹窗里：添加用小弹窗，编辑用大编辑器（#53）。它是不激活 App 却能成为 key window 的面板（M2 快速录入同一个技巧），所以终端一直是前台 App；深色外观。
 - 一个标题输入框，下面一排 High / Normal / Low 按钮，默认 Normal。Tab 选下一个优先级，Shift-Tab 上一个，按钮也能点（输入法正在组字时 Tab 留给输入法）。
 - **不解析**：去掉首尾空白后原样存成标题，没有优先级标记、没有 `@15:00`。空白输入按 Return 什么都不做。
 - 添加：Return 在 "Perch" 列表里建一条提醒（选中的优先级），弹窗不关、清空、回到 Normal，可以连续加。面板展开时新加的那一行高亮 1 秒。
-- 编辑：Return 改那条提醒的标题和优先级并关闭（别的字段不动）；Esc 什么都不改。
+- 编辑（#53）：大一点的同类弹窗，照着 Reminders 的详情做：标题、备注、日期开关加时间开关（打开日期是今天；打开时间是今天的下一个整点、别的日子 09:00）、High / Normal / Low、URL。Return 在任何一栏都保存并关闭（备注里 Shift / Option-Return 换行），Tab / Shift-Tab 在栏之间移动（备注里也是，不插入制表符），Esc 什么都不改。只写改了的字段；重复规则、子任务、标签、旗标、位置提醒、图片一律不动。备注随快照进缓存（`meta.notes`），编辑器才看得到。
+- 时间会提醒：Reminders App 设了时间就同时加一个那个时间的提醒（alarm），只设 EventKit 的到期日期组件不会（#50 的 spike）。所以 Perch（刘海编辑器、`perch add --due @15:00`）设时间时也加一个那个时间的绝对提醒；时间改了，原来在旧时间的那个跟着走；变成只有日期或去掉日期时它也去掉。别的提醒（自定义时间、位置、相对的）不动。
 - Esc 或点别处关闭。从面板打开时，面板在弹窗关闭前一直展开，关掉后恢复正常的悬停收起。
-- 弹窗的状态（添加 / 编辑、标题、选中的优先级、能不能提交）在刘海的数据模型里（`TodoEditor`），弹窗只负责画和转发按键。
+- 弹窗的状态（添加 / 编辑、标题、优先级、备注、日期、时间、URL、能不能提交）在刘海的数据模型里（`TodoEditor`），弹窗只负责画和转发按键。不是 bridge 的 App 编辑时经 perchd 交给 bridge（`update` 的 patch 多了 `notes` / `link` / `clear_link`）。
 
-**CLI 和文件**：`perch add|update --priority high|normal|low`（`-p`），不给就是 Normal，值不对是用法错误（exit 64）。`perch ls` 和 `todo.md` 的 "To do" 按优先级排（High、Normal、Low，然后是原来的队列顺序），标出 High 和 Low。`inbox.md` 没有优先级语法，进来的都是 Normal。HTTP 客户端不带 `priority` 照常工作。#51 起 todo 来自 Reminders：`perch ls`、`todo.md` 照常显示（每条都有短 id，手机上加的也有），但 #52 之前 CLI 对 todo 的写（`add` 一个 task、`done` / `update` / `rm` 一个 todo）一律失败："Todo needs Perch.app running with Reminders access"，exit 1，`--json` 打印 `{"ok":false,"error":…}`，不排队。request、notice、等待中的 task 照旧。
+**CLI 和文件**：`perch add|update --priority high|normal|low`（`-p`），不给就是 Normal，值不对是用法错误（exit 64）。`perch ls` 和 `todo.md` 的 "To do" 按优先级排（High、Normal、Low，然后是原来的队列顺序），标出 High 和 Low。`inbox.md` 没有优先级语法，进来的都是 Normal。HTTP 客户端不带 `priority` 照常工作。#51 起 todo 来自 Reminders：`perch ls`、`todo.md` 照常显示（每条都有短 id，手机上加的也有）。
+
+**CLI 写 todo（#52）**：`perch add`（open / done 的 task，任何 `--source`）、`done`、`update`、`rm`、`update --status dismissed` 对 todo 的写都经 perchd 交给 bridge：perchd 在 bridge 的 watch 连接上推一个带一次性 id 的 `todo_op`，bridge 写进 Reminders、回 `todo_ack`（id + 提醒的外部标识符）、再发快照，perchd 收到这份快照才回答 CLI，所以 `perch add` 之后马上 `perch ls` 一定看得到。
+- 没有 bridge，或 2 秒内没等到：一行人类可读的错误、exit 1、`--json` 打印 `{"ok":false,"error":…}`，**不排队**。没有 bridge 时是 "Todo needs Perch.app running with Reminders access"；列表被删了是 "Perch list not found"；超时说明改动可能还会生效，先 `perch ls` 再重试。
+- 晚到的 ack 照样记下引用和 key，所以超时后用同一个 `--key` 重试找到的是那条提醒，不会重复；不带 key 的重试可能重复，接受。
+- 字段：`--key` 对 todo 照样幂等（同 key 再 add 就是改那条提醒，内容一样什么都不发）；`--due` 设提醒的到期日期组件，`2026-10-20` 只有日期，`@15:00` / `+2h` / ISO-8601 带时间；`--link` 设 URL；`--priority` 设优先级。`--source`、`--meta`、`--expires` 对 todo 不存。
+- 等待中的 task 用 `perch update --status open` 变成 open（或 notice 用 `--kind task` 留下）：在 Reminders 里新建，本地那条删掉，短 id 和 key 不变。
+- 完成的 todo：`perch ls --status done` 列出 7 天内完成的，`perch update --status open` 重新打开。
+- 不是 bridge 的 App，Todo tab 的写也照这样经 perchd 交给 bridge。
+- 没有 bridge 时读照常：`perch ls` 的 stdout 不变，stderr 多一行 "Todos as of 14:02 — Perch.app isn't connected"（不是今天就带日期）；`--json` 多一个顶层 `todos_as_of`，只在这种时候、且列出的东西里有 todo 时才有；缓存是空的就什么都不说。时间是缓存最后一次确定和 Reminders 一致的时刻：最后一份快照，或 bridge 断开的那一刻，perchd 重启后还记得（schema v6）。
+- request、notice、等待中的 task 照旧是 perchd 自己的，不进 Reminders。
 
 **Reminders（#50 / #51）**：todo 的唯一真相是 Reminders 里叫 "Perch" 的列表（隔离运行，即设了 `PERCH_HOME`，用 "Perch Dev"）。
 - 只有 Perch.app 拿得到 Reminders 权限（launchd 起的 perchd 拿不到），所以 App 是 **bridge**：连上 perchd 后用 `bridge_register` 报名，perchd 同一时间只收一个，后来的 App 是普通客户端，bridge 断开时下一个报名的接手。bridge 把列表的完整快照（未完成的，加 7 天内完成的）用 `todo_snapshot` 发给 perchd：连上时、每次 `EKEventStoreChanged`、自己每次写完立刻发（不等通知）。perchd 对比缓存，给新提醒分配短 id，删掉不在快照里的，重写 `todo.md`，在 watch 上广播。
 - bridge 的 Todo tab 直接写 Reminders：完成、添加、改优先级、删除。完成重复提醒按 EventKit 自己的做法。Perch 不管的字段（备注、日期、URL、提醒、重复、子任务、旗标、标签、图片）写的时候一律不动，也不往提醒里写任何 Perch 专用的标记。
-- 字段对应：标题 ↔ title；优先级 1–4 读作 High、0 和 5（Medium）读作 Normal、6–9 读作 Low，写的时候 High → 1、Normal → 0（无优先级）、Low → 9；完成 ↔ done；到期 → `due_at`；URL → link；创建时间 → `created_at`。
+- 字段对应：标题 ↔ title；优先级 1–4 读作 High、0 和 5（Medium）读作 Normal、6–9 读作 Low，写的时候 High → 1、Normal → 0（无优先级）、Low → 9；完成 ↔ done；到期日期组件 ↔ `due_at`（只有日期时是那天的零点，加 `due_date_only: true`）；URL ↔ link；创建时间 → `created_at`。
 - 找列表：先按记下的标识符（App 的 defaults，改名也找得到），再按名字（优先 iCloud 的），都没有就在新提醒的默认账户里建。
 - Todo tab 的状态：没问过权限 → "Connect Reminders"（点了弹系统提示，再找或建列表）；拒绝或受限 → "Open System Settings"（打开 隐私与安全性 → 提醒事项）；有权限但列表被删了 → "Create Perch list"（**从不自动重建**）；就绪，列表不在 iCloud 时摘要后面写 "Not syncing — no iCloud"。首次运行的设置卡片不变，只管 agent。
 - 签名：Perch.app 是 ad-hoc 签名，designated requirement 是 `identifier "dev.perch.app"`（不是默认的 cdhash），所以重新编译、升级都保留 Reminders 权限。已知风险：任何自称这个 bundle id 的 App 都会继承权限；自签证书或 Developer ID 留到公开分发之前（见 CLAUDE.md 未决问题）。Info.plist 有 `NSRemindersFullAccessUsageDescription`；hardened runtime 没开，不需要 entitlement。

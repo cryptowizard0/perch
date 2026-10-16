@@ -9,8 +9,9 @@ import PerchCore
 /// The folded notch (mascot, running count, banner, sounds) only ever follows sessions.
 ///
 /// With a `RemindersBridge`, the app offers itself to perchd as the Reminders bridge (#51). perchd takes one: that app
-/// sends the list's snapshots and writes its own Todo tab's changes straight to Reminders. Any other app is a plain
-/// client, and takes over when perchd says the bridge left.
+/// sends the list's snapshots, writes its own Todo tab's changes straight to Reminders, and applies the todo writes
+/// perchd hands it from the CLI, inbox.md and other apps (#52). Any other app is a plain client (its Todo tab's writes
+/// go through perchd to the bridge), and takes over when perchd says the bridge left.
 @MainActor
 public final class QueueModel: ObservableObject {
     @Published public private(set) var state = QueueState()
@@ -41,6 +42,10 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var completing: Set<String> = []
     /// How long a clicked circle waits for Undo before the todo is done.
     public var completionDelay: TimeInterval = 3
+    /// A second click this soon after the first is the rest of a double-click, which does nothing more (#53); the app
+    /// sets the system's double-click interval.
+    public var doubleClickInterval: TimeInterval = 0
+    private var lastToggle: (id: String, at: Date)?
     /// The todo popup while it is open (#43). The popup draws it and edits `title`; the rest goes through the methods.
     @Published public var editor: TodoEditor?
     /// The Todo tab's Reminders state; nil without a `RemindersBridge` (then it just shows perchd's todos).
@@ -68,6 +73,8 @@ public final class QueueModel: ObservableObject {
     public var onSession: ((SessionEvent) -> Void)?
     /// Goes to a session's link (its terminal). The app sets it; AppKit stays out of this module.
     public var jump: (String?) -> Void = { _ in }
+    /// Opens a reminder in the Reminders app (✎), or just Reminders when nil, and collapses the notch. The app sets it.
+    public var openReminder: (URL?) -> Void = { _ in }
     /// Plays a chime. The app sets it, like `jump`.
     public var onChime: (ChimeSound) -> Void = { _ in }
     /// A banner's title and text, laid out, in points: how long it stays depends on whether it has to scroll.
@@ -85,6 +92,9 @@ public final class QueueModel: ObservableObject {
     private var ticker: Timer?
     private var flashTimer: Timer?
     private let actions = DispatchQueue(label: "dev.perch.app.actions")
+    /// The bridge's acks and snapshots, in order, never stuck behind this app's own todo write (which perchd may be
+    /// handing back to this very app).
+    private let bridgeActions = DispatchQueue(label: "dev.perch.app.bridge")
     /// The last tab picked by hand; memory only, so a relaunch starts on Agents.
     private var pickedTab: PanelTab = .agents
     /// Pending completions that have not sent `done` yet; cancelling one is Undo.
@@ -96,6 +106,9 @@ public final class QueueModel: ObservableObject {
     /// A snapshot is being read or sent; `snapshotAgain`: something changed meanwhile, so read once more after it.
     private var snapshotting = false
     private var snapshotAgain = false
+    /// Acks for todo operations applied since the last snapshot read began. Each goes out right before the first
+    /// snapshot read after its write, so perchd answers the writer with a cache that shows the change.
+    private var acksDue: [TodoAck] = []
 
     public init() {}
 
@@ -151,6 +164,7 @@ public final class QueueModel: ObservableObject {
             offlineReason = nil
             self.watcher = watcher
             isBridge = false
+            acksDue = []
             registerBridge()
         case .event(let event):
             state.apply(event)
@@ -171,6 +185,8 @@ public final class QueueModel: ObservableObject {
         case .bridge(let connected):
             // The bridge left: offer to take over (the first app to ask wins).
             if !connected { registerBridge() }
+        case .todo(let operation):
+            applyTodo(operation)
         case .offline(let reason):
             online = false
             offlineReason = reason
@@ -228,10 +244,13 @@ public final class QueueModel: ObservableObject {
         if self.tab != tab { self.tab = tab }
     }
 
-    /// Clicking a todo's circle: crosses it out and sends `done` after `completionDelay`, unless it is clicked again
-    /// (or Undo) first. The timer lives here, not in the view, so it still commits after the notch collapses;
-    /// quitting meanwhile leaves the todo open.
+    /// Clicking a todo's circle or title: crosses it out and sends `done` after `completionDelay`, unless it is clicked
+    /// again (or Undo) first; a double-click's second click is ignored. The timer lives here, not in the view, so it
+    /// still commits after the notch collapses; quitting meanwhile leaves the todo open.
     public func toggleCompletion(_ item: Item) {
+        let now = Date()
+        if let last = lastToggle, last.id == item.id, now.timeIntervalSince(last.at) < doubleClickInterval { return }
+        lastToggle = (item.id, now)
         if completing.contains(item.id) { return undoCompletion(item.id) }
         guard state.items[item.id] != nil else { return }
         completing.insert(item.id)
@@ -262,9 +281,14 @@ public final class QueueModel: ObservableObject {
         editor = .add(fromPanel: fromPanel)
     }
 
-    /// A double-click on a title, or Edit…: the popup, prefilled.
+    /// Edit…: the larger editor, prefilled.
     public func openEdit(_ item: Item) {
         editor = .edit(item)
+    }
+
+    /// ✎: this todo in the Reminders app, for everything Perch doesn't edit (subtasks, flags, alarms, …).
+    public func openInReminders(_ item: Item) {
+        openReminder(bridge?.link(for: item))
     }
 
     /// Tab / Shift-Tab in the popup.
@@ -278,8 +302,8 @@ public final class QueueModel: ObservableObject {
     }
 
     /// Return. Adding: `add` (source human, the chosen priority); the popup stays open, empty and back on Normal for
-    /// the next one. Editing: `update` with the title and priority, then the popup closes. False (and nothing sent)
-    /// while the title is blank.
+    /// the next one. Editing: what changed of the title, notes, due date, priority and URL, then the editor closes.
+    /// False (and nothing sent) while the title is blank.
     @discardableResult
     public func submitEditor() -> Bool {
         guard let editor, let title = editor.submittedTitle else { return false }
@@ -290,12 +314,15 @@ public final class QueueModel: ObservableObject {
             }
             self.editor = .add(fromPanel: editor.fromPanel)
         case .edit(let id):
-            let item = state.items[id]
-            write(Request(op: .update, id: id, patch: Request.Patch(title: title, priority: editor.priority))) {
-                guard let item else { throw RemindersError("no todo with id '\(id)'") }
-                try $0.update(item, title: title, priority: editor.priority)
-            }
             self.editor = nil
+            guard let item = state.items[id] else {
+                show("no todo with id '\(id)'")
+                return true
+            }
+            guard let edited = editor.edited(item) else { return false }
+            let patch = Request.Patch(from: item, to: edited)
+            guard !patch.isEmpty else { return true }
+            write(Request(op: .update, id: id, patch: patch)) { try $0.update(item, ReminderChange(from: item, to: edited)) }
         }
         return true
     }
@@ -358,25 +385,48 @@ public final class QueueModel: ObservableObject {
         }
     }
 
+    /// A todo write perchd handed over: apply it to Reminders, then ack it before the next snapshot (an error at once).
+    /// perchd only hands them to its bridge, so this app is one even if `bridge_register`'s answer is still on its way.
+    private func applyTodo(_ operation: TodoOperation) {
+        guard let bridge, let watcher else { return }
+        isBridge = true
+        do {
+            acksDue.append(TodoAck(id: operation.id, externalID: try bridge.apply(operation)))
+            sendSnapshot()
+        } catch {
+            send(Request(op: .todoAck, watcher: watcher, ack: TodoAck(id: operation.id, error: String(describing: error))),
+                 on: bridgeActions)
+        }
+    }
+
     /// Reads the list and sends it to perchd, one snapshot at a time and in order; a change meanwhile reads again.
     /// Nothing while access is missing (perchd keeps what it had); an empty list once the list itself is gone.
+    /// The acks of writes made before the read go out first.
     private func sendSnapshot() {
         guard isBridge, let bridge, let watcher else { return }
-        guard bridge.state.isReady || bridge.state == .createList else { return }
+        guard bridge.state.isReady || bridge.state == .createList else {
+            return flushAcks(watcher: watcher, error: "Perch.app made the change but lost access to Reminders; check `perch ls`")
+        }
         guard !snapshotting else { snapshotAgain = true; return }
         snapshotting = true
+        let acks = acksDue
+        acksDue = []
         Task { @MainActor [weak self] in
             let read: Result<[Reminder], Error>
             do { read = .success(try await bridge.snapshot()) } catch { read = .failure(error) }
             guard let self else { return }
+            // Reconnected (or no longer the bridge) while reading: the new connection sends its own.
+            let current = self.isBridge && self.watcher == watcher
             switch read {
             case .success(let reminders):
-                // Reconnected (or no longer the bridge) while reading: the new connection sends its own.
-                guard self.isBridge, self.watcher == watcher else { break }
-                // The actions queue keeps snapshots in the order they were read.
-                self.send(Request(op: .todoSnapshot, watcher: watcher, reminders: reminders))
+                guard current else { break }
+                // Acks first: perchd answers their writers with the snapshot after them.
+                self.sendAcks(acks, watcher: watcher)
+                self.send(Request(op: .todoSnapshot, watcher: watcher, reminders: reminders), on: self.bridgeActions)
             case .failure(let error):
                 self.show("Couldn't read Reminders: \(error)")
+                // No snapshot follows: the writers hear it from the acks.
+                if current { self.sendAcks(acks, watcher: watcher, error: "Perch.app made the change but couldn't read Reminders: \(error)") }
             }
             self.snapshotting = false
             if self.snapshotAgain {
@@ -386,8 +436,23 @@ public final class QueueModel: ObservableObject {
         }
     }
 
+    /// Access went while writes were waiting for a snapshot: ack them now (they were made), there won't be one.
+    private func flushAcks(watcher: String, error: String) {
+        let acks = acksDue
+        acksDue = []
+        sendAcks(acks, watcher: watcher, error: error)
+    }
+
+    /// `error`: the writes were made, but no snapshot will show them.
+    private func sendAcks(_ acks: [TodoAck], watcher: String, error: String? = nil) {
+        for var ack in acks {
+            ack.error = error
+            send(Request(op: .todoAck, watcher: watcher, ack: ack), on: bridgeActions)
+        }
+    }
+
     /// A Todo tab change. The bridge writes it to Reminders and sends the snapshot at once (no waiting for EventKit's
-    /// change notification); any other app asks perchd (`request`), which refuses todo writes until #52.
+    /// change notification); any other app asks perchd (`request`), which hands it to the bridge.
     private func write(_ request: Request, failed: (@MainActor () -> Void)? = nil, _ change: (RemindersBridge) throws -> Void) {
         guard isBridge, let bridge else { return send(request, failed: failed) }
         do {
@@ -419,10 +484,15 @@ public final class QueueModel: ObservableObject {
         completing.remove(id)
     }
 
-    /// Sends one request off the main thread; failures go to `flash` (after `failed`, if given).
+    /// Sends one request off the main thread (in order with the others on `queue`); failures go to `flash` (after
+    /// `failed`, if given).
     public func send(_ request: Request, failed: (@MainActor () -> Void)? = nil) {
+        send(request, on: actions, failed: failed)
+    }
+
+    private func send(_ request: Request, on queue: DispatchQueue, failed: (@MainActor () -> Void)? = nil) {
         let client = self.client
-        actions.async { [weak self] in
+        queue.async { [weak self] in
             let failure: String?
             do {
                 let response = try client.send(request)

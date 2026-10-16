@@ -4,7 +4,7 @@ import PerchCore
 /// The `items`, `sessions` and `todo_refs` tables. Columns map 1:1 to `Item` / `Session`; dates are ISO-8601 UTC text,
 /// `meta` / `options` are JSON text. Only perchd opens this database.
 public final class Store {
-    public static let schemaVersion = 5
+    public static let schemaVersion = 6
 
     let db: SQLiteDatabase
 
@@ -15,10 +15,10 @@ public final class Store {
         try migrate()
     }
 
-    static let columns = "id, title, kind, status, source, due_at, link, meta, key, options, response, expires_at, created_at, updated_at, priority"
+    static let columns = "id, title, kind, status, source, due_at, link, meta, key, options, response, expires_at, created_at, updated_at, priority, due_date_only"
 
     public func insert(_ item: Item) throws {
-        try db.run("INSERT INTO items (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(item))
+        try db.run("INSERT INTO items (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(item))
     }
 
     /// Overwrites every column of the row with `item.id`.
@@ -27,7 +27,7 @@ public final class Store {
         args.append(.text(item.id))
         try db.run("""
         UPDATE items SET title = ?, kind = ?, status = ?, source = ?, due_at = ?, link = ?, meta = ?, key = ?,
-            options = ?, response = ?, expires_at = ?, created_at = ?, updated_at = ?, priority = ?
+            options = ?, response = ?, expires_at = ?, created_at = ?, updated_at = ?, priority = ?, due_date_only = ?
         WHERE id = ?
         """, args)
     }
@@ -108,6 +108,7 @@ public final class Store {
             SQLValue(item.key), SQLValue(item.options.flatMap(Self.json)), SQLValue(item.response),
             SQLValue(item.expiresAt.map(Self.formatDate)),
             .text(Self.formatDate(item.createdAt)), .text(Self.formatDate(item.updatedAt)), .text(item.priority.rawValue),
+            .int(item.dueDateOnly ? 1 : 0),
         ]
     }
 
@@ -127,7 +128,7 @@ public final class Store {
         return Item(
             id: try required(0), title: try required(1), kind: kind, status: status,
             priority: row.text(14).flatMap(ItemPriority.init(rawValue:)) ?? .normal, source: try required(4),
-            dueAt: try date(5), link: row.text(6),
+            dueAt: try date(5), dueDateOnly: row.int(15) != 0, link: row.text(6),
             meta: row.text(7).flatMap { try? JSONDecoder().decode([String: String].self, from: Data($0.utf8)) },
             key: row.text(8),
             options: row.text(9).flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) },
@@ -224,6 +225,17 @@ public final class Store {
             );
             DELETE FROM items WHERE kind = 'task' AND status IN ('open', 'done');
             PRAGMA user_version = 5;
+            """)
+        }
+        if version < 6 {
+            // Date-only due dates (#52), and perchd's own small state (how old the todo cache is).
+            try db.execute("""
+            ALTER TABLE items ADD COLUMN due_date_only INTEGER NOT NULL DEFAULT 0;
+            CREATE TABLE daemon_state (
+                name  TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            PRAGMA user_version = 6;
             """)
         }
     }
@@ -334,6 +346,30 @@ extension Store {
         try db.run("INSERT INTO todo_refs (id, external_id, key) VALUES (?, ?, ?)", [.text(ref.id), .text(ref.externalID), SQLValue(ref.key)])
     }
 
+    public func todoRef(externalID: String) throws -> TodoRef? {
+        try todoRefs(where: "external_id = ?", .text(externalID)).first
+    }
+
+    public func todoRef(key: String) throws -> TodoRef? {
+        try todoRefs(where: "key = ?", .text(key)).first
+    }
+
+    /// Gives the reference `id` the key `key`, taking it from any other reference (and that one's cached todo) first:
+    /// a key names one reminder.
+    public func setKey(_ key: String, forRef id: String) throws {
+        try db.run("UPDATE items SET key = NULL WHERE key = ? AND id != ? AND id IN (SELECT id FROM todo_refs)", [.text(key), .text(id)])
+        try db.run("UPDATE todo_refs SET key = NULL WHERE key = ? AND id != ?", [.text(key), .text(id)])
+        try db.run("UPDATE todo_refs SET key = ? WHERE id = ?", [.text(key), .text(id)])
+    }
+
+    private func todoRefs(where clause: String, _ arg: SQLValue) throws -> [TodoRef] {
+        var refs: [TodoRef] = []
+        try db.run("SELECT id, external_id, key FROM todo_refs WHERE \(clause)", [arg]) { row in
+            if let id = row.text(0), let external = row.text(1) { refs.append(TodoRef(id: id, externalID: external, key: row.text(2))) }
+        }
+        return refs
+    }
+
     /// Whether `id` is (or was) a cached todo: those change only through the bridge.
     public func isTodo(id: String) throws -> Bool {
         var found = false
@@ -344,5 +380,16 @@ extension Store {
     /// The cached todos: the items with a reference.
     public func todos() throws -> [Item] {
         try select("WHERE id IN (SELECT id FROM todo_refs)", [])
+    }
+
+    /// When the todo cache was last known to match Reminders: the last snapshot, or the moment the bridge left.
+    public func todosAsOf() throws -> Date? {
+        var value: String?
+        try db.run("SELECT value FROM daemon_state WHERE name = 'todos_as_of'") { value = $0.text(0) }
+        return value.flatMap { Self.dateFormatter.date(from: $0) }
+    }
+
+    public func setTodosAsOf(_ date: Date) throws {
+        try db.run("INSERT OR REPLACE INTO daemon_state (name, value) VALUES ('todos_as_of', ?)", [.text(Self.formatDate(date))])
     }
 }

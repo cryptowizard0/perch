@@ -110,7 +110,8 @@ struct TodoTab: View {
                             TodoGroupHeader(group: group)
                             ForEach(group.items) { item in
                                 TodoRowView(item: item, completing: queue.completing.contains(item.id),
-                                            highlighted: queue.highlighted.contains(item.id), queue: queue)
+                                            highlighted: queue.highlighted.contains(item.id),
+                                            due: TodoList.dueLabel(item, now: queue.now), queue: queue)
                             }
                         }
                     }
@@ -194,41 +195,60 @@ struct AddTodoRow: View {
     }
 }
 
-/// One todo: the circle and the title (tail-truncated, the full title in a tooltip). Clicking the circle crosses it
-/// out with an Undo for a few seconds; a single click on the title does nothing, a double-click edits it.
-/// Right-click: Edit… · Priority ▸ · Delete. A todo just added while the panel is open is lit for a second.
+/// One todo: `○ title … date ✎` (#53). Clicking the circle or the title crosses it out with an Undo for a few seconds
+/// (clicking again undoes); double-clicking does nothing more. The date is gray, white once overdue; hovering the row
+/// shows the full title and date. ✎ opens the reminder in Reminders. Right-click: Edit… · Priority ▸ · Delete.
+/// A todo just added while the panel is open is lit for a second.
 struct TodoRowView: View {
     var item: Item
     var completing: Bool
     var highlighted = false
+    var due: TodoList.DueLabel?
     var queue: QueueModel
 
     var body: some View {
         let title = item.title.replacingOccurrences(of: "\n", with: " ")
+        let tooltip = due.map { "\(title)\n\($0.full)" } ?? title
         HStack(spacing: 8) {
             Button { queue.toggleCompletion(item) } label: {
-                Image(systemName: completing ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white.opacity(completing ? 0.6 : 0.55))
-                    .contentShape(Rectangle())
+                HStack(spacing: 8) {
+                    Image(systemName: completing ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white.opacity(completing ? 0.6 : 0.55))
+                    Text(title)
+                        .font(.system(size: 13))
+                        .strikethrough(completing)
+                        .foregroundStyle(.white.opacity(completing ? 0.4 : 0.95))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(completing ? "Undo" : "Complete")
-            Text(title)
-                .font(.system(size: 13))
-                .strikethrough(completing)
-                .foregroundStyle(.white.opacity(completing ? 0.4 : 0.95))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .help(title)
-                .onTapGesture(count: 2) { queue.openEdit(item) }
+            .help(completing ? "Undo" : tooltip)
             Spacer(minLength: 4)
             if completing {
                 Button("Undo") { queue.undoCompletion(item.id) }
                     .buttonStyle(.plain)
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.8))
+            } else if let due {
+                Text(due.text)
+                    .font(.system(size: 11.5)).monospacedDigit()
+                    .foregroundStyle(.white.opacity(due.overdue ? 0.95 : 0.45))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .help(tooltip)
             }
+            Button { queue.openInReminders(item) } label: {
+                Image(systemName: "pencil")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open in Reminders")
         }
         .frame(height: PanelLayout.todoRowHeight)
         .padding(.leading, 1)

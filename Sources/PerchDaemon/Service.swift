@@ -42,7 +42,7 @@ public final class Service {
                 return (.failure("watch streams events; it is handled by the connection, not as a single call"), [])
             case .sessionStart, .sessionEnd, .sessions, .sessionReport, .sessionSeen, .sessionRemove:
                 return (.failure("session ops are handled by SessionRegistry"), [])
-            case .bridgeRegister, .todoSnapshot:
+            case .bridgeRegister, .todoSnapshot, .todoAck:
                 return (.failure("bridge ops are handled by the daemon"), [])
             }
         } catch let error as ServiceError {
@@ -54,18 +54,25 @@ public final class Service {
 
     // MARK: - Ops
 
-    private func add(_ incoming: Item?) throws -> (Response, [Event]) {
+    /// What `add` stores of `incoming`: trimmed title and key, whole-second dates, no response.
+    private func normalized(_ incoming: Item?) throws -> Item {
         guard var item = incoming else { throw ServiceError("add needs an item") }
         item.title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !item.title.isEmpty else { throw ServiceError("title must not be empty") }
         if let key = item.key?.trimmingCharacters(in: .whitespaces) {
             item.key = key.isEmpty ? nil : key
         }
-        let t = timestamp()
         item.dueAt = item.dueAt.map(Self.wholeSeconds)
+        item.dueDateOnly = item.dueAt != nil && item.dueDateOnly
         // Round up so storing whole seconds never shortens the window an agent asked for.
         item.expiresAt = item.expiresAt.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.up)) }
         item.response = nil
+        return item
+    }
+
+    private func add(_ incoming: Item?) throws -> (Response, [Event]) {
+        var item = try normalized(incoming)
+        let t = timestamp()
         if Self.isTodoShaped(item) { throw ServiceError(Self.todoWriteRefused) }
         if item.kind == .request {
             if (item.options ?? []).isEmpty { item.options = ["allow", "deny"] }
@@ -144,15 +151,27 @@ public final class Service {
     }
 
     private func update(_ id: String?, _ patch: Request.Patch?) throws -> (Response, [Event]) {
+        let original = try existing(id)
+        try refuseTodo(original)
+        let item = try patched(original, patch)
+        // A notice kept as a task would be a todo, and todos live in Reminders: only the bridge can make it one.
+        if Self.isTodoShaped(item) && !Self.isTodoShaped(original) { throw ServiceError(Self.todoWriteRefused) }
+        guard item != original else { return (Response(ok: true, item: original), []) }
+        return try save(item)
+    }
+
+    /// `item` with `patch` applied, or why it can't be.
+    private func patched(_ original: Item, _ patch: Request.Patch?) throws -> Item {
         guard let patch, !patch.isEmpty else {
-            throw ServiceError("update needs at least one of: title, kind, priority, due_at, clear_due")
+            throw ServiceError("update needs at least one of: title, kind, status, priority, due_at, clear_due")
         }
         if patch.dueAt != nil && patch.clearDue == true {
             throw ServiceError("update takes either due_at or clear_due, not both")
         }
-        var item = try existing(id)
-        try refuseTodo(item)
-        let original = item
+        if patch.link != nil && patch.clearLink == true {
+            throw ServiceError("update takes either link or clear_link, not both")
+        }
+        var item = original
         if let title = patch.title?.trimmingCharacters(in: .whitespacesAndNewlines) {
             guard !title.isEmpty else { throw ServiceError("title must not be empty") }
             item.title = title
@@ -167,13 +186,25 @@ public final class Service {
             if kind == .task { item.expiresAt = nil }
             item.kind = kind
         }
+        if let status = patch.status, status != item.status {
+            if item.kind == .request {
+                throw ServiceError("\(item.id) is a request; answer it with respond, or close it with done or rm")
+            }
+            item.status = status
+        }
         if let priority = patch.priority { item.priority = priority }
-        if let due = patch.dueAt { item.dueAt = Self.wholeSeconds(due) }
-        if patch.clearDue == true { item.dueAt = nil }
-        // A notice kept as a task would be a todo, and todos live in Reminders.
-        if Self.isTodoShaped(item) && !Self.isTodoShaped(original) { throw ServiceError(Self.todoWriteRefused) }
-        guard item != original else { return (Response(ok: true, item: original), []) }
-        return try save(item)
+        if let due = patch.dueAt {
+            item.dueAt = Self.wholeSeconds(due)
+            item.dueDateOnly = patch.dueDateOnly ?? false
+        }
+        if patch.clearDue == true {
+            item.dueAt = nil
+            item.dueDateOnly = false
+        }
+        if let notes = patch.notes { item.notes = notes }
+        if let link = patch.link?.trimmingCharacters(in: .whitespacesAndNewlines) { item.link = link.isEmpty ? nil : link }
+        if patch.clearLink == true { item.link = nil }
+        return item
     }
 
     /// Dismisses every active item past its `expires_at`: notices fade, unanswered requests close
@@ -239,8 +270,8 @@ public final class Service {
 
     // MARK: - Todos (#51)
 
-    /// Todos live in the "Perch" Reminders list; only the bridge app writes them. Until perchd can hand writes to the
-    /// bridge (#52), a todo write from anyone else is refused, never queued.
+    /// Todos live in the "Perch" Reminders list; only the bridge app writes them. `Daemon` hands todo writes to it
+    /// (`planTodoWrite`, #52); with no bridge connected they are refused, never queued.
     static let todoWriteRefused = "Todo needs Perch.app running with Reminders access"
 
     /// What todos are cached as. Every other item (waiting tasks, notices, requests) stays perchd's own.
@@ -278,8 +309,9 @@ public final class Service {
                 var item = Item(
                     id: ref.id, title: reminder.title, kind: .task, status: reminder.completed ? .done : .open,
                     priority: ItemPriority(reminderPriority: reminder.priority), source: Self.remindersSource,
-                    dueAt: reminder.dueAt.map(Self.wholeSeconds), link: reminder.url,
-                    meta: [Item.reminderMetaKey: reminder.externalID], key: ref.key,
+                    dueAt: reminder.dueAt.map(Self.wholeSeconds), dueDateOnly: reminder.dueAt != nil && reminder.dueDateOnly,
+                    link: reminder.url,
+                    meta: Self.meta(of: reminder), key: ref.key,
                     createdAt: reminder.createdAt.map(Self.wholeSeconds) ?? old?.createdAt ?? t,
                     updatedAt: old?.updatedAt ?? t
                 )
@@ -297,8 +329,193 @@ public final class Service {
                 try store.delete(id: id)
                 events.append(Event(type: .removed, item: gone, at: t))
             }
+            try store.setTodosAsOf(t)
             return events
         }
+    }
+
+    /// What a cached todo keeps in `meta`: the reminder's identifier, and its notes when it has any.
+    static func meta(of reminder: Reminder) -> [String: String] {
+        var item = Item(title: "", meta: [Item.reminderMetaKey: reminder.externalID])
+        item.notes = reminder.notes
+        return item.meta ?? [:]
+    }
+
+    /// When the todo cache was last known to match Reminders (shown while no bridge is connected). A cache from before
+    /// perchd kept this falls back to its newest change.
+    public func todosAsOf() -> Date? {
+        (try? store.todosAsOf()) ?? (try? store.todos().map(\.updatedAt).max()) ?? nil
+    }
+
+    /// The bridge left: the cache was current until now.
+    public func bridgeLeft() {
+        try? store.setTodosAsOf(timestamp())
+    }
+
+    // MARK: - Todo writes through the bridge (#52)
+
+    /// A todo write for the bridge, and what to do with its answer.
+    public struct TodoWrite {
+        public var operation: TodoOperation
+        /// The key the reminder answers to afterwards (`add --key`, or the promoted item's).
+        var key: String?
+        /// A local item becoming this reminder (a waiting task set to open, a notice kept as a task): it goes once the
+        /// bridge has made the reminder, which takes its short id.
+        var promoted: String?
+        /// For a delete: the todo as it was (the answer).
+        var removed: Item?
+    }
+
+    public enum TodoPlan {
+        /// Not a todo write: `handle` it.
+        case local
+        /// A todo write with nothing to change, or one that can't be made: answer at once.
+        case answer(Response)
+        case bridge(TodoWrite)
+    }
+
+    /// Whether `request` writes a todo (an open or done task, or an item becoming one), and the bridge operation if so.
+    /// Only `add`, `done`, `update` and `remove` can.
+    public func planTodoWrite(_ request: Request) -> TodoPlan {
+        do {
+            switch request.op {
+            case .add: return try planAdd(request.item)
+            case .done: return try planDone(request.id, key: request.key)
+            case .update: return try planUpdate(request.id, request.patch)
+            case .remove:
+                let item = try existing(request.id)
+                guard try store.isTodo(id: item.id) else { return .local }
+                return try planDelete(item)
+            default: return .local
+            }
+        } catch let error as ServiceError {
+            return .answer(.failure(error.message))
+        } catch {
+            return .answer(.failure("internal error: \(error)"))
+        }
+    }
+
+    private func planAdd(_ incoming: Item?) throws -> TodoPlan {
+        let item = try normalized(incoming)
+        let existing = try item.key.flatMap(store.find(key:))
+        if let existing, try store.isTodo(id: existing.id) {
+            // `add --key` again: the same reminder takes the new fields.
+            guard Self.isTodoShaped(item) else {
+                throw ServiceError("key '\(existing.key ?? "")' is todo \(existing.id), which lives in Reminders; it can't become a \(item.status.rawValue) \(item.kind.rawValue)")
+            }
+            return try planChange(existing, to: item)
+        }
+        guard Self.isTodoShaped(item) else { return .local }
+        if existing == nil, let key = item.key, let ref = try store.todoRef(key: key) {
+            // The key's reminder isn't cached (its snapshot never came, or it's gone): that one if it's still there.
+            var change = Self.fields(of: item)
+            if item.dueAt == nil { change.clearDue = true }
+            if item.link == nil { change.clearURL = true }
+            if item.status == .open { change.completed = false }
+            return .bridge(TodoWrite(operation: TodoOperation(action: .upsert, externalID: ref.externalID, change: change), key: key))
+        }
+        // New, or re-adding the key of a waiting task as an open one: it moves into Reminders.
+        let operation = TodoOperation(action: .create, change: Self.fields(of: item))
+        return .bridge(TodoWrite(operation: operation, key: item.key, promoted: existing?.id))
+    }
+
+    private func planDone(_ id: String?, key: String?) throws -> TodoPlan {
+        let item: Item
+        if let key = key?.trimmingCharacters(in: .whitespaces), !key.isEmpty {
+            guard id == nil else { throw ServiceError("give either id or key, not both") }
+            guard let found = try store.find(key: key) else { throw ServiceError("no item with key '\(key)'") }
+            item = found
+        } else {
+            item = try existing(id)
+        }
+        guard try store.isTodo(id: item.id) else { return .local }
+        var done = item
+        done.status = .done
+        return try planChange(item, to: done)
+    }
+
+    private func planUpdate(_ id: String?, _ patch: Request.Patch?) throws -> TodoPlan {
+        let original = try existing(id)
+        guard try store.isTodo(id: original.id) else {
+            let item = try patched(original, patch)
+            guard Self.isTodoShaped(item) else { return .local }
+            let operation = TodoOperation(action: .create, change: Self.fields(of: item))
+            return .bridge(TodoWrite(operation: operation, key: item.key, promoted: original.id))
+        }
+        if patch?.kind == .notice { throw ServiceError("\(original.id) is a todo in Reminders; it stays a task") }
+        if patch?.status == .waiting { throw ServiceError("\(original.id) is a todo in Reminders; it can't be waiting") }
+        if patch?.status == .dismissed {
+            var removed = original
+            removed.status = .dismissed
+            return try planDelete(removed)
+        }
+        return try planChange(original, to: try patched(original, patch))
+    }
+
+    /// Deleting the cached todo `item` (answered with `item` itself).
+    private func planDelete(_ item: Item) throws -> TodoPlan {
+        guard let reminder = item.reminderID else { throw ServiceError("\(item.id) is not a reminder") }
+        return .bridge(TodoWrite(operation: TodoOperation(action: .delete, externalID: reminder), removed: item))
+    }
+
+    /// An update to the cached todo `old` so it reads like `new`; nothing to do when they already agree.
+    private func planChange(_ old: Item, to new: Item) throws -> TodoPlan {
+        guard let reminder = old.reminderID else { throw ServiceError("\(old.id) is not a reminder") }
+        let change = ReminderChange(from: old, to: new)
+        guard !change.isEmpty else { return .answer(Response(ok: true, item: old)) }
+        return .bridge(TodoWrite(operation: TodoOperation(action: .update, externalID: reminder, change: change)))
+    }
+
+    /// A new reminder's fields. `source`, `meta` and `expires_at` are not stored for todos.
+    static func fields(of item: Item) -> ReminderChange {
+        ReminderChange(title: item.title, priority: item.priority.reminderPriority, completed: item.status == .done ? true : nil,
+                       dueAt: item.dueAt, dueDateOnly: item.dueAt.map { _ in item.dueDateOnly }, url: item.link)
+    }
+
+    /// The bridge made `write`'s change (`externalID`: the reminder): remember the reminder's short id and key, and
+    /// drop the local item it replaces. Also after the writer stopped waiting, so retrying with the key finds it.
+    public func recordTodoWrite(_ write: TodoWrite, externalID: String) throws -> [Event] {
+        guard write.operation.action == .create || write.operation.action == .upsert else { return [] }
+        return try store.transaction {
+            var events: [Event] = []
+            let t = timestamp()
+            var preferred: String?
+            if let promoted = write.promoted, let local = try store.get(id: promoted), try !store.isTodo(id: promoted) {
+                try store.delete(id: promoted)
+                events.append(Event(type: .removed, item: local, at: t))
+                preferred = promoted
+            }
+            var ref: TodoRef
+            if let known = try store.todoRef(externalID: externalID) {
+                ref = known
+            } else {
+                ref = TodoRef(id: try preferred.map { try store.isTodo(id: $0) ? try freshID() : $0 } ?? freshID(),
+                              externalID: externalID, key: nil)
+                try store.insert(ref)
+            }
+            if let key = write.key, ref.key != key {
+                try store.setKey(key, forRef: ref.id)
+                ref.key = key
+                if var cached = try store.get(id: ref.id), cached.key != key {
+                    cached.key = key
+                    cached.updatedAt = t
+                    try store.update(cached)
+                    events.append(Event(type: .updated, item: cached, at: t))
+                }
+            }
+            return events
+        }
+    }
+
+    /// What the writer gets once the bridge's snapshot shows the change: the todo as cached now (as it was, for a
+    /// delete).
+    public func todoWriteAnswer(_ write: TodoWrite, externalID: String?) -> Response {
+        if let removed = write.removed { return Response(ok: true, item: removed) }
+        guard let reminder = externalID ?? write.operation.externalID,
+              let ref = try? store.todoRef(externalID: reminder), let item = try? store.get(id: ref.id) else {
+            return .failure("Perch.app made the change, but the todo isn't in its list now; check with `perch ls`")
+        }
+        return Response(ok: true, item: item)
     }
 
     // MARK: - Helpers

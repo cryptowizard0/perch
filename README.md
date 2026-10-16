@@ -191,21 +191,30 @@ perch allowlist init                   # write ~/.perch/allowlist.json to edit
 
 The expanded notch has two tabs, picked from the icons left of the notch: **Agents** (the mascot; an orange dot while a session needs you, red while one failed) and **Todo** (a checklist with your open count). The panel opens on Agents whenever a session needs you or failed; otherwise on the tab you last picked. Todos never change the folded notch.
 
-The Todo tab shows the **"Perch" list in Apple Reminders**, grouped High / Normal / Low, oldest first. Add a todo on your iPhone and it shows up in the notch; complete or add one in the notch and it's in Reminders, and on your phone through iCloud. The first time you open the tab, click **Connect Reminders** and allow access; Perch finds the "Perch" list or creates it in iCloud. If you delete the list, the tab offers **Create Perch list**; Perch never recreates it on its own. High and Low match Reminders' High and Low; Normal is "no priority" (Medium on the phone also shows as Normal).
+The Todo tab shows the **"Perch" list in Apple Reminders**, grouped High / Normal / Low, oldest first. Due dates show on the right of each row (Today, Tomorrow, a weekday, or a date), white once overdue. Add a todo on your iPhone and it shows up in the notch; complete or add one in the notch and it's in Reminders, and on your phone through iCloud. The first time you open the tab, click **Connect Reminders** and allow access; Perch finds the "Perch" list or creates it in iCloud. If you delete the list, the tab offers **Create Perch list**; Perch never recreates it on its own. High and Low match Reminders' High and Low; Normal is "no priority" (Medium on the phone also shows as Normal).
 
 | | |
 | --- | --- |
 | ⌥⇧Space, anywhere | Add a todo in a small popup under the notch; your terminal stays in front |
 | *+ Add a todo* | The same popup, under the panel |
 | In the popup | Type the title (stored exactly as typed). Tab / Shift-Tab picks High / Normal / Low. Return adds and stays open for the next one. Esc closes. |
-| Click a todo's circle | Completed in Reminders after 3 seconds; *Undo* takes it back |
-| Double-click a title, or right-click → *Edit…* | Edit its title and priority |
+| Click a todo's circle or title | Completed in Reminders after 3 seconds; *Undo* (or another click) takes it back |
+| ✎ on a row | Open that reminder in the Reminders app, for everything Perch doesn't edit (subtasks, flags, …) |
+| Right-click → *Edit…* | A larger editor: title, notes, date and time, priority, URL. Return saves, Esc cancels. A time you set notifies just like one set in Reminders |
 | Right-click → *Priority* / *Delete* | Re-rank it, or delete it at once (it goes to Reminders' Recently Deleted) |
 
+The CLI and `~/.perch/inbox.md` change the same list, through Perch.app: it applies the change in Reminders before `perch` returns, so `perch ls` right after always shows it. If Perch.app isn't running (or doesn't answer within 2 seconds), the command fails with one line and nothing is saved for later. Lines you append to `inbox.md` (`- [ ] title`) wait in the file until Perch.app is running, then become reminders.
+
 ```bash
+perch add "Renew passport" -p high --due 2026-11-03     # a day; --due @15:00 or +2h for a time
+perch add "Read the RFC" --link https://example.com/rfc --key rfc  # same --key again updates it instead of adding another
 perch ls                               # open todos by priority, High and Low marked, each with a short id
+perch ls --status done                 # completed in the last 7 days
+perch done t7k2                        # also: perch update t7k2 --status open (reopen), perch rm t7k2
 defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"   # another shortcut (relaunch Perch)
 ```
+
+While Perch.app isn't connected, `perch ls` still lists the todos it saw last and says how old they are on stderr ("Todos as of 14:02 — Perch.app isn't connected"); `--json` adds `todos_as_of`, and `todo.md` an "As of" line.
 
 ## Safety
 

@@ -73,9 +73,22 @@ import Testing
         #expect(events.isEmpty)
     }
 
+    /// `status` (#52) on perchd's own items. Becoming an open or done task makes it a todo, which only the bridge can
+    /// do (`TodoWritesTests`); requests are answered or closed, not moved.
+    @Test func statusMovesTasksAndNotices() throws {
+        let waiting = try add(Item(title: "approve in Telegram", status: .waiting, source: "hermes"))
+        #expect(update(waiting.id, .init(status: .dismissed)).0.item?.status == .dismissed)
+        #expect(update(waiting.id, .init(status: .open)).0.error == "Todo needs Perch.app running with Reminders access")
+        let notice = try add(Item(title: "codex finished", kind: .notice))
+        #expect(update(notice.id, .init(status: .done)).0.item?.status == .done)
+        let request = try add(Item(title: "npm test", kind: .request))
+        #expect(update(request.id, .init(status: .done)).0.error
+                == "\(request.id) is a request; answer it with respond, or close it with done or rm")
+    }
+
     @Test func rejectsEmptyPatchesAndBadInput() throws {
         let item = try add(Item(title: "t", status: .waiting))
-        let empty = "update needs at least one of: title, kind, priority, due_at, clear_due"
+        let empty = "update needs at least one of: title, kind, status, priority, due_at, clear_due"
         #expect(update(item.id, nil).0.error == empty)
         #expect(update(item.id, .init()).0.error == empty)
         #expect(update(item.id, .init(clearDue: false)).0.error == empty)

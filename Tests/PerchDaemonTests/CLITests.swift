@@ -147,7 +147,7 @@ struct CLITests {
         #expect(clock > before && clock.timeIntervalSince(before) <= 86_400)
         let bad = try cli.run("add", "x", "--due", "soon")
         #expect(bad.status == 1)
-        #expect(bad.stderr == "perch: invalid due 'soon': use @15:00, +30m or an ISO-8601 time")
+        #expect(bad.stderr == "perch: invalid due 'soon': use @15:00, +30m, a date (2026-10-20) or an ISO-8601 time")
     }
 
     @Test func waitPrintsTheAnswer() throws {
@@ -244,7 +244,7 @@ struct UpdateCLITests {
         let id = try cli.run("add", "t", "--status", "waiting").stdout
         let nothing = try cli.run("update", id)
         #expect(nothing.status == 64)
-        #expect(nothing.stderr == "perch: give at least one of --title, --kind, --priority, --due, --no-due")
+        #expect(nothing.stderr == "perch: give at least one of --title, --kind, --status, --priority, --due, --no-due")
         #expect(try cli.run("update", id, "--due", "+1h", "--no-due", "--json").json.error
                 == "--due and --no-due cannot be combined")
         #expect(try cli.run("update", id, "--kind", "bogus").stderr == "perch: --kind must be task or notice")
@@ -252,33 +252,10 @@ struct UpdateCLITests {
     }
 }
 
-/// Todos live in the "Perch" Reminders list (#51). Until perchd hands CLI writes to the bridge (#52), they fail with
-/// one readable line; reading them, and everything agents do, works as before.
+/// Todos live in the "Perch" Reminders list (#51) and CLI writes to them go through the bridge (`TodoWritesTests`, #52);
+/// everything agents do stays perchd's own and works as before.
 @Suite(.enabled(if: CLI.binary != nil, "perch binary not built"))
 struct TodoCLITests {
-    let refused = "Todo needs Perch.app running with Reminders access"
-
-    @Test func todoWritesFailReadably() throws {
-        let d = try TestDaemon()
-        let cli = CLI(home: d.home)
-        let bridge = try d.bridge([Reminder(externalID: "r1", title: "Buy milk", priority: 1)])
-        defer { bridge.close() }
-        let todo = try #require(try cli.run("ls", "--json").json.items?.first)
-        #expect(todo.title == "Buy milk" && todo.id.count == 4)
-        #expect(try cli.run("ls").stdout.contains("Buy milk"))
-
-        for args in [["add", "Book flights"], ["add", "x", "--status", "done"], ["done", todo.id],
-                     ["update", todo.id, "-p", "low"], ["rm", todo.id]] {
-            let plain = try cli.run(args)
-            #expect(plain.status == 1 && plain.stdout.isEmpty)
-            #expect(plain.stderr == "perch: \(refused)")
-            let json = try cli.run(args + ["--json"])
-            #expect(json.status == 1)
-            #expect(json.stdout == #"{"error":"\#(refused)","ok":false}"#)
-        }
-        #expect(try cli.run("ls", "--json").json.items == [todo])
-    }
-
     @Test func requestsNoticesAndWaitingTasksWorkAsBefore() throws {
         let d = try TestDaemon()
         let cli = CLI(home: d.home)

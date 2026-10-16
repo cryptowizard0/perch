@@ -214,7 +214,7 @@ import Testing
         try await until { model.todos.openCount == 0 }
 
         let after = try #require(store.entry(id))
-        #expect(after.notes == original.notes && after.flagged && after.list == original.list)
+        #expect(after.reminder.notes == original.reminder.notes && after.flagged && after.list == original.list)
         #expect(after.reminder.dueAt == due && after.reminder.url == "https://x.example")
         #expect(after.reminder.createdAt == original.reminder.createdAt)
         #expect(after.reminder.title == "Call Lin back" && after.reminder.priority == 1 && after.reminder.completed)
@@ -233,18 +233,28 @@ import Testing
         store.phoneAdd("from the phone")
         try await until { first.todos.openCount == 1 && second.todos.openCount == 1 }
         #expect(first.isBridge && !second.isBridge)
-        // The plain client's Todo tab can't write (#52 sends those through the bridge).
+        // The plain client's Todo tab writes go through perchd to the bridge (#52).
         second.setPriority(try #require(second.todos.items.first), .high)
-        try await until { second.flash != nil }
-        #expect(second.flash == "Todo needs Perch.app running with Reminders access")
-        #expect(store.entry(titled: "from the phone")?.reminder.priority == 0)
+        try await until { store.entry(titled: "from the phone")?.reminder.priority == 1 }
+        try await until { first.todos.items.first?.priority == .high && second.todos.items.first?.priority == .high }
+        second.openAdd(fromPanel: true)
+        second.editor?.title = "from the second app"
+        #expect(second.submitEditor())
+        try await until { store.entry(titled: "from the second app") != nil && first.todos.openCount == 2 }
+        second.completionDelay = 0.05
+        second.toggleCompletion(try #require(second.todos.items.first { $0.title == "from the second app" }))
+        try await until { store.entry(titled: "from the second app")?.reminder.completed == true }
+        second.delete(try #require(second.todos.items.first))
+        try await until { store.entries.filter { !$0.reminder.completed }.isEmpty && second.todos.openCount == 0 }
+        #expect(second.flash == nil)
+        store.phoneDelete(try #require(store.entry(titled: "from the second app")).reminder.externalID)
 
         // The bridge quits: the other app takes over and keeps the cache current.
         first.disconnect()
         try await until { second.isBridge }
         store.phoneAdd("after the handover")
-        try await until { second.todos.openCount == 2 }
-        #expect(try cached(d).count == 2)
+        try await until { second.todos.openCount == 1 }
+        #expect(try cached(d).map(\.title) == ["after the handover"])
     }
 
     @Test func aSnapshotFromAnAppThatIsNotTheBridgeIsRefused() async throws {

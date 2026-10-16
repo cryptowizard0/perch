@@ -42,7 +42,7 @@ import Testing
         #expect(try store.sessions().map(\.id) == ["s1"])
         var version = 0
         try store.db.run("PRAGMA user_version") { version = $0.int(0) }
-        #expect(version == Store.schemaVersion && version == 5)
+        #expect(version == Store.schemaVersion && version == 6)
     }
 
     /// A v3 database (before todo priority, #41) gains the priority column; every existing item is Normal.
@@ -74,7 +74,7 @@ import Testing
         #expect(items.allSatisfy { $0.priority == .normal })
         var version = 0
         try store.db.run("PRAGMA user_version") { version = $0.int(0) }
-        #expect(version == 5)
+        #expect(version == 6)
         var high = try #require(try store.get(id: "t7k2"))
         high.priority = .high
         try store.update(high)
@@ -111,6 +111,37 @@ import Testing
         #expect(try store.todos().isEmpty && store.todoRefs().isEmpty)
         // Reopening leaves everything as it is.
         #expect(try Store(path: path).count() == 4)
+    }
+
+    /// v6 (#52): items gain `due_date_only` (false for everything already there), and perchd remembers how old its
+    /// todo cache is across restarts.
+    @Test func migratingToV6KeepsItemsAndRemembersTheCacheAge() throws {
+        let path = "/tmp/perch-test-v5-\(UUID().uuidString.prefix(8)).db"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            let v5 = try SQLiteDatabase(path: path)
+            try v5.execute("""
+            CREATE TABLE items (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL,
+                source TEXT NOT NULL, due_at TEXT, link TEXT, meta TEXT, key TEXT UNIQUE, options TEXT, response TEXT,
+                expires_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'normal');
+            CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT NOT NULL, title TEXT NOT NULL, cwd TEXT, link TEXT,
+                status TEXT NOT NULL, prompt TEXT, last_message TEXT, detail TEXT, error TEXT, pid INTEGER, pid_started_at TEXT,
+                started_at TEXT NOT NULL, turn_started_at TEXT NOT NULL, status_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                transcript_path TEXT);
+            CREATE TABLE todo_refs (id TEXT PRIMARY KEY, external_id TEXT NOT NULL UNIQUE, key TEXT UNIQUE);
+            INSERT INTO items (id, title, kind, status, source, due_at, created_at, updated_at) VALUES
+                ('wait', 'approve in Telegram', 'task', 'waiting', 'hermes', '2027-01-16T00:00:00Z', '2027-01-15T08:00:00Z',
+                 '2027-01-15T08:00:00Z');
+            PRAGMA user_version = 5;
+            """)
+        }
+        let store = try Store(path: path)
+        let item = try #require(try store.get(id: "wait"))
+        #expect(item.dueAt != nil && !item.dueDateOnly)
+        #expect(try store.todosAsOf() == nil)
+        let asOf = Date(timeIntervalSince1970: 1_800_000_000)
+        try store.setTodosAsOf(asOf)
+        #expect(try Store(path: path).todosAsOf() == asOf)
     }
 
     @Test func pingOverUnixSocket() throws {
