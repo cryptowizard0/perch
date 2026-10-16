@@ -97,7 +97,8 @@ extension NotchView {
 }
 
 /// The band beside the notch. Left wing: the mascot (acting out the most urgent session's state) and right next to it
-/// the number of running sessions (hidden at 0), or the offline icon. Right wing: empty, or the event banner.
+/// the number of running sessions (hidden at 0), or the offline icon. Right wing: the todo icon and the open count
+/// (#56; the icon alone, dimmed, at 0), or the event banner instead while one shows.
 struct CollapsedBar: View {
     @ObservedObject var queue: QueueModel
     var notchWidth: CGFloat
@@ -128,12 +129,33 @@ struct CollapsedBar: View {
                         .id(banner.id)
                         .padding(.leading, CGFloat(Banner.inset))
                         .transition(.opacity.animation(.easeInOut(duration: 0.2)))
+                } else {
+                    CollapsedTodos(count: queue.collapsedTodoCount)
+                        .padding(.leading, NotchGeometry.collapsedInset)
+                        .transition(.opacity.animation(.easeInOut(duration: 0.2)))
                 }
             }
             .frame(width: rightWing, alignment: .leading)
             .clipped()
             Spacer(minLength: 0)
         }
+    }
+}
+
+/// The right wing's todos (#56): static, never in a state's colour. White with the open count; at 0 the icon alone,
+/// dimmed like an unselected tab.
+struct CollapsedTodos: View {
+    var count: Int
+
+    var body: some View {
+        HStack(spacing: NotchGeometry.collapsedGap) {
+            Image(systemName: "checklist")
+            if count > 0 {
+                Text("\(count)").monospacedDigit()
+            }
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(.white.opacity(count > 0 ? 0.9 : 0.4))
     }
 }
 

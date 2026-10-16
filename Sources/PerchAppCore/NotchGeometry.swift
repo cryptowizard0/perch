@@ -47,21 +47,26 @@ public struct NotchGeometry: Equatable, Sendable {
         return clamped(CGRect(x: x, y: top - bandHeight, width: leftWing + middle + rightWing, height: bandHeight))
     }
 
-    /// The collapsed band's left wing, left to right: `collapsedInset`, the mascot, `collapsedGap`, the running
-    /// count or the offline icon, `collapsedInset` again before the notch.
+    /// The collapsed band's wings. Left, left to right: `collapsedInset`, the mascot, `collapsedGap`, the running count
+    /// or the offline icon. Right, from the notch: `collapsedInset`, the todo icon, `collapsedGap`, the open count (#56).
     public static let collapsedInset: CGFloat = 7
     public static let collapsedGap: CGFloat = 3
-    /// A running-count digit (12 pt semibold, monospaced digits) and the offline icon, measured.
+    /// A count digit (12 pt semibold, monospaced digits), the offline icon and the todo icon, measured.
     static let digitWidth: CGFloat = 7.9
     static let offlineIconWidth: CGFloat = 15
+    static let todoIconWidth: CGFloat = 16
 
-    /// Each wing of the collapsed band: just wide enough for the left wing's content, and the same on the right so
-    /// the band stays centred on the notch. 26 pt for the mascot alone, 37 with one digit, 44 offline.
-    public static func collapsedWing(runningCount: Int, online: Bool) -> CGFloat {
-        let after = !online ? offlineIconWidth : runningCount > 0 ? CGFloat(String(runningCount).count) * digitWidth : 0
-        let content = CGFloat(Mascot.width) + (after > 0 ? collapsedGap + after : 0)
-        return (collapsedInset + content + 4).rounded(.up)
+    /// Each wing of the collapsed band: just wide enough for the wider side's content, and the same on both sides so
+    /// the band stays centred on the notch. `todoCount` 0 is the icon alone. 27 pt for the mascot and the todo icon,
+    /// 37 with a running digit, 38 with a todo digit, 44 offline.
+    public static func collapsedWing(runningCount: Int, online: Bool, todoCount: Int) -> CGFloat {
+        let after = !online ? offlineIconWidth : runningCount > 0 ? digits(runningCount) : 0
+        let left = CGFloat(Mascot.width) + (after > 0 ? collapsedGap + after : 0)
+        let right = todoIconWidth + (todoCount > 0 ? collapsedGap + digits(todoCount) : 0)
+        return (collapsedInset + max(left, right) + 4).rounded(.up)
     }
+
+    private static func digits(_ count: Int) -> CGFloat { CGFloat(String(count).count) * digitWidth }
 
     /// Expanded: `size` hanging from the same top edge, centred under the notch, kept on screen.
     public func expandedFrame(size: CGSize) -> CGRect {

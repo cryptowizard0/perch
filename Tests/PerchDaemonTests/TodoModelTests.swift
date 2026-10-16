@@ -204,4 +204,43 @@ import Testing
         #expect(model.pulse == 0 && model.banner == nil && chimes.isEmpty)
         #expect(model.panel.signal == nil && model.panel.runningCount == 0)
     }
+
+    /// The folded notch's right wing (#56): the open count, the same as the tab strip's; 0 whenever it can't be trusted.
+    @Test func theFoldedNotchCountsOpenTodos() async throws {
+        let d = try TestDaemon()
+        let store = FakeRemindersStore()
+        let model = try await connected(d, store)
+        defer { model.disconnect() }
+        #expect(model.collapsedTodoCount == 0)
+        model.completionDelay = 0.3
+        let item = try await add(model, store, "x", .high)
+        try await add(model, store, "y", .low)
+        #expect(model.collapsedTodoCount == 2)
+
+        // Still counted while it can be undone; gone once done.
+        model.toggleCompletion(item)
+        #expect(model.collapsedTodoCount == 2)
+        try await until { model.collapsedTodoCount == 1 }
+        #expect(model.collapsedTodoCount == model.todos.openCount)
+
+        // No access: the tab shows a button, the wing no number.
+        store.setAuthorization(.denied)
+        try await until { !model.showsTodos }
+        #expect(model.collapsedTodoCount == 0)
+        store.setAuthorization(.fullAccess)
+        model.expanded = true
+        try await until { model.collapsedTodoCount == 1 }
+    }
+
+    @Test func theFoldedNotchCountsNothingWhilePerchdIsAway() async throws {
+        let d = try TestDaemon()
+        let store = FakeRemindersStore()
+        let model = try await connected(d, store)
+        defer { model.disconnect() }
+        try await add(model, store, "x")
+        #expect(model.collapsedTodoCount == 1)
+        d.server.stop()
+        try await until { !model.online }
+        #expect(model.collapsedTodoCount == 0)
+    }
 }

@@ -31,13 +31,20 @@ import Testing
         #expect(frame == CGRect(x: 723, y: 1074, width: 275, height: 33))
     }
 
-    /// The wings fit the left wing's content: the mascot, then the running count or the offline icon.
-    @Test func collapsedWingsFitTheirContent() {
-        #expect(NotchGeometry.collapsedWing(runningCount: 0, online: true) == 26)
-        #expect(NotchGeometry.collapsedWing(runningCount: 1, online: true) == 37)
-        #expect(NotchGeometry.collapsedWing(runningCount: 12, online: true) == 45)
-        #expect(NotchGeometry.collapsedWing(runningCount: 3, online: false) == 44)
-        #expect(NotchGeometry.collapsedWing(runningCount: 0, online: false) == 44)
+    /// Both wings are as wide as the wider side (#56): the left's mascot, then the running count or the offline icon;
+    /// the right's todo icon, then the open count.
+    @Test func collapsedWingsFitTheWiderSide() {
+        // The icon alone is a point wider than the mascot alone.
+        #expect(NotchGeometry.collapsedWing(runningCount: 0, online: true, todoCount: 0) == 27)
+        #expect(NotchGeometry.collapsedWing(runningCount: 1, online: true, todoCount: 0) == 37)
+        #expect(NotchGeometry.collapsedWing(runningCount: 0, online: true, todoCount: 5) == 38)
+        #expect(NotchGeometry.collapsedWing(runningCount: 0, online: true, todoCount: 12) == 46)
+        #expect(NotchGeometry.collapsedWing(runningCount: 3, online: true, todoCount: 12) == 46)
+        // The left side wins when it is wider.
+        #expect(NotchGeometry.collapsedWing(runningCount: 12, online: true, todoCount: 4) == 45)
+        #expect(NotchGeometry.collapsedWing(runningCount: 123, online: true, todoCount: 4) == 53)
+        #expect(NotchGeometry.collapsedWing(runningCount: 3, online: false, todoCount: 0) == 44)
+        #expect(NotchGeometry.collapsedWing(runningCount: 0, online: false, todoCount: 123) == 54)
     }
 
     @Test func noNotchIsACapsuleCentredInTheMenuBar() {
