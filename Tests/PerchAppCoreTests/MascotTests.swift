@@ -14,6 +14,15 @@ import Testing
         return grid.map { String($0) }
     }
 
+    /// A region of the canvas (and the margin around it), same letters as `art`.
+    func art(_ cells: [Mascot.Cell], x: Range<Int>, y: Range<Int>) -> [String] {
+        var grid = Array(repeating: Array(repeating: Character("."), count: x.count), count: y.count)
+        for cell in cells where x.contains(cell.x) && y.contains(cell.y) {
+            grid[cell.y - y.lowerBound][cell.x - x.lowerBound] = switch cell.ink { case .body: "#"; case .white: "w"; case .dark: "o"; case .faint: "z"; case .confetti0, .confetti1, .confetti2: "c" }
+        }
+        return grid.map { String($0) }
+    }
+
     /// Every 0.1 s over the longest loop (4 s), plus some frame boundaries.
     let times: [Double] = (0..<42).map { Double($0) * 0.1 } + [0.25, 0.75, 3.6, 3.99]
 
@@ -118,37 +127,225 @@ import Testing
     }
 
     @Test func quirksComeOncePerPeriodAtScrambledMomentsAndKinds() {
-        var kinds = Set<Mascot.Quirk>(), offsets = Set<Int>()
-        var time = 0.0
-        for _ in 0..<60 {
-            let next = Mascot.nextQuirk(after: time)
-            #expect(next.start > time)
-            #expect(next.start - time <= 2 * Mascot.quirkPeriod)
-            kinds.insert(next.quirk)
-            offsets.insert(Int(next.start.truncatingRemainder(dividingBy: Mascot.quirkPeriod)))
-            time = next.start + next.quirk.duration
+        for mood in [Mascot.Mood.idle, .asleep, .failed, .done] {
+            var kinds = Set<Mascot.Quirk>(), offsets = Set<Int>()
+            var time = 0.0
+            for _ in 0..<60 {
+                let next = Mascot.nextQuirk(after: time, in: mood)!
+                #expect(next.start > time)
+                #expect(next.start - time <= 2 * Mascot.quirkPeriod)
+                kinds.insert(next.quirk)
+                offsets.insert(Int(next.start.truncatingRemainder(dividingBy: Mascot.quirkPeriod)))
+                time = next.start + next.quirk.duration
+            }
+            #expect(kinds == Set(mood.quirks), "\(mood)")
+            #expect(offsets.count > 20, "\(mood)")
+            // A quirk always ends before the next one starts.
+            let first = Mascot.nextQuirk(after: 1_000_000, in: mood)!
+            #expect(Mascot.nextQuirk(after: first.start, in: mood)!.start - first.start > first.quirk.duration, "\(mood)")
         }
-        #expect(kinds == Set(Mascot.Quirk.allCases))
-        #expect(offsets.count > 20)
-        // A quirk always ends before the next one starts.
-        let first = Mascot.nextQuirk(after: 1_000_000)
-        #expect(Mascot.nextQuirk(after: first.start).start - first.start > first.quirk.duration)
     }
 
-    @Test func quirksPlayOnlyAsleepOrIdleThenItSleepsAgain() {
-        for quirk in Mascot.Quirk.allCases {
-            let mid = Mascot.QuirkPlay(quirk, age: 1.0)
-            #expect(Mascot.frame(.asleep, time: 0, quirk: mid) != Mascot.frame(.asleep, time: 0), "\(quirk)")
-            #expect(Mascot.frame(.idle, time: 0.5, quirk: mid) != Mascot.frame(.idle, time: 0.5), "\(quirk)")
-            #expect(Mascot.frame(.running, time: 0.5, quirk: mid) == Mascot.frame(.running, time: 0.5), "\(quirk)")
-            #expect(Mascot.frame(.done, time: 0, quirk: mid) == Mascot.frame(.done, time: 0), "\(quirk)")
-            let over = Mascot.QuirkPlay(quirk, age: quirk.duration)
-            #expect(over.isOver)
-            #expect(Mascot.frame(.asleep, time: 0, quirk: over) == Mascot.frame(.asleep, time: 0))
+    /// Each mood draws from its own set, at the same moments; Running and Needs you have none.
+    @Test func eachMoodHasItsOwnQuirks() {
+        #expect(Mascot.Mood.idle.quirks == [.yawn, .lookAround, .bubble])
+        #expect(Mascot.Mood.asleep.quirks == [.yawn, .lookAround, .bubble])
+        #expect(Mascot.Mood.failed.quirks == [.sigh, .rubHead])
+        #expect(Mascot.Mood.done.quirks == [.sway, .hum])
+        #expect(Mascot.Mood.running.quirks.isEmpty && Mascot.Mood.waiting.quirks.isEmpty)
+        #expect(Set(Mascot.Mood.allCases.flatMap(\.quirks)) == Set(Mascot.Quirk.allCases))
+        #expect(Mascot.nextQuirk(after: 0, in: .running) == nil && Mascot.nextQuirk(after: 0, in: .waiting) == nil)
+        for time in stride(from: 0.0, to: 50 * Mascot.quirkPeriod, by: 97) {
+            let idle = Mascot.nextQuirk(after: time, in: .idle)!
+            #expect(Mascot.nextQuirk(after: time, in: .failed)!.start == idle.start)
+            #expect(Mascot.nextQuirk(after: time, in: .done)!.start == idle.start)
+            #expect(Mascot.nextQuirk(after: time, in: .asleep)! == idle)
+        }
+    }
+
+    /// Idle and asleep keep the schedule they had before Failed and Done got quirks (#59): these are main's.
+    @Test func idleQuirksAreUnchanged() {
+        var time = 812_000_000.0, played: [String] = []
+        for _ in 0..<6 {
+            let next = Mascot.nextQuirk(after: time, in: .idle)!
+            played.append("\(next.quirk) \(Int(next.start))")
+            time = next.start
+        }
+        #expect(played == [
+            "yawn 812000014", "bubble 812000251", "lookAround 812000487",
+            "bubble 812000672", "yawn 812000909", "lookAround 812001274",
+        ])
+    }
+
+    @Test func quirksPlayOnlyInTheirMoodThenItGoesBack() {
+        for mood in Mascot.Mood.allCases {
+            for quirk in Mascot.Quirk.allCases {
+                let mid = Mascot.QuirkPlay(quirk, age: 1.0)
+                let time = mood == .idle ? 0.5 : 0
+                if mood.quirks.contains(quirk) {
+                    #expect(Mascot.frame(mood, time: time, quirk: mid) != Mascot.frame(mood, time: time), "\(mood) \(quirk)")
+                } else {
+                    #expect(Mascot.frame(mood, time: time, quirk: mid) == Mascot.frame(mood, time: time), "\(mood) \(quirk)")
+                }
+                let over = Mascot.QuirkPlay(quirk, age: quirk.duration)
+                #expect(over.isOver)
+                #expect(Mascot.frame(mood, time: 0, quirk: over) == Mascot.frame(mood, time: 0))
+            }
         }
         // A reaction wins over a quirk.
         let reacting = Mascot.frame(.idle, time: 0, reaction: .init(mood: .done, age: 0.1), quirk: .init(.yawn, age: 1))
         #expect(reacting == Mascot.frame(.idle, time: 0, reaction: .init(mood: .done, age: 0.1)))
+        let failing = Mascot.frame(.failed, time: 0, reaction: .init(mood: .failed, age: 0.9), quirk: .init(.sigh, age: 1))
+        #expect(failing == Mascot.frame(.failed, time: 0, reaction: .init(mood: .failed, age: 0.9)))
+    }
+
+    /// Failed's sigh: sunk a point, the antenna flopped right over, a wisp of smoke off its tip.
+    @Test func failedSighs() {
+        #expect(art(Mascot.frame(.failed, time: 0, quirk: .init(.sigh, age: 1.2)), x: 0..<15, y: 1..<17) == [
+            "...............",
+            "...........z...",
+            "..........z....",
+            "...............",
+            "........##.....",
+            "....#######....",
+            "...#########...",
+            "..####www####..",
+            "..###wowow###..",
+            "..###wwoww###..",
+            "..###wowow###..",
+            ".#####www#####.",
+            ".#############.",
+            "...###ooo###...",
+            "...##o###o##...",
+            "....##...##....",
+        ])
+        // Back up before it ends.
+        #expect(Mascot.frame(.failed, time: 0, quirk: .init(.sigh, age: 2.3)) == Mascot.still(.failed))
+    }
+
+    /// Failed rubs its head: the right arm over the top, the hand going back and forth twice.
+    @Test func failedRubsItsHead() {
+        #expect(art(Mascot.frame(.failed, time: 0, quirk: .init(.rubHead, age: 0.4)), x: 0..<15, y: 3..<16) == [
+            "...............",
+            ".......##.#....",
+            "....########...",
+            "...##########..",
+            "..####www#####.",
+            "..###wowow####.",
+            "..###wwoww###..",
+            "..###wowow###..",
+            ".#####www####..",
+            ".############..",
+            "...###ooo###...",
+            "...##o###o##...",
+            "....##...##....",
+        ])
+        let top = { (age: Double) in self.art(Mascot.frame(.failed, time: 0, quirk: .init(.rubHead, age: age)), x: 0..<15, y: 4..<5)[0] }
+        #expect([0.4, 0.8, 1.2, 1.6].map(top) == [".......##.#....", ".......####....", ".......##.#....", ".......####...."])
+    }
+
+    /// Done sways left and right, the antenna trailing; mid-sway it blinks, the "^" squeezed flatter.
+    @Test func doneSways() {
+        #expect(art(Mascot.frame(.done, time: 0, quirk: .init(.sway, age: 0.1)), x: 0..<15, y: 3..<16) == [
+            ".......#.......",
+            "......#........",
+            "...#######.....",
+            "..#########....",
+            ".###########...",
+            ".#####o#####...",
+            ".####o#o####...",
+            ".###o###o###...",
+            "#############..",
+            "#############..",
+            "..##o###o##....",
+            "..###ooo###....",
+            "...##...##.....",
+        ])
+        #expect(art(Mascot.frame(.done, time: 0, quirk: .init(.sway, age: 1.1)), x: 0..<15, y: 3..<16) == [
+            ".......#.......",
+            "........#......",
+            ".....#######...",
+            "....#########..",
+            "...###########.",
+            "...###########.",
+            "...####ooo####.",
+            "...###o###o###.",
+            "..#############",
+            "..#############",
+            "....##o###o##..",
+            "....###ooo###..",
+            ".....##...##...",
+        ])
+        let blinks = stride(from: 0.0, to: Mascot.Quirk.sway.duration, by: 0.05).filter {
+            art(Mascot.frame(.done, time: 0, quirk: .init(.sway, age: $0)), x: 0..<15, y: 9..<10)[0].contains("ooo")
+        }
+        #expect(blinks.first! >= 0.9 && blinks.last! < 1.3, "blinks once, mid-sway")
+    }
+
+    /// Done hums: a faint ♪ rises and drifts off to the right, like Idle's "z".
+    @Test func doneHums() {
+        #expect(art(Mascot.frame(.done, time: 0, quirk: .init(.hum, age: 1.4)), x: 0..<20, y: 2..<16) == [
+            ".................zz.",
+            ".......#.........z..",
+            ".......#........zz..",
+            "....#######.....zz..",
+            "...#########........",
+            "..###########.......",
+            "..#####o#####.......",
+            "..####o#o####.......",
+            "..###o###o###.......",
+            ".#############......",
+            ".#############......",
+            "...####o####........",
+            "...#########........",
+            "....##...##.........",
+        ])
+        let tops = [0.4, 0.9, 1.4, 1.9].map { age in
+            Mascot.frame(.done, time: 0, quirk: .init(.hum, age: age)).filter { $0.ink == .faint }.map(\.y).min()!
+        }
+        #expect(tops == tops.sorted(by: >) && Set(tops).count == 4)
+        #expect(Mascot.frame(.done, time: 0, quirk: .init(.hum, age: 2.5)).allSatisfy { $0.ink != .faint })
+    }
+
+    /// The signal never weakens: Failed keeps its X eye and Done its happy eye (or its squeezed blink) in every
+    /// quirk frame, and no quirk brings in another colour.
+    @Test func failedAndDoneKeepTheirEyesThroughQuirks() {
+        let cross = ["#www#", "wowow", "wwoww", "wowow", "#www#"]
+        let happy = [["#####", "##o##", "#o#o#", "o###o", "#####"], ["#####", "#####", "#ooo#", "o###o", "#####"]]
+        /// The 5 × 5 eye wherever the quirk has moved the sprite (a point or two either way).
+        func eyes(_ cells: [Mascot.Cell]) -> [[String]] {
+            (-2...2).flatMap { dx in (-2...2).map { dy in art(cells, x: (5 + dx)..<(10 + dx), y: (7 + dy)..<(12 + dy)) } }
+        }
+        let inks: Set<Mascot.Ink> = [.body, .white, .dark, .faint]
+        for (mood, wanted) in [(Mascot.Mood.failed, [cross]), (.done, happy)] {
+            for quirk in mood.quirks {
+                for age in stride(from: 0.0, to: quirk.duration, by: 0.05) {
+                    let cells = Mascot.frame(mood, time: 0, quirk: .init(quirk, age: age))
+                    #expect(eyes(cells).contains { wanted.contains($0) }, "\(quirk) at \(age)")
+                    #expect(Set(cells.map(\.ink)).isSubset(of: inks), "\(quirk) at \(age)")
+                    if mood == .done { #expect(!art(cells, x: 0..<15, y: 7..<12).joined().contains("w"), "\(quirk) at \(age)") }
+                }
+            }
+        }
+    }
+
+    /// Nothing is scheduled with Reduce Motion or with perchd offline.
+    @Test func reducedMotionAndOfflinePlayNoQuirks() {
+        for mood in Mascot.Mood.allCases {
+            #expect(Mascot.quirks(mood, online: true, reduceMotion: false) == mood.quirks)
+            #expect(Mascot.quirks(mood, online: true, reduceMotion: true).isEmpty)
+            #expect(Mascot.quirks(mood, online: false, reduceMotion: false).isEmpty)
+        }
+    }
+
+    /// Failed and Done stand still between quirks and redraw only while one plays.
+    @Test func failedAndDoneRedrawOnlyWhileAQuirkPlays() {
+        for mood in [Mascot.Mood.failed, .done] {
+            #expect(Mascot.fps(mood, reacting: false, quirking: false) == 0)
+            #expect(Mascot.fps(mood, reacting: false, quirking: true) == Mascot.reactionFPS)
+        }
+        #expect(Mascot.fps(.running, reacting: false, quirking: false) == Mascot.Mood.running.fps)
+        #expect(Mascot.fps(.waiting, reacting: true, quirking: false) == Mascot.reactionFPS)
     }
 
     @Test func stillMoodsHaveOneFrameAndNeverRedraw() {
