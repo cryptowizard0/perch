@@ -110,7 +110,7 @@
 - [x] 优先级：schema v4（老数据都是 Normal）、`perch add|update --priority` / `-p`（值不对 exit 64）、`ls` / `todo.md` 按优先级排并标出 High / Low、HTTP 不带 `priority` 照常（#42）
 - [x] 展开态 tab 栏：Agents（Needs you 橙点 / Failed 红点）和 Todo（灰色未完成数）；有 Needs you / Failed 时打开在 Agents，否则打开在上次选的 tab，重启后回到 Agents；打开着从不自己换 tab；高度跟着 tab、0.15 秒动画（#42）
 - [x] Todo tab：标题和摘要、High / Normal / Low 分组（组内最老的在前）、点圆圈 3 秒后完成（Undo 可撤，收起后照样完成）、右键 Priority ▸（#42）
-- [x] 收起态不受 todo 影响（#42）
+- [x] 收起态不受 todo 影响（#42；#56 起右翼多一个静态的 todo 图标和未完成数，仍不脉冲、不出声）
 - [x] 弹窗：⌥⇧Space 在刘海下面打开、刘海保持收起；"+ Add a todo" 在面板下面打开、面板保持展开；Return 添加后保持打开、清空、回到 Normal；Tab / Shift-Tab 轮换优先级；输入什么存什么，空白不提交；Esc / 点别处关闭（#43）
 - [x] 编辑和删除：双击标题 / Edit… 打开预填的弹窗，Return 保存标题和优先级、Esc 不改；Delete 立刻 `rm`；面板打开时新加的那一行高亮 1 秒（#43）
 - [x] `QuickEntryHotKey` 可改快捷键（重启生效）（#43）

@@ -132,7 +132,8 @@ final class NotchWindowController {
         guard let index = notch.display.screen(in: displays) else { return panel.orderOut(nil) }
         let geometry = NotchGeometry(screen: screens[index])
         if notch.geometry != geometry { notch.geometry = geometry }
-        let left = NotchGeometry.collapsedWing(runningCount: queue.panel.runningCount, online: queue.online)
+        let left = NotchGeometry.collapsedWing(runningCount: queue.panel.runningCount, online: queue.online,
+                                               todoCount: queue.collapsedTodoCount)
         let right = queue.banner.map { CGFloat(Banner.wing(contentWidth: BannerView.contentWidth($0))) } ?? left
         if notch.leftWing != left { notch.leftWing = left }
         if notch.expanded {

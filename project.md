@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-16 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50
+最后更新：2026-10-16 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50 · 收起态右翼的 todo 图标和数（#56）在分支 `folded-todo-count`，见下方"收起态右翼的 todo 数"
 
 ## 发布
 
@@ -563,6 +563,16 @@ v0.5 接更多 agent（#24）的第一个，用户 2026-10-12 定先做 Grok（#
 - 测试（#53）：`DueLabelTests`、`TodoEditorTests`（大编辑器部分）、`ReminderChangeTests`（diff、alarm）是纯函数；`TodoDetailsTests`（真 perchd + bridge + 假 Reminders）：编辑器存所有字段且不动别的（旗标、自定义 alarm、列表、创建时间）、Esc、不是 bridge 的 App 编辑、✎ 的链接和兜底、CLI 的时间带 alarm。`FakeRemindersStore.Entry` 加了 `alarms`，`notes` 挪进 `Reminder`。`TodoWritesTests.unfinishedInboxLinesWaitForTheRest` 在主线程很忙、检查晚于 settle 时间时跳过"还没吸收"那一段（以前偶尔失败）。
 - 没做（要人）：本机没有给开发版 App Reminders 权限，Todo tab 只显示 Connect，行和大编辑器都没截图；悬停、点击、日期选择器、Return / Esc / Tab、✎ 的跳转、刘海里设的时间到点提醒，都要在有权限的真 Mac 上人工验；iCloud 列表上外部标识符和本机标识符不同时 ✎ 能不能找到也要验。
 - 已知限制（#52）：perchd 推 `todo_op` 时 bridge 的 App 若刚好卡住，CLI 2 秒后报错，但写可能之后才生效（报错信息里说了）。2 秒包括 bridge 写完之后读一遍列表的时间（ack 跟着那次读走），EventKit 读得慢时成功的写也可能报超时。没有 bridge 时 `ls --status done` 里可能有超过 7 天的（缓存不知道完成时间，等 bridge 回来的快照才清掉）。`ls` 的 as of 只看这次列出的东西里有没有 todo。`--due` 带时间时只设到期日期组件，不加提醒（alarm）：#53 起同时加那个时间的 alarm，见下。
+
+## 收起态右翼的 todo 数（#56，2026-10-16）
+
+用户想在收起态看到 todo 数，grill 后定的规格在 #56（推翻"收起态只管 agent"，只开一个口子：右翼静态的图标 + 未完成数，从不提醒）。行为见 `docs/PRD.md` 的"收起态"，这里只记实现。
+
+- 数：`QueueModel.collapsedTodoCount` = `todos.openCount`（和 tab 栏同一个数，完成中的 3 秒内还算），没有 Reminders 权限 / 列表（`showsTodos` 为 false）或 perchd 离线时是 0。
+- 宽度：`NotchGeometry.collapsedWing(runningCount:online:todoCount:)` 取左右内容里宽的那边，两翼一样宽。量出来 12pt semibold 的 `checklist` 宽 16pt（小怪物 15pt），所以只有小怪物和图标时每翼 27pt（原来 26），一位 todo 数 38，两位 46。
+- 画：`CollapsedBar` 右翼有横幅画横幅，否则画 `CollapsedTodos`（有数 `white 0.9`，0 只有图标 `white 0.4`），两者都是 0.2 秒淡入淡出。横幅的宽度和计时没动。
+- 测试：`NotchGeometryTests.collapsedWingsFitTheWiderSide`（纯函数）；`TodoModelTests.theFoldedNotchCountsOpenTodos` / `theFoldedNotchCountsNothingWhilePerchdIsAway`（真 perchd + 假 Reminders）。
+- 截图（隔离 perchd + debug App；本机开发版没有 "Perch Dev" 列表，截图时本地临时用环境变量写死数，没提交）：0 条暗图标、5 条、Running 1 + todo 12（两翼按右边算）、横幅盖掉 todo、横幅收起后 todo 回来，都对。没刘海的胶囊没截（要外接屏）。
 
 ## 未决问题
 

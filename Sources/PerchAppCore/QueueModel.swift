@@ -6,7 +6,8 @@ import PerchCore
 /// What the notch shows, fed by `QueueConnection`, and what its rows and hotkeys do. Main thread only.
 /// The Agents tab renders `panel` (agent sessions, and the requests Allow / Deny answer); the Todo tab renders `todos`
 /// (perchd's cache of the "Perch" Reminders list) or, without the list, `reminders`' button.
-/// The folded notch (mascot, running count, banner, sounds) only ever follows sessions.
+/// The folded notch (mascot, running count, banner, sounds) only ever follows sessions; the one thing about todos it
+/// shows is the right wing's static icon and open count (`collapsedTodoCount`, #56).
 ///
 /// With a `RemindersBridge`, the app offers itself to perchd as the Reminders bridge (#51). perchd takes one: that app
 /// sends the list's snapshots, writes its own Todo tab's changes straight to Reminders, and applies the todo writes
@@ -127,6 +128,10 @@ public final class QueueModel: ObservableObject {
 
     /// Whether the Todo tab shows todos: the list is readable, or this app doesn't use Reminders itself.
     public var showsTodos: Bool { reminders?.isReady ?? true }
+
+    /// The folded notch's todo count (#56): the tab strip's open count, or 0 (the icon alone) while it can't be trusted,
+    /// without the list or with perchd away. Completing todos still count until they are done.
+    public var collapsedTodoCount: Int { online && showsTodos ? todos.openCount : 0 }
 
     /// The Reminders list's name, for the Todo tab's messages.
     public var remindersListName: String { bridge?.listName ?? "Perch" }
