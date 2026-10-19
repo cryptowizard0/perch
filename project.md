@@ -574,6 +574,12 @@ PR #57 squash 合并为 `0c267b8`，#56 已关；合并前从分支装到了本�
 - 测试：`NotchGeometryTests.collapsedWingsFitTheWiderSide`（纯函数）；`TodoModelTests.theFoldedNotchCountsOpenTodos` / `theFoldedNotchCountsNothingWhilePerchdIsAway`（真 perchd + 假 Reminders）。
 - 截图（隔离 perchd + debug App；本机开发版没有 "Perch Dev" 列表，截图时本地临时用环境变量写死数，没提交）：0 条暗图标、5 条、Running 1 + todo 12（两翼按右边算）、横幅盖掉 todo、横幅收起后 todo 回来，都对。没刘海的胶囊没截（要外接屏）。
 
+## 小怪物活起来 #58（2026-10-16）
+
+设计在 #58，拆成 #59–#64 六步，从小到大做（Done 带横幅飞那步最后）。所有步骤的规矩：状态的颜色和眼睛（信号）从不变弱、不加新声音、"减少动态效果"全关、todo 从不影响小怪物。
+
+- **#59 Failed / Done 的彩蛋**：`Mood.hasQuirks` 换成每个心情自己的一套 `Mood.quirks`（Idle / asleep 还是哈欠、张望、鼻涕泡，顺序不变所以时间表和以前一模一样，`idleQuirksAreUnchanged` 钉住了 main 的值；Failed 是 `sigh` / `rubHead`，Done 是 `sway` / `hum`）。`nextQuirk(after:in:)` 时间点和心情无关，只按心情的那套抽种类；`Mascot.quirks(_:online:reduceMotion:)` 是 `MascotView` 里 quirk task 的 id（同一套就不重启，所以 idle ↔ asleep 不打断，failed ↔ done 重新排），`Mascot.fps(_:reacting:quirking:)` 管重绘（Failed / Done 平时 0）。Done 的眨眼是 ^ 压扁一点（`Eye.happyBlink`），没有白色，测试按"笑眼或压扁的笑眼"检查；哼歌的 ♪ 和 Idle 的 z 一样飘到右边（Done 是信号时没有 Running，所以盖不到运行数）。
+
 ## 未决问题
 
 | 问题 | 影响 | 状态 |
