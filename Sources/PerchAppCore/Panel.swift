@@ -227,7 +227,8 @@ public enum PanelLayout {
     public static func todoHeight(_ todos: TodoList, reminders: RemindersState? = nil, online: Bool = true) -> CGFloat {
         if let reminders, !reminders.isReady { return titleHeight + remindersHeight }
         guard online else { return titleHeight + messageHeight }
-        let groups = todos.groups.reduce(CGFloat(0)) { $0 + headerHeight + CGFloat($1.items.count) * todoRowHeight }
+        // An empty list's group still has its header and an "All clear" row (#69).
+        let groups = todos.groups.reduce(CGFloat(0)) { $0 + headerHeight + CGFloat(max($1.items.count, 1)) * todoRowHeight }
         return min(titleHeight + groups + addRowHeight, maxListHeight)
     }
 

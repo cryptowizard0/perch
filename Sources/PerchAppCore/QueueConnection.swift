@@ -15,6 +15,8 @@ public final class QueueConnection: @unchecked Sendable {
         case bridge(Bool)
         /// This app is the bridge: a todo write to apply and acknowledge.
         case todo(TodoOperation)
+        /// The checked Reminders lists, in order (#69): with every snapshot (just before it), and whenever they change.
+        case lists([ReminderList])
         case offline(String)
     }
 
@@ -68,9 +70,10 @@ public final class QueueConnection: @unchecked Sendable {
                     return true
                 }) else { return }
                 // Subscribed first, so nothing that happens after the snapshot can be missed.
-                let items = try client.send(Request(op: .list)).items ?? []
+                let listed = try client.send(Request(op: .list))
                 let sessions = try client.send(Request(op: .sessions)).sessions ?? []
-                send(.snapshot(items, sessions, watcher: stream.watcher))
+                send(.lists(listed.todoLists ?? []))
+                send(.snapshot(listed.items ?? [], sessions, watcher: stream.watcher))
                 delay = Self.backoff.lowerBound
                 while let push = try stream.nextPush() {
                     switch push {
@@ -78,7 +81,7 @@ public final class QueueConnection: @unchecked Sendable {
                     case .session(let event): send(.session(event))
                     case .bridge(let connected): send(.bridge(connected))
                     case .todo(let operation): send(.todo(operation))
-                    case .lists: break
+                    case .lists(let lists): send(.lists(lists))
                     }
                 }
                 if !isStopped { send(.offline("perchd stopped")) }

@@ -42,7 +42,7 @@ import Testing
         #expect(Set(store.entries.map(\.reminder.title)) == ["Renew the domain", "Book flights"])
         #expect(store.entry(titled: "Renew the domain")?.reminder.priority == 1)
         #expect(store.entry(titled: "Book flights")?.reminder.priority == 0)
-        #expect(model.todos.groups.map(\.priority) == [.high, .normal])
+        #expect(model.todos.items.map(\.priority) == [.high, .normal])
     }
 
     @Test func whatYouTypeIsTheTitleExactly() async throws {
@@ -100,7 +100,7 @@ import Testing
         #expect(model.submitEditor())
         #expect(model.editor == nil)
         try await until { model.state.items[item.id]?.title == "Call Lin back" }
-        #expect(model.todos.groups.first?.priority == .high)
+        #expect(model.todos.items.first?.priority == .high)
         #expect(store.entry(try #require(item.reminderID))?.reminder.priority == 1)
         #expect(store.entry(try #require(item.reminderID))?.reminder.title == "Call Lin back")
     }
@@ -148,7 +148,7 @@ import Testing
         // Edits, re-ranks and notices don't highlight.
         model.setPriority(try #require(model.state.items[quiet.id]), .high)
         _ = try d.client.send(Request(op: .add, item: Item(title: "fyi", kind: .notice)))
-        try await until { model.todos.groups.first?.priority == .high && model.state.items.count == 3 }
+        try await until { model.todos.items.first?.priority == .high && model.state.items.count == 3 }
         #expect(model.highlighted == [new.id])
         try await until { model.highlighted.isEmpty }
     }

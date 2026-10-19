@@ -42,12 +42,15 @@ import Testing
         let connection = connect(d.daemon.config.socketPath, recorder)
         defer { connection.stop() }
 
-        let first = recorder.wait { !$0.isEmpty }
-        guard case .snapshot(let items, _, _) = first.first else { Issue.record("expected a snapshot, got \(first)"); return }
+        let first = recorder.wait { $0.count >= 2 }
+        // The checked Reminders lists come just ahead of the snapshot, so its todos are grouped from the start (#69).
+        guard case .lists(let lists) = first.first else { Issue.record("expected the lists, got \(first)"); return }
+        #expect(lists.isEmpty)
+        guard case .snapshot(let items, _, _) = first.dropFirst().first else { Issue.record("expected a snapshot, got \(first)"); return }
         #expect(items.map(\.title) == ["already there"])
 
         _ = try d.client.send(Request(op: .add, item: Item(title: "pushed", kind: .notice)))
-        let all = recorder.wait { $0.count >= 2 }
+        let all = recorder.wait { $0.count >= 3 }
         guard case .event(let event) = all.last else { Issue.record("expected an event, got \(all)"); return }
         #expect(event.type == .added && event.item.title == "pushed")
     }

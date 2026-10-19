@@ -5,12 +5,13 @@ import PerchCore
 
 /// What the notch shows, fed by `QueueConnection`, and what its rows and hotkeys do. Main thread only.
 /// The Agents tab renders `panel` (agent sessions, and the requests Allow / Deny answer); the Todo tab renders `todos`
-/// (perchd's cache of the "Perch" Reminders list) or, without the list, `reminders`' button.
+/// (perchd's cache of the checked Reminders lists, grouped by list, #69) or, without the "Perch" list, `reminders`'
+/// button.
 /// The folded notch (mascot, running count, banner, sounds) only ever follows sessions; the one thing about todos it
 /// shows is the right wing's static icon and open count (`collapsedTodoCount`, #56).
 ///
 /// With a `RemindersBridge`, the app offers itself to perchd as the Reminders bridge (#51). perchd takes one: that app
-/// sends the list's snapshots, writes its own Todo tab's changes straight to Reminders, and applies the todo writes
+/// sends the checked lists' snapshots, writes its own Todo tab's changes straight to Reminders, and applies the todo writes
 /// perchd hands it from the CLI, inbox.md and other apps (#52). Any other app is a plain client (its Todo tab's writes
 /// go through perchd to the bridge), and takes over when perchd says the bridge left.
 @MainActor
@@ -57,10 +58,12 @@ public final class QueueModel: ObservableObject {
     private var lastToggle: (id: String, at: Date)?
     /// The todo popup while it is open (#43). The popup draws it and edits `title`; the rest goes through the methods.
     @Published public var editor: TodoEditor?
-    /// The Todo tab's Reminders state; nil without a `RemindersBridge` (then it just shows perchd's todos).
+    /// The Todo tab's Reminders state ("Perch" alone); nil without a `RemindersBridge` (then it just shows perchd's todos).
     @Published public private(set) var reminders: RemindersState?
     /// Whether perchd took this app as the Reminders bridge.
     @Published public private(set) var isBridge = false
+    /// The checked Reminders lists in order, as perchd last heard from the bridge (#69): the Todo tab's groups.
+    @Published public private(set) var todoLists: [ReminderList] = []
     /// Todos added while the panel was open, marked new for `highlightDuration`.
     @Published public private(set) var highlighted: Set<String> = []
     public var highlightDuration: TimeInterval = 1
@@ -149,8 +152,8 @@ public final class QueueModel: ObservableObject {
         Panel(sessions: sessions.values, requests: state.items.values, setup: setup)
     }
 
-    /// The Todo tab: open tasks by priority (completing ones included, crossed out, until they are done).
-    public var todos: TodoList { TodoList(items: state.items.values) }
+    /// The Todo tab: open tasks by list, then priority (completing ones included, crossed out, until they are done).
+    public var todos: TodoList { TodoList(items: state.items.values, lists: todoLists, unlisted: remindersListName) }
 
     /// Whether the Todo tab shows todos: the list is readable, or this app doesn't use Reminders itself.
     public var showsTodos: Bool { reminders?.isReady ?? true }
@@ -231,6 +234,8 @@ public final class QueueModel: ObservableObject {
             if !connected { registerBridge() }
         case .todo(let operation):
             applyTodo(operation)
+        case .lists(let lists):
+            if todoLists != lists { todoLists = lists }
         case .offline(let reason):
             online = false
             offlineReason = reason
@@ -400,13 +405,15 @@ public final class QueueModel: ObservableObject {
         remindersChanged()
     }
 
-    /// Reminders changed (here, on the phone, in System Settings): look at the list again and tell perchd.
-    /// `listChanged` false: only a look at the access, which tells perchd only if the state moved.
+    /// Reminders changed (here, on the phone, in System Settings): look at the lists again and tell perchd.
+    /// `listChanged` false: only a look at the access and the list selection, which tells perchd only if either moved
+    /// (a `defaults write` to the selection shows up the next time the panel opens, #69).
     private func remindersChanged(listChanged: Bool = true) {
         guard let bridge else { return }
+        let checked = bridge.checkedLists
         bridge.refresh()
-        let moved = reminders != bridge.state
-        if moved { reminders = bridge.state }
+        let moved = reminders != bridge.state || checked != bridge.checkedLists
+        if reminders != bridge.state { reminders = bridge.state }
         guard listChanged || moved else { return }
         isBridge ? sendSnapshot() : registerBridge()
     }
@@ -446,8 +453,8 @@ public final class QueueModel: ObservableObject {
         }
     }
 
-    /// Reads the list and sends it to perchd, one snapshot at a time and in order; a change meanwhile reads again.
-    /// Nothing while access is missing (perchd keeps what it had); an empty list once the list itself is gone.
+    /// Reads the checked lists and sends them to perchd, one snapshot at a time and in order; a change meanwhile reads
+    /// again. Nothing while access is missing (perchd keeps what it had); without "Perch" only the other checked lists.
     /// The acks of writes made before the read go out first.
     private func sendSnapshot() {
         guard isBridge, let bridge, let watcher else { return }
@@ -459,17 +466,18 @@ public final class QueueModel: ObservableObject {
         let acks = acksDue
         acksDue = []
         Task { @MainActor [weak self] in
-            let read: Result<[Reminder], Error>
+            let read: Result<(lists: [ReminderList], reminders: [Reminder]), Error>
             do { read = .success(try await bridge.snapshot()) } catch { read = .failure(error) }
             guard let self else { return }
             // Reconnected (or no longer the bridge) while reading: the new connection sends its own.
             let current = self.isBridge && self.watcher == watcher
             switch read {
-            case .success(let reminders):
+            case .success(let snapshot):
                 guard current else { break }
                 // Acks first: perchd answers their writers with the snapshot after them.
                 self.sendAcks(acks, watcher: watcher)
-                self.send(Request(op: .todoSnapshot, watcher: watcher, reminders: reminders), on: self.bridgeActions)
+                self.send(Request(op: .todoSnapshot, watcher: watcher, reminders: snapshot.reminders, lists: snapshot.lists),
+                          on: self.bridgeActions)
             case .failure(let error):
                 self.show("Couldn't read Reminders: \(error)")
                 // No snapshot follows: the writers hear it from the acks.

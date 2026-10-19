@@ -50,8 +50,10 @@ final class EventKitRemindersStore: RemindersStore {
         return Self.list(calendar)
     }
 
-    func reminders(inList list: String, completedSince: Date) async throws -> [Reminder] {
-        let calendars = [try calendar(list)]
+    func reminders(inLists lists: [String], completedSince: Date) async throws -> [Reminder] {
+        // No calendars would mean every calendar to EventKit.
+        let calendars = lists.compactMap { store.calendar(withIdentifier: $0) }
+        guard !calendars.isEmpty else { return [] }
         let open = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: calendars)
         let done = store.predicateForCompletedReminders(withCompletionDateStarting: completedSince, ending: nil, calendars: calendars)
         return await fetch(open) + fetch(done)
@@ -160,6 +162,7 @@ final class EventKitRemindersStore: RemindersStore {
     private nonisolated static func reminder(_ r: EKReminder) -> Reminder {
         Reminder(
             externalID: r.calendarItemExternalIdentifier ?? r.calendarItemIdentifier,
+            list: r.calendar?.calendarIdentifier,
             title: r.title ?? "",
             priority: r.priority,
             completed: r.isCompleted,

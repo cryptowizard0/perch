@@ -28,11 +28,13 @@ final class FakeRemindersStore: RemindersStore {
     /// Reading the list fails (writes still work).
     var readFails = false
     private(set) var allLists: [ReminderList] = []
+    /// The lists the last snapshot read covered.
+    private(set) var lastRead: [String] = []
     private(set) var entries: [Entry] = []
     private var observers: [@MainActor () -> Void] = []
     private var serial = 0
 
-    /// `lists`: names of lists that already exist (in iCloud).
+    /// `lists`: names of lists that already exist (in iCloud), in this order.
     init(authorization: RemindersAuthorization = .fullAccess, lists: [String] = ["Perch"]) {
         self.authorization = authorization
         for name in lists { allLists.append(ReminderList(id: nextID("list"), title: name, isICloud: true)) }
@@ -56,12 +58,14 @@ final class FakeRemindersStore: RemindersStore {
         return list
     }
 
-    func reminders(inList list: String, completedSince: Date) async throws -> [Reminder] {
+    func reminders(inLists lists: [String], completedSince: Date) async throws -> [Reminder] {
         if readDelay > 0 { try await Task.sleep(nanoseconds: UInt64(readDelay * 1e9)) }
         if readFails { throw RemindersError("the database is busy") }
-        try readable(list)
-        return entries.filter { $0.list == list && (!$0.reminder.completed || ($0.completedAt ?? .distantPast) >= completedSince) }
-            .map(\.reminder)
+        guard authorization == .fullAccess else { throw RemindersError("no access to Reminders") }
+        /// Read lists: the readers asked, each tagged; lists gone meanwhile are skipped.
+        lastRead = lists
+        return entries.filter { lists.contains($0.list) && (!$0.reminder.completed || ($0.completedAt ?? .distantPast) >= completedSince) }
+            .map { var reminder = $0.reminder; reminder.list = $0.list; return reminder }
     }
 
     func createReminder(inList list: String, _ fields: ReminderChange) throws -> String {
@@ -154,6 +158,26 @@ final class FakeRemindersStore: RemindersStore {
 
     func phoneDelete(_ id: String) {
         entries.removeAll { $0.reminder.externalID == id }
+        changed()
+    }
+
+    /// Moves a reminder to another list, as dragging it in the Reminders app does (the identifier stays).
+    func phoneMove(_ id: String, to name: String) {
+        phoneEdit(id) { $0.list = self.allLists.first { $0.title == name }!.id }
+    }
+
+    /// A list made on the phone (or in the Reminders app). `iCloud` false: on this Mac only.
+    @discardableResult
+    func phoneCreateList(_ name: String, iCloud: Bool = true) -> ReminderList {
+        let list = ReminderList(id: nextID("list"), title: name, isICloud: iCloud)
+        allLists.append(list)
+        changed()
+        return list
+    }
+
+    /// The list moves out of iCloud (or back): it stays, but only on this Mac.
+    func setICloud(_ name: String, _ iCloud: Bool) {
+        allLists[allLists.firstIndex { $0.title == name }!].isICloud = iCloud
         changed()
     }
 

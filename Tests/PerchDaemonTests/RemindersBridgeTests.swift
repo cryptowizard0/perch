@@ -69,7 +69,7 @@ import Testing
             $0.reminder.priority = 9
         }
         try await until { model.todos.items.first?.title == "Buy oat milk" }
-        #expect(model.todos.items.map(\.id) == [item.id] && model.todos.groups.map(\.priority) == [.low])
+        #expect(model.todos.items.map(\.id) == [item.id] && model.todos.items.map(\.priority) == [.low])
         #expect(mirror(d).contains("- [ ] Buy oat milk — low priority · reminders · https://shop.example · `\(item.id)`"))
 
         // Completed on the phone: out of the tab and todo.md, listed as done.
@@ -128,7 +128,7 @@ import Testing
 
         // Priority ▸ Low.
         model.setPriority(try #require(model.todos.items.first), .low)
-        try await until { model.todos.groups.map(\.priority) == [.low] }
+        try await until { model.todos.items.map(\.priority) == [.low] }
         #expect(store.entry(added.reminder.externalID)?.reminder.priority == 9)
 
         // Completing.
@@ -362,9 +362,10 @@ import Testing
         defer { model.disconnect() }
         await model.connectReminders()
         #expect(model.reminders == .ready(iCloud: false))
-        #expect(model.reminders?.note == "Not syncing — no iCloud")
-        #expect(RemindersState.ready(iCloud: true).note == nil)
         try await support.until { model.isBridge }
+        // Its group says so (#69), in place of the old note next to the summary.
+        try await support.until { model.todos.groups.map(\.notSyncing) == [true] }
+        #expect(model.todos.groups.map(\.title) == ["Perch"] && model.todos.summary == "All clear")
     }
 
     @Test func revokingAccessGoesBackToConnect() async throws {

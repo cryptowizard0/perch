@@ -77,8 +77,9 @@ struct MascotIcon: View {
     }
 }
 
-/// The Todo tab: a big title over the summary line, then the open todos grouped High / Normal / Low, one line each.
-/// They are the "Perch" Reminders list (#51); without it, the tab is a line and one button.
+/// The Todo tab: a big title over the summary line, then the open todos grouped by Reminders list (#69), one line each:
+/// "Perch" and the other checked lists, in the selection's order, empty ones with a gray "All clear". Without the
+/// "Perch" list (#51), the tab is a line and one button.
 struct TodoTab: View {
     @ObservedObject var queue: QueueModel
 
@@ -88,11 +89,8 @@ struct TodoTab: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Todo").font(.system(size: 20, weight: .bold)).foregroundStyle(.white)
-                HStack(spacing: 6) {
-                    Text(queue.online && reminders.isReady ? todos.summary : " ")
-                    if let note = reminders.note { Text("· \(note)") }
-                }
-                .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                Text(queue.online && reminders.isReady ? todos.summary : " ")
+                    .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
             }
             .padding(.leading, 2)
             .frame(maxWidth: .infinity, minHeight: PanelLayout.titleHeight, alignment: .bottomLeading)
@@ -108,6 +106,12 @@ struct TodoTab: View {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(todos.groups) { group in
                             TodoGroupHeader(group: group)
+                            if group.items.isEmpty {
+                                Text("All clear")
+                                    .font(.system(size: 13)).foregroundStyle(.white.opacity(0.4))
+                                    .frame(height: PanelLayout.todoRowHeight)
+                                    .padding(.leading, 2)
+                            }
                             ForEach(group.items) { item in
                                 TodoRowView(item: item, completing: queue.completing.contains(item.id),
                                             highlighted: queue.highlighted.contains(item.id),
@@ -159,17 +163,19 @@ struct RemindersPrompt: View {
     }
 }
 
-/// Like the Agents group header; High is white, the rest gray (priority never uses colour).
+/// Like the Agents group header, all gray: the list's name and open count, never the list's colour (#69). A list that
+/// isn't in iCloud says "Not syncing".
 struct TodoGroupHeader: View {
     var group: TodoList.Group
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(group.title)
-            Text("\(group.items.count)").monospacedDigit()
+            Text(group.title).lineLimit(1)
+            Text("\(group.openCount)").monospacedDigit()
+            if group.notSyncing { Text("· Not syncing").fontWeight(.regular) }
         }
         .font(.system(size: 11, weight: .semibold))
-        .foregroundStyle(.white.opacity(group.priority == .high ? 0.95 : 0.5))
+        .foregroundStyle(.white.opacity(0.5))
         .frame(height: PanelLayout.headerHeight, alignment: .bottom)
         .padding(.leading, 2)
     }
