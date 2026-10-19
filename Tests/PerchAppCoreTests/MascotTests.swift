@@ -430,3 +430,77 @@ import Testing
         }
     }
 }
+
+/// Time in the state (#60, #61).
+extension MascotTests {
+    /// Below 10 minutes a running turn looks as it always has; from 10 minutes a drop hangs by its head.
+    @Test func aLongRunSweats() {
+        for time in times {
+            #expect(Mascot.frame(.running, time: 1000 + time, since: 1000 + time - 599) == Mascot.frame(.running, time: 1000 + time),
+                    "\(time)")
+        }
+        let sweating = Mascot.frame(.running, time: 600.5, since: 0.5)
+        #expect(art(sweating, x: 0..<16, y: 3..<16) == [
+            ".......#........",
+            ".......#........",
+            "....#######..w..",
+            "...#########.w..",
+            "..####www####...",
+            "..###wwwww###...",
+            "..###wwoww###...",
+            "..###wwwww###...",
+            ".#####www#####..",
+            ".#############..",
+            "...###ooo###....",
+            "...#########....",
+            "....##...##.....",
+        ])
+        // The drop is all that's new: same eye, same colours, still trotting.
+        #expect(Set(sweating).subtracting(Mascot.frame(.running, time: 600.5)) == [
+            Mascot.Cell(x: 13, y: 5, ink: .white), Mascot.Cell(x: 13, y: 6, ink: .white),
+        ])
+        let hop = Mascot.frame(.running, time: 600.3, since: 0)
+        #expect(hop.map(\.y).min()! < sweating.map(\.y).min()!)
+    }
+
+    /// Reduce Motion: the plain still frame, no drop.
+    @Test func reducedMotionNeverSweats() {
+        #expect(Mascot.still(.running) == Mascot.frame(.running, time: 0))
+        #expect(!Mascot.still(.running).contains { $0.x == 13 && $0.y == 5 })
+    }
+
+    /// Every `wipePeriod` it lifts its right hand to its brow and wipes the drop away; then a new one forms.
+    @Test func aLongRunWipesItsForehead() {
+        let start = 6000.0
+        func at(_ offset: Double) -> [String] { art(Mascot.frame(.running, time: start + offset, since: 0), x: 0..<16, y: 3..<16) }
+        #expect(at(2.1) == [
+            ".......#........",
+            ".......#........",
+            "....#######.....",
+            "...##########...",
+            "..####www#####..",
+            "..###wwwww####..",
+            "..###wwoww###...",
+            "..###wwwww###...",
+            ".#####www####...",
+            ".############...",
+            "...###ooo###....",
+            "...#########....",
+            "....##...##.....",
+        ])
+        let drop = { (offset: Double) in Mascot.frame(.running, time: start + offset, since: 0).contains { $0.x == 13 && $0.ink == .white } }
+        let hand = { (offset: Double) in
+            Mascot.frame(.running, time: start + offset, since: 0).contains { $0.x == 13 && $0.y < 10 && $0.ink == .body }
+        }
+        // Before: the drop. During the wipe: the hand, back and forth across the brow. After: neither, then a new drop.
+        #expect(drop(1.9) && !hand(1.9))
+        let wiping = stride(from: 2.0, to: 3.0, by: 0.05).map { start + $0 }
+        #expect(wiping.allSatisfy { !drop($0 - start) && hand($0 - start) })
+        #expect(Set(wiping.map { Mascot.frame(.running, time: $0, since: 0).filter { $0.ink == .body && $0.x >= 11 && $0.y <= 6 } }).count > 1)
+        #expect(!drop(3.3) && !hand(3.3))
+        #expect(drop(3.7) && !hand(3.7))
+        // Every period, for as long as it runs (48 s: whole wipes and whole glance cycles).
+        #expect(at(2.1) == art(Mascot.frame(.running, time: start + 2.1 + 10 * 48, since: 0), x: 0..<16, y: 3..<16))
+        #expect(at(2.1) == art(Mascot.frame(.running, time: start + 2.1 - 112 * 48, since: 0), x: 0..<16, y: 3..<16))
+    }
+}

@@ -109,7 +109,7 @@ struct CollapsedBar: View {
         let panel = queue.panel
         HStack(spacing: 0) {
             HStack(spacing: NotchGeometry.collapsedGap) {
-                MascotView(signal: panel.signal, online: queue.online, pulse: queue.pulse, pulseStatus: queue.pulseStatus)
+                MascotView(signal: panel.signal, since: panel.signalSince, online: queue.online, pulse: queue.pulse, pulseStatus: queue.pulseStatus)
                 Group {
                     if !queue.online {
                         Image(systemName: "bolt.horizontal.circle").help(queue.offlineReason ?? "perchd is not running")

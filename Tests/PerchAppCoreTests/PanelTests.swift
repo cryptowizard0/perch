@@ -199,3 +199,17 @@ import Testing
         #expect(PanelLayout.listHeight(many) == PanelLayout.maxListHeight)
     }
 }
+
+extension PanelTests {
+    /// The mascot sweats by the oldest running turn (#60), whichever session that is; other states have no "since" yet.
+    @Test func theOldestRunningTurnIsTheSignalsSince() {
+        let panel = Panel(sessions: [session("late", .running, turn: 50), session("early", .running, turn: 10)])
+        #expect(panel.signalSince == t0.addingTimeInterval(10))
+        let reversed = Panel(sessions: [session("late", .running, turn: 5), session("early", .running, turn: 10)])
+        #expect(reversed.signalSince == t0.addingTimeInterval(5))
+        #expect(Panel(sessions: []).signalSince == nil)
+        #expect(Panel(sessions: [session("d", .done, since: 3)]).signalSince == nil)
+        // A failed session elsewhere makes Failed the signal: no sweat.
+        #expect(Panel(sessions: [session("r", .running), session("f", .failed)]).signalSince == nil)
+    }
+}

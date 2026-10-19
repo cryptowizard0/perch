@@ -54,6 +54,13 @@ public struct Panel: Equatable, Sendable {
         sessions.map(\.status).min { $0.priority < $1.priority }
     }
 
+    /// When the signal's state began, for the mascot's sense of time (#60): Running, the oldest running turn's start
+    /// (the Running group's first row). Nil for the other states.
+    public var signalSince: Date? {
+        guard let signal, signal == .running else { return nil }
+        return groups.first { $0.status == signal }?.sessions.first?.turnStartedAt
+    }
+
     public var runningCount: Int {
         sessions.filter { $0.status == .running }.count
     }

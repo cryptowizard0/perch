@@ -8,7 +8,8 @@ import PerchCore
 /// "nothing to show" stand still. Entering Needs you / Failed / Done (the panel's pulse) plays a reaction: the first
 /// beat is timed to its chime (#35), then a second act (an "!", a fall and some smoke, confetti). Asleep, idle, failed
 /// or done, it now and then plays a quirk from its mood's set (a yawn, a look around, a snot bubble; a sigh, rubbing
-/// its head; a sway, a hum). Failed keeps its X eye and Done its happy eye through theirs (#59).
+/// its head; a sway, a hum). Failed keeps its X eye and Done its happy eye through theirs (#59). It also feels the
+/// time: a turn running over 10 minutes makes it sweat (#60).
 public enum Mascot {
     /// The canvas, in points: the 13 × 13 sprite at `origin`, with room above for the hop and beside for the
     /// shake and the sparkles. Idle's "z" drifts past the right edge, up to `overflowWidth`.
@@ -108,19 +109,38 @@ public enum Mascot {
         public let x: Int
         public let y: Int
         public let ink: Ink
+
+        public init(x: Int, y: Int, ink: Ink) {
+            self.x = x
+            self.y = y
+            self.ink = ink
+        }
     }
 
     /// The cells to draw `time` seconds into any clock (the loops repeat), sorted row by row. A reaction wins over
     /// a quirk; a quirk plays only in the mood whose set has it.
-    public static func frame(_ mood: Mood, time: TimeInterval, reaction: Reaction? = nil, quirk: QuirkPlay? = nil) -> [Cell] {
+    ///
+    /// `since` is when the signal's state began, on the same clock: the oldest running turn's start (Running sweats
+    /// from `sweatAfter`). Nil leaves time out of it.
+    public static func frame(_ mood: Mood, time: TimeInterval, since: TimeInterval? = nil, reaction: Reaction? = nil,
+                             quirk: QuirkPlay? = nil) -> [Cell] {
         if let reaction, !reaction.isOver {
             return draw(look(reaction.mood, time: time, reaction: reaction.age))
         }
         if let quirk, mood.quirks.contains(quirk.quirk), !quirk.isOver {
             return draw(look(quirk.quirk, age: quirk.age, mood: mood))
         }
-        return draw(look(mood, time: time, reaction: nil))
+        return draw(look(mood, time: time, reaction: nil, waited: since.map { time - $0 }))
     }
+
+    // MARK: - Time in the state
+
+    /// A running turn this old makes it sweat: a drop by its head, and every `wipePeriod` it wipes its forehead.
+    public static let sweatAfter: TimeInterval = 600
+    public static let wipePeriod: TimeInterval = 6
+    /// Where in each `wipePeriod` the wipe plays, and when the next drop has formed.
+    static let wipe: Range<TimeInterval> = 2..<3
+    static let dropBack: TimeInterval = 3.6
 
     // MARK: - Quirks
 
@@ -226,9 +246,12 @@ public enum Mascot {
         var wisp: Int?
         /// Done's hum: a ♪, 0…3 steps up and to the right.
         var note: Int?
+        /// A long run's sweat drop by its head.
+        var sweat = false
     }
 
-    static func look(_ mood: Mood, time: TimeInterval, reaction age: TimeInterval?) -> Look {
+    /// `waited`: how long the signal's state has lasted, when known.
+    static func look(_ mood: Mood, time: TimeInterval, reaction age: TimeInterval?, waited: TimeInterval? = nil) -> Look {
         var look = Look()
         let t = max(time, 0)
         func step(_ seconds: Double) -> Int { Int((t / seconds).rounded(.down)) }
@@ -248,6 +271,15 @@ public enum Mascot {
             // Late in the cycle, so the still frame (t = 0) has its eye open. Longer than a redraw (≤ ~0.22 s once
             // the display rounds the 5 fps interval up) so every cycle catches it, whatever the sampling phase.
             if (3.6..<3.9).contains(t.truncatingRemainder(dividingBy: 4)) { look.eye = .blink }
+            if let waited, waited >= sweatAfter {
+                // It keeps trotting; the hand comes up to its brow and wipes the drop away, then a new one forms.
+                let cycle = t.truncatingRemainder(dividingBy: wipePeriod)
+                if wipe.contains(cycle) {
+                    look.arms = .wipe(across: Int(((cycle - wipe.lowerBound) / 0.25).rounded(.down)) % 2 == 1)
+                } else {
+                    look.sweat = cycle < wipe.lowerBound || cycle >= dropBack
+                }
+            }
         case .waiting:
             look.eye = .up
             look.mouth = .open
@@ -447,6 +479,8 @@ public enum Mascot {
         case down, leftUp, rightUp, bothUp
         /// Failed's rub: the right arm over the top of its head, the hand reaching further in or back.
         case onHead(reaching: Bool)
+        /// A long run's wipe: the right hand at its brow, or further across it.
+        case wipe(across: Bool)
 
         var cells: [(Int, Int)] {
             let left = [(0, 8), (0, 9)], right = [(12, 8), (12, 9)]
@@ -457,6 +491,7 @@ public enum Mascot {
             case .rightUp: return left + rightRaised
             case .bothUp: return leftRaised + rightRaised
             case .onHead(let reaching): return left + [(12, 5), (12, 4), (11, 3), (10, 2), (9, 1)] + (reaching ? [(8, 1)] : [])
+            case .wipe(let across): return left + (across ? [(12, 4), (11, 3), (10, 2)] : [(12, 5), (12, 4), (11, 3)])
             }
         }
     }
@@ -495,6 +530,7 @@ public enum Mascot {
         for (x, y) in look.mouth.cells { put(x, y, .dark) }
         if look.sparkle { overlay(-1, 2, .white); overlay(13, 2, .white) }
         if look.exclaim { for y in [-1, 0, 1, 3] { overlay(11, y, .white) } }
+        if look.sweat { overlay(12, 2, .white); overlay(12, 3, .white) }
         if let step = look.smoke {
             for (x, y) in [(5, 0), (7, -1), (6, -3), (8, -4)] { overlay(x, y - step, .faint) }
         }

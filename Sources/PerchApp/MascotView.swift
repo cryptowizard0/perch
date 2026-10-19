@@ -8,6 +8,8 @@ import SwiftUI
 /// points around its frame.
 struct MascotView: View {
     var signal: SessionStatus?
+    /// When the signal's state began (`Panel.signalSince`): a long run sweats.
+    var since: Date?
     var online = true
     /// Bumped on entering Needs you / Failed / Done; `pulseStatus` is the state that caused it.
     var pulse = 0
@@ -30,7 +32,8 @@ struct MascotView: View {
                 }
                 let quirking = quirk.map { Mascot.QuirkPlay($0.quirk, age: timeline.date.timeIntervalSince($0.start)) }
                 let cells = reduceMotion ? Mascot.still(mood) : Mascot.frame(
-                    mood, time: timeline.date.timeIntervalSinceReferenceDate, reaction: playing?.reaction, quirk: quirking
+                    mood, time: timeline.date.timeIntervalSinceReferenceDate, since: since?.timeIntervalSinceReferenceDate,
+                    reaction: playing?.reaction, quirk: quirking
                 )
                 for ink in Mascot.Ink.allCases {
                     var path = Path()
