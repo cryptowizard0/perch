@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-19 · **v0.4.3 已发布**（Todo tab、Todo 搬进 Reminders、更多列表 / Lists… / Doing、收起态 todo 数、小怪物更多动作）· v0.4.2（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.3`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50 · 收起态右翼的 todo 图标和数（#56）已完成，PR #57 squash 合并为 `0c267b8`，见下方"收起态右翼的 todo 数" · **更多 Reminders 列表（M14，#66）完成**：#69（数据通路、列表选择、Todo tab 和 CLI 按列表分组）、#70（Lists… 窗口、列表选择器、`--list`）、#71（优先级胶囊、Doing，schema v7）2026-10-19 维护者验收通过，PR #72 squash 合并为 `4e4131c`，#66 已关，见下方"更多 Reminders 列表（M14）"；随 v0.4.3 发布
+最后更新：2026-10-19 · **M15 dsh（DeepSeek Harness）已合并**（#73：PR #77 / #78 / #79，还没发版）· **v0.4.3 已发布**（Todo tab、Todo 搬进 Reminders、更多列表 / Lists… / Doing、收起态 todo 数、小怪物更多动作）· v0.4.2（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.3`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50 · 收起态右翼的 todo 图标和数（#56）已完成，PR #57 squash 合并为 `0c267b8`，见下方"收起态右翼的 todo 数" · **更多 Reminders 列表（M14，#66）完成**：#69（数据通路、列表选择、Todo tab 和 CLI 按列表分组）、#70（Lists… 窗口、列表选择器、`--list`）、#71（优先级胶囊、Doing，schema v7）2026-10-19 维护者验收通过，PR #72 squash 合并为 `4e4131c`，#66 已关，见下方"更多 Reminders 列表（M14）"；随 v0.4.3 发布
 
 ## 发布
 
@@ -36,7 +36,7 @@
 | M12 | Todo tab（#41：#42 / #43） | 🚧 待验收 | #42 已合并（PR #46）；#43 代码和文档完成，等维护者用一天后验收（见"Todo tab（M12）"） |
 | M13 | Todo 搬进 Apple Reminders（#50：#51 / #52 / #53） | ✅ 完成 | #51 bridge、#52 CLI / inbox 经 bridge 写、#53 日期 / ✎ / 大编辑器，2026-10-16 维护者验收通过（见"Todo 搬进 Reminders（M13）"）；App 写入 → `EKEventStoreChanged` 和 iCloud 手机 → Mac 的延迟还没记到 #50 |
 | M14 | 更多 Reminders 列表，按列表分组（#66：#69 / #70 / #71） | ✅ 完成 | 605 个测试；2026-10-19 维护者验收通过，PR #72 squash 合并为 `4e4131c`，#66 / #69 / #70 / #71 已关（见"更多 Reminders 列表（M14）"） |
-| M15 | dsh（DeepSeek Harness，#73：#74 / #75 / #76，v0.5 第二个新 agent） | 🚧 待合并 | #74（PR #77）、#75（PR #78）已合并；#76 在 PR #79，2026-10-19 真模型验收通过（见"M15 进度"），等合并 |
+| M15 | dsh（DeepSeek Harness，#73：#74 / #75 / #76，v0.5 第二个新 agent） | ✅ 完成 | 632 个测试；2026-10-19 真模型验收通过；PR #77 / #78 / #79 squash 合并为 `36d20d3` / `e68848f` / `5a2ed8b`，#73 / #74 / #75 / #76 已关（见"M15 进度"） |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -641,6 +641,8 @@ PR #57 squash 合并为 `0c267b8`，#56 已关；合并前从分支装到了本�
 - **已知限制**：Doing 只在这台 Mac 的 perchd 里，`~/.perch` 的数据库丢了就没了（和短 id 一样）；两台 Mac 各有各的。`perch update --doing` 不能和别的字段一起给（要两次）。
 
 ## M15 进度：dsh（DeepSeek Harness，#73，2026-10-19）
+
+**状态**：✅ 完成。2026-10-19 真模型验收通过（维护者本机，Claude 按维护者要求跑的），PR #79 squash 合并为 `5a2ed8b`，#73 和三个子 issue 都已关。还没发版（下一个版本带上）。
 
 v0.5 接更多 agent（#24）的第二个。dsh 是 DeepSeek 的 Node agent 框架，profile 由 cordis 插件一层层叠出来；只能从里面扩展，所以 Perch 带一个只搬运事件的 JS 插件（CLAUDE.md 规则 7 的唯一例外，#73 定），状态全在 Swift 里判。
 

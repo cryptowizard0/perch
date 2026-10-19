@@ -205,7 +205,7 @@
 - [x] `swift build` / `swift test` 通过，`CONFIG=debug scripts/bundle-app.sh` 能编；PRD、CLAUDE.md、`project.md` 更新
 - [x] 人工验收（真 Mac，有 Reminders 权限）：胶囊的颜色和大小；悬停时 ▶ 出现（刘海面板不是 key 也能）、离开就消失、点了变白色实心、整行浅底加粗并移到列表最前、再点清掉；点胶囊什么都不做；Doing 的待办完成后再打开不是 Doing（2026-10-19 维护者验收通过）
 
-## M15 — dsh（DeepSeek Harness，#73：#74 / #75 / #76，v0.5 第二个新 agent，#24）
+## M15 — dsh（DeepSeek Harness，#73：#74 / #75 / #76，v0.5 第二个新 agent，#24）✅
 
 设计和实测结果见 #73（父 issue）和 CLAUDE.md"Hook 适配"里的 dsh 一节。
 
