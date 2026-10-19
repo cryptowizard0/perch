@@ -6,9 +6,8 @@ import PerchCore
 ///
 /// Running trots, Needs you waves and flashes its antenna, Idle sleeps with a drifting "z"; Failed, Done and
 /// "nothing to show" stand still. Entering Needs you / Failed / Done (the panel's pulse) plays a reaction: the first
-/// beat is timed to its chime (#35), then a second act (an "!", a fall and some smoke, confetti). Asleep, idle, failed
-/// or done, it now and then plays a quirk from its mood's set (a yawn, a look around, a snot bubble; a sigh, rubbing
-/// its head; a sway, a hum). Failed keeps its X eye and Done its happy eye through theirs (#59).
+/// beat is timed to its chime (#35), then a second act (an "!", a fall and some smoke, confetti). Asleep or idle, it
+/// now and then plays a quirk (a yawn, a look around, a snot bubble).
 public enum Mascot {
     /// The canvas, in points: the 13 × 13 sprite at `origin`, with room above for the hop and beside for the
     /// shake and the sparkles. Idle's "z" drifts past the right edge, up to `overflowWidth`.
@@ -58,24 +57,12 @@ public enum Mascot {
             }
         }
 
-        /// The quirks it plays now and then; none while running or waiting.
-        public var quirks: [Quirk] {
-            switch self {
-            case .idle, .asleep: return [.yawn, .lookAround, .bubble]
-            case .failed: return [.sigh, .rubHead]
-            case .done: return [.sway, .hum]
-            case .running, .waiting: return []
-            }
-        }
+        /// Asleep or idle: the moods that play quirks.
+        public var hasQuirks: Bool { self == .idle || self == .asleep }
     }
 
     /// Frames a second while a reaction plays.
     public static let reactionFPS: Double = 14
-
-    /// How often to redraw: fast while a reaction or quirk plays, else the mood's own rate (0 for the still moods).
-    public static func fps(_ mood: Mood, reacting: Bool, quirking: Bool) -> Double {
-        reacting || quirking ? reactionFPS : mood.fps
-    }
 
     /// An entry reaction `age` seconds in. It plays the look of the mood that caused it, which may not be the
     /// signal's (a session finishing while another needs you hops blue, then goes back to orange).
@@ -111,12 +98,12 @@ public enum Mascot {
     }
 
     /// The cells to draw `time` seconds into any clock (the loops repeat), sorted row by row. A reaction wins over
-    /// a quirk; a quirk plays only in the mood whose set has it.
+    /// a quirk; a quirk plays only in the moods that have them.
     public static func frame(_ mood: Mood, time: TimeInterval, reaction: Reaction? = nil, quirk: QuirkPlay? = nil) -> [Cell] {
         if let reaction, !reaction.isOver {
             return draw(look(reaction.mood, time: time, reaction: reaction.age))
         }
-        if let quirk, mood.quirks.contains(quirk.quirk), !quirk.isOver {
+        if mood.hasQuirks, let quirk, !quirk.isOver {
             return draw(look(quirk.quirk, age: quirk.age, mood: mood))
         }
         return draw(look(mood, time: time, reaction: nil))
@@ -124,32 +111,20 @@ public enum Mascot {
 
     // MARK: - Quirks
 
-    /// Something it does now and then, then goes back to its mood's look.
+    /// Something it does now and then while asleep or idle, then goes back to sleep.
     public enum Quirk: Equatable, Sendable, CaseIterable {
-        /// Asleep or idle: stretches both arms up with a big yawn.
+        /// Stretches both arms up with a big yawn.
         case yawn
-        /// Asleep or idle: opens its eye, looks left, right, and dozes off again.
+        /// Opens its eye, looks left, right, and dozes off again.
         case lookAround
-        /// Asleep or idle: a snot bubble grows, pops and wakes it for a moment.
+        /// A snot bubble grows, pops and wakes it for a moment.
         case bubble
-        /// Failed: sinks a point, its antenna flops over, a wisp of smoke, back up.
-        case sigh
-        /// Failed: one arm up on its head, rubbing twice.
-        case rubHead
-        /// Done: sways side to side, blinking once mid-sway.
-        case sway
-        /// Done: hums; a ♪ rises and drifts off like Idle's "z".
-        case hum
 
         public var duration: TimeInterval {
             switch self {
             case .yawn: return 2.4
             case .lookAround: return 2.6
             case .bubble: return 2.8
-            case .sigh: return 2.4
-            case .rubHead: return 2.4
-            case .sway: return 2.4
-            case .hum: return 2.8
             }
         }
     }
@@ -170,27 +145,19 @@ public enum Mascot {
     /// feels random but needs no state (and tests can find them).
     public static let quirkPeriod: TimeInterval = 240
 
-    /// The quirk of the period containing `time`, drawn from `quirks` (not empty), and when it starts.
-    static func quirk(inPeriodOf time: TimeInterval, from quirks: [Quirk]) -> (quirk: Quirk, start: TimeInterval) {
+    /// The quirk of the period containing `time`, and when it starts.
+    static func quirk(inPeriodOf time: TimeInterval) -> (quirk: Quirk, start: TimeInterval) {
         let period = (time / quirkPeriod).rounded(.down)
         let hash = UInt64(bitPattern: Int64(period)) &* 0x9E37_79B9_7F4A_7C15
         let offset = 20 + Double((hash >> 33) % 180)
-        let quirk = quirks[Int((hash >> 13) % UInt64(quirks.count))]
+        let quirk = Quirk.allCases[Int((hash >> 13) % UInt64(Quirk.allCases.count))]
         return (quirk, period * quirkPeriod + offset)
     }
 
-    /// The next quirk `mood` starts after `time`: the same moment whatever the mood, of a kind from its set. Nil for
-    /// the moods without quirks.
-    public static func nextQuirk(after time: TimeInterval, in mood: Mood) -> (quirk: Quirk, start: TimeInterval)? {
-        let quirks = mood.quirks
-        guard !quirks.isEmpty else { return nil }
-        let this = quirk(inPeriodOf: time, from: quirks)
-        return this.start > time ? this : quirk(inPeriodOf: time + quirkPeriod, from: quirks)
-    }
-
-    /// The quirks to schedule: the mood's, but none while perchd is offline or motion is reduced.
-    public static func quirks(_ mood: Mood, online: Bool, reduceMotion: Bool) -> [Quirk] {
-        online && !reduceMotion ? mood.quirks : []
+    /// The next quirk to start after `time`.
+    public static func nextQuirk(after time: TimeInterval) -> (quirk: Quirk, start: TimeInterval) {
+        let this = quirk(inPeriodOf: time)
+        return this.start > time ? this : quirk(inPeriodOf: time + quirkPeriod)
     }
 
     /// The one frame shown when motion is reduced.
@@ -222,10 +189,6 @@ public enum Mascot {
         var confetti: TimeInterval?
         /// The snot bubble: 0…2 growing, 3 popped.
         var bubble: Int?
-        /// Failed's sigh: a wisp of smoke off the antenna, 0…2 steps up.
-        var wisp: Int?
-        /// Done's hum: a ♪, 0…3 steps up and to the right.
-        var note: Int?
     }
 
     static func look(_ mood: Mood, time: TimeInterval, reaction age: TimeInterval?) -> Look {
@@ -344,30 +307,6 @@ public enum Mascot {
                 look.mouth = .open
                 look.dy = age < 2.55 ? -1 : 0
             }
-        case .sigh:
-            switch age {
-            case ..<0.3, 1.9..<2.2: look.antenna = .flat
-            case ..<1.9:
-                look.dy = 1
-                look.antenna = .flat
-                if age >= 0.7 { look.wisp = min(Int(((age - 0.7) / 0.4).rounded(.down)), 2) }
-            default: break
-            }
-        case .rubHead:
-            switch age {
-            case ..<0.3, 1.9..<2.2: look.arms = .rightUp
-            case ..<1.9: look.arms = .onHead(reaching: Int(((age - 0.3) / 0.4).rounded(.down)) % 2 == 1)
-            default: break
-            }
-        case .sway:
-            // Side to side, the antenna trailing behind.
-            let dx = [-1, -1, 0, 1, 1, 0, -1, 0][min(Int((age / 0.3).rounded(.down)), 7)]
-            look.dx = dx
-            look.antenna = dx < 0 ? .drooping : dx > 0 ? .left : .up
-            if (1.0..<1.2).contains(age) { look.eye = .happyBlink }
-        case .hum:
-            look.mouth = .small
-            if (0.3..<2.3).contains(age) { look.note = Int(((age - 0.3) / 0.5).rounded(.down)) }
         }
         return look
     }
@@ -391,8 +330,6 @@ public enum Mascot {
     /// The 5 × 5 eye at (4, 4): `w` white, `o` dark, `.` body.
     enum Eye {
         case open, up, left, right, blink, closed, happy, cross, drowsy, squeezed
-        /// Done's blink: the happy arc squeezed flatter, still a "^".
-        case happyBlink
 
         var rows: [String] {
             switch self {
@@ -406,7 +343,6 @@ public enum Mascot {
             case .cross: return [".www.", "wowow", "wwoww", "wowow", ".www."]
             case .drowsy: return [".....", ".....", "ooooo", "wwoww", ".www."]
             case .squeezed: return [".....", "o...o", ".o.o.", "..o..", "....."]
-            case .happyBlink: return [".....", ".....", ".ooo.", "o...o", "....."]
             }
         }
     }
@@ -429,8 +365,6 @@ public enum Mascot {
     /// Tip first.
     enum Antenna {
         case up, left, drooping, bent
-        /// Failed's sigh: bent all the way over onto its head.
-        case flat
 
         var cells: [(Int, Int)] {
             switch self {
@@ -438,15 +372,12 @@ public enum Mascot {
             case .left: return [(5, 0), (6, 1)]
             case .drooping: return [(7, 0), (6, 1)]
             case .bent: return [(7, 1), (6, 1)]
-            case .flat: return [(8, 1), (7, 1)]
             }
         }
     }
 
     enum Arms {
         case down, leftUp, rightUp, bothUp
-        /// Failed's rub: the right arm over the top of its head, the hand reaching further in or back.
-        case onHead(reaching: Bool)
 
         var cells: [(Int, Int)] {
             let left = [(0, 8), (0, 9)], right = [(12, 8), (12, 9)]
@@ -456,13 +387,11 @@ public enum Mascot {
             case .leftUp: return leftRaised + right
             case .rightUp: return left + rightRaised
             case .bothUp: return leftRaised + rightRaised
-            case .onHead(let reaching): return left + [(12, 5), (12, 4), (11, 3), (10, 2), (9, 1)] + (reaching ? [(8, 1)] : [])
             }
         }
     }
 
     static let z = ["####", "..#.", ".#..", "####"]
-    static let note = [".##", ".#.", "##.", "##."]
 
     /// Done's confetti: launched from the top of its head with these velocities (points a second), then falling.
     static let confettiBits: [(vx: Double, vy: Double, ink: Ink)] = [
@@ -518,14 +447,6 @@ public enum Mascot {
                 if bounds.contains(point.x), (-margin..<(height + margin)).contains(point.y), cells[point] == nil {
                     cells[point] = bit.ink
                 }
-            }
-        }
-        if let step = look.wisp {
-            for (x, y) in [(9, 0), (10, -1)] { overlay(x, y - step, .faint) }
-        }
-        if let step = look.note {
-            for (row, line) in note.enumerated() {
-                for (x, char) in line.enumerated() where char == "#" { overlay(13 + step + x, 3 - 2 * step + row, .faint) }
             }
         }
         if let step = look.z {

@@ -3,9 +3,8 @@ import PerchCore
 import SwiftUI
 
 /// The collapsed notch's mascot (#22): `Mascot`'s cells drawn one point each, no antialiasing. Redraws only while
-/// something moves (Running, Needs you, Idle, a reaction, a quirk: Failed and Done stand still between theirs); with
-/// Reduce Motion it shows each mood's still frame and plays no quirks. Reactions and quirks may draw `Mascot.margin`
-/// points around its frame.
+/// something moves (Running, Needs you, Idle, a reaction, a quirk); with Reduce Motion it shows each mood's still
+/// frame and plays no quirks. Reactions and quirks may draw `Mascot.margin` points around its frame.
 struct MascotView: View {
     var signal: SessionStatus?
     var online = true
@@ -18,8 +17,7 @@ struct MascotView: View {
 
     var body: some View {
         let mood = Mascot.Mood(signal: signal, online: online)
-        let fps = Mascot.fps(mood, reacting: reaction != nil, quirking: quirk != nil)
-        let quirks = Mascot.quirks(mood, online: online, reduceMotion: reduceMotion)
+        let fps = reaction == nil && quirk == nil ? mood.fps : Mascot.reactionFPS
         let margin = CGFloat(Mascot.margin)
         TimelineView(.animation(minimumInterval: 1 / max(fps, 1), paused: reduceMotion || fps == 0)) { timeline in
             Canvas { context, _ in
@@ -41,8 +39,8 @@ struct MascotView: View {
                 }
             }
         }
-        // Idle's "z" and Done's ♪ drift past the right edge, over where the running count would be (there is none then:
-        // running outranks done); reactions and quirks use the margin all round. Neither takes room in the layout.
+        // Idle's "z" drifts past the right edge, over where the running count would be (there is none then); reactions
+        // and quirks use the margin all round. Neither takes room in the layout.
         .frame(width: CGFloat(Mascot.overflowWidth) + 2 * margin, height: CGFloat(Mascot.height) + 2 * margin)
         .padding(EdgeInsets(top: -margin, leading: -margin, bottom: -margin,
                             trailing: CGFloat(Mascot.width - Mascot.overflowWidth) - margin))
@@ -55,14 +53,13 @@ struct MascotView: View {
                 if reaction?.start == start { reaction = nil }
             }
         }
-        // Asleep, idle, failed or done (and perchd up): wait for the next quirk of the mood's set, play it, repeat.
-        // Keyed by the set, so asleep ↔ idle keeps a quirk going and failed ↔ done starts over.
-        .task(id: quirks) {
+        // Asleep or idle (and perchd up): wait for the next quirk, play it, repeat.
+        .task(id: mood.hasQuirks && online && !reduceMotion) {
             quirk = nil
-            guard !quirks.isEmpty else { return }
+            guard mood.hasQuirks && online && !reduceMotion else { return }
             while !Task.isCancelled {
                 let now = Date()
-                guard let next = Mascot.nextQuirk(after: now.timeIntervalSinceReferenceDate, in: mood) else { return }
+                let next = Mascot.nextQuirk(after: now.timeIntervalSinceReferenceDate)
                 let start = Date(timeIntervalSinceReferenceDate: next.start)
                 do {
                     try await Task.sleep(for: .seconds(start.timeIntervalSince(now)))
