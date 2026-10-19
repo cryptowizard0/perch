@@ -37,10 +37,18 @@ final class ListsWindowController {
             .store(in: &cancellables)
     }
 
+    /// From the notch's right-click menu, so it waits for the next pass: a window made key while the menu is still
+    /// tracking loses key when the menu closes (it goes back to the app you were in), and then Esc never reaches it.
+    /// The todo popup's Edit… gets this for free by going through `QueueModel.editor`.
     func show() {
-        queue.refreshLists()
-        guard place() else { return }
-        panel.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.queue.refreshLists()
+                guard self.place() else { return }
+                self.panel.makeKeyAndOrderFront(nil)
+            }
+        }
     }
 
     func close() {
