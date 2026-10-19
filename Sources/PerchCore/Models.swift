@@ -18,7 +18,8 @@ public enum ItemStatus: String, Codable, CaseIterable, Sendable {
     case dismissed
 }
 
-/// How much a todo matters (#41). Orders todos inside their list (#69), never by colour: orange and red belong to agents.
+/// How much a todo matters (#41). Orders todos inside their list (#69, after Doing, #71); the Todo tab shows it as a
+/// capsule on each row (#71): High orange, Normal gray, Low green.
 public enum ItemPriority: String, Codable, CaseIterable, Sendable {
     case high, normal, low
 
@@ -66,6 +67,9 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
     public var expiresAt: Date?
     public var createdAt: Date
     public var updatedAt: Date
+    /// A todo someone is working on now (#71): Perch's own, kept by perchd on the todo's reference, never in Reminders.
+    /// `status` stays open. On the wire for every todo (`meta.reminder`), true or false; never for anything else.
+    public var doing: Bool = false
 
     public init(
         id: String = Item.newID(),
@@ -107,6 +111,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         case id, title, kind, status, priority, source, link, meta, key, options, response
         /// Out only: a todo's list name (#69, from `meta`), for `perch ls --json`.
         case list
+        case doing
         case dueAt = "due_at"
         case dueDateOnly = "due_date_only"
         case expiresAt = "expires_at"
@@ -135,6 +140,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? now
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+        doing = try c.decodeIfPresent(Bool.self, forKey: .doing) ?? false
     }
 
     /// Dates go out as whole-second ISO-8601, which truncates. `expires_at` is rounded up instead,
@@ -158,6 +164,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         try c.encodeIfPresent(expiresAt.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.up)) }, forKey: .expiresAt)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(updatedAt, forKey: .updatedAt)
+        if doing || reminderID != nil { try c.encode(doing, forKey: .doing) }
     }
 
     /// Short, typeable ids like `t7k2`: 4 chars from an alphabet without look-alikes.

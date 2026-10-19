@@ -312,7 +312,7 @@ extension Item {
 public struct TodoGroup: Equatable, Sendable {
     /// Nil only without any known lists (a cache from before #69): then every todo is in this one group.
     public var list: ReminderList?
-    /// Open todos, High → Normal → Low, then oldest first, then by id. Due dates never reorder (#53).
+    /// Open todos: Doing first (#71), then High → Normal → Low, then oldest first, then by id. Due dates never reorder (#53).
     public var items: [Item]
 
     public init(list: ReminderList?, items: [Item]) {
@@ -322,8 +322,9 @@ public struct TodoGroup: Equatable, Sendable {
 }
 
 extension Item {
-    /// The order inside a list: priority, then creation time, then id.
+    /// The order inside a list: Doing first (#71), then priority, then creation time, then id.
     public static func todoOrder(_ a: Item, _ b: Item) -> Bool {
+        if a.doing != b.doing { return a.doing }
         if a.priority != b.priority { return a.priority.rank < b.priority.rank }
         if a.createdAt != b.createdAt { return a.createdAt < b.createdAt }
         return a.id < b.id
