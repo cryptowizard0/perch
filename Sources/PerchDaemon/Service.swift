@@ -468,7 +468,7 @@ public final class Service {
     /// Deleting the cached todo `item` (answered with `item` itself).
     private func planDelete(_ item: Item) throws -> TodoPlan {
         guard let reminder = item.reminderID else { throw ServiceError("\(item.id) is not a reminder") }
-        return .bridge(TodoWrite(operation: TodoOperation(action: .delete, externalID: reminder, list: item.listID), removed: item))
+        return .bridge(TodoWrite(operation: TodoOperation(action: .delete, externalID: reminder, seenInList: item.listID), removed: item))
     }
 
     /// An update to the cached todo `old` so it reads like `new`; nothing to do when they already agree.
@@ -476,7 +476,7 @@ public final class Service {
         guard let reminder = old.reminderID else { throw ServiceError("\(old.id) is not a reminder") }
         let change = ReminderChange(from: old, to: new)
         guard !change.isEmpty else { return .answer(Response(ok: true, item: old)) }
-        return .bridge(TodoWrite(operation: TodoOperation(action: .update, externalID: reminder, list: old.listID, change: change)))
+        return .bridge(TodoWrite(operation: TodoOperation(action: .update, externalID: reminder, seenInList: old.listID, change: change)))
     }
 
     /// A new reminder's fields. `source`, `meta` and `expires_at` are not stored for todos.

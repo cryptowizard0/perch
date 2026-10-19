@@ -171,23 +171,24 @@ public struct TodoOperation: Codable, Equatable, Sendable {
     public var id: String
     public var action: Action
     public var externalID: String?
-    /// The list perchd last saw the reminder in (`ReminderList.id`, #69): where the bridge looks first. Nil for a new
-    /// reminder, which goes to "Perch".
-    public var list: String?
+    /// A hint, not a target: the list perchd last saw the reminder in (`ReminderList.id`, #69), where the bridge looks
+    /// first. Nil for a new reminder, which goes to "Perch".
+    public var seenInList: String?
     public var change: ReminderChange
 
-    public init(id: String = UUID().uuidString, action: Action, externalID: String? = nil, list: String? = nil,
+    public init(id: String = UUID().uuidString, action: Action, externalID: String? = nil, seenInList: String? = nil,
                 change: ReminderChange = ReminderChange()) {
         self.id = id
         self.action = action
         self.externalID = externalID
-        self.list = list
+        self.seenInList = seenInList
         self.change = change
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, action, change, list
+        case id, action, change
         case externalID = "external_id"
+        case seenInList = "seen_in_list"
     }
 }
 

@@ -197,7 +197,9 @@ import Testing
         #expect(service.todoLists() == [perch, office])
         // Writes say which list the reminder was last seen in.
         guard case .bridge(let write) = service.planTodoWrite(Request(op: .done, id: ids[0])) else { Issue.record("not a bridge write"); return }
-        #expect(write.operation.list == "w" && write.operation.externalID == "r1")
+        #expect(write.operation.seenInList == "w" && write.operation.externalID == "r1")
+        let wire = String(decoding: try PerchJSON.encoder.encode(write.operation), as: UTF8.self)
+        #expect(wire.contains(#""seen_in_list":"w""#) && !wire.contains(#""list""#))
     }
 
     @Test func pingReportsVersion() {

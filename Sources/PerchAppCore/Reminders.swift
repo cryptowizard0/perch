@@ -242,14 +242,14 @@ public final class RemindersBridge {
             guard operation.change.title?.isEmpty == false else { throw RemindersError("a new todo needs a title") }
             return try store.createReminder(inList: try readyList().id, operation.change)
         case .upsert:
-            if let reminder = operation.externalID, let list = try? listOf(reminder, hint: operation.list) {
+            if let reminder = operation.externalID, let list = try? listOf(reminder, hint: operation.seenInList) {
                 try store.updateReminder(reminder, inList: list.id, operation.change)
                 return reminder
             }
             return try apply(TodoOperation(id: operation.id, action: .create, change: operation.change))
         case .update, .delete:
             guard let reminder = operation.externalID else { throw RemindersError("no reminder given") }
-            let list = try listOf(reminder, hint: operation.list)
+            let list = try listOf(reminder, hint: operation.seenInList)
             if operation.action == .delete {
                 try store.deleteReminder(reminder, inList: list.id)
             } else {
