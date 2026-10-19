@@ -8,7 +8,7 @@ v0.1 的定位是"agent 等待队列 + 我的待办"。M1–M6 做完后调整�
 
 - **todo 暂时搁置**：刘海 UI 里拿掉 task、快速录入、到期提醒；daemon、SQLite、`perch add/ls/done`、`todo.md` / `inbox.md` 全部保留不动（CLI 契约不变）。以后作为展开态里一个**独立的 tab** 回来，不和 agent 面板混在一起。2026-10-15 回来了：展开态的 Todo tab（#41），只放人手写的待办、按优先级分组、不带任何时间，见下方"Todo tab"（后来改了：待办在 Reminders 里、带日期，#50 / #53；按列表分组，#69）。
 - **一行 = 一个 agent 会话**（按 `session_id`），从第一次发 prompt 到 SessionEnd，状态在五种之间流转（见下方"Agent 面板"）。
-- **先接 Claude Code 和 Codex**（2026-10-12 起加 Grok Build，#31：刘海不能批准 Grok，只提示去终端回答）；Hermes 的会话生命周期不同（每轮都发 `on_session_end`、gateway 会话没有"关闭"、进程常驻），暂不显示，单独一个里程碑迁移。
+- **先接 Claude Code 和 Codex**（2026-10-12 起加 Grok Build，#31；2026-10-19 起加 dsh（DeepSeek Harness），#73。两者刘海都不能批准，只提示去终端回答）；Hermes 的会话生命周期不同（每轮都发 `on_session_end`、gateway 会话没有"关闭"、进程常驻），暂不显示，单独一个里程碑迁移。
 - 本文下方凡是和"Agent 面板"一节冲突的 v0.1 描述（收起态数字 = 待办数、notice、快速录入等），以"Agent 面板"为准。
 
 ## 定位与原则
@@ -196,6 +196,8 @@ flowchart LR
 **v0.2（M7）**：Claude Code / Codex 的事件改为驱动会话状态（见"Agent 面板"的状态表），不再产生 waiting / notice item；只有白名单内的 PermissionRequest 仍然发 request 等刘海。每个事件都带上 agent 进程的 pid（`perch hook` 沿父进程链找），供 perchd 做存活检测。Hermes 的映射没改；2026-10-08 起 Hermes 暂不支持（M9 搁置），只支持 Claude Code 和 Codex。
 
 **v0.5（M11，#31）**：Grok Build 走同一个适配器 `perch hook grok`。Grok 没有 PermissionRequest，PreToolUse 的 `allow` 也不会跳过它的提示框，所以 Grok 不建 request，Needs you 只显示 Grok 的原话和"Answer in the terminal"（Grok 不说是哪条命令）。Grok 的取消报告可能晚于下一轮的 prompt，所以会话报告可以带轮次（`turn_id`），别的轮的结束报告丢掉。映射以 CLAUDE.md 的"Hook 适配"为准。
+
+**v0.5（M15，#73）**：dsh（DeepSeek Harness）只能从里面扩展，所以 Perch 带一个小插件，它把 dsh 自己的事件（开始一轮、要审批、ask_user、结束一轮的原因、会话关闭）规整后交给 `perch hook dsh`。只支持终端 UI（dsh-tui、`dsh tui`），`dsh web`（一个服务里很多会话、没有终端可跳）和 `dsh headless`（一次性，没人在等）不显示。dsh 几乎只为沙箱升级（`danger-full-access`）要审批，本来就在白名单外，所以刘海不能批准 dsh，Needs you 显示完整命令、dsh 给的理由和"Answer in the terminal"；ask_user 的问题也是 Needs you。安装零配置：设置卡片发现 `~/.dsh` 就能连，Perch 在 dsh 对所有 profile 生效的 home patch 层里写一行，不碰各个 profile。行上显示名 "DeepSeek"、鲸鱼图标。
 
 安装：`perch hooks install claude-code` 写 `~/.claude/settings.json`，`perch hooks install codex` 写 `~/.codex/hooks.json`（v0.4 起用户一般在刘海的设置卡片里点 Connect，写的是同样的 hook，见 #25）。Codex 的 hook 要在 codex 里用 `/hooks` 确认信任后才会跑。
 

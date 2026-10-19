@@ -30,6 +30,8 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 
 **2026-10-12（v0.5，#31 / M11）**：接入 Grok Build（xAI 的 `grok` CLI），v0.5 接更多 agent（#24）的第一个。刘海永远不能批准 Grok，只提示"Answer in the terminal"。
 
+**2026-10-19（v0.5，#73 / M15）**：接入 dsh（DeepSeek Harness，Node 写的 agent 框架），显示名 "DeepSeek"、鲸鱼图标。dsh 只能从里面扩展，所以 Perch 带一个 dsh 插件（`packaging/dsh/perch.mjs`），它只把 dsh 的事件搬给 `perch hook dsh`，状态全在 Swift 里判（#74 / #75）。只支持终端 UI（`dsh web` / `dsh headless` 不支持），刘海永远不能批准 dsh。安装（#76）：插件嵌在 perch 里、写在 perch 二进制旁边（`~/.perch/bin/perch-dsh.mjs`），dsh 的 home patch 层 `$DSH_HOME/cordis.patch.yml`（所有 profile 都读）里一段带标记的 insert 行把它挂上。细节见下面"Hook 适配"里的 dsh 一节。
+
 ## 仓库结构
 
 ```
@@ -48,6 +50,7 @@ Sources/PerchApp/        刘海 App（AppKit + SwiftUI），SwiftPM 可执行 ta
 packaging/Info.plist     Perch.app 的 Info.plist（LSUIElement，无 Dock 图标）
 packaging/Perch.icns     App 图标（橙色像素独眼怪吊在刘海下面，2026-10-10 起；之前是像素小鸟）；改图在 scripts/icon/draw-icon.swift，scripts/icon/make-icon.sh 重新生成并提交 .icns
 packaging/sounds/        提示音（#35）：needs-you / failed / done.wav，scripts/sound/make-sounds.swift 合成（小怪物的声音），scripts/sound/make-sounds.sh 重新生成并提交；bundle-app.sh 拷到 Contents/Resources/Sounds
+packaging/dsh/perch.mjs  dsh 插件（#75，唯一的 JS 文件）；改完跑 scripts/dsh/embed-plugin.sh，把它嵌进 PerchSetup（`DshPlugin.source`）一起提交
 scripts/bundle-app.sh    编译 PerchApp 并组装、ad-hoc 签名成 .build/Perch.app；perch / perchd 放在 Contents/Helpers（App 自检从这里同步到 ~/.perch/bin），Contents/Resources/bin/perch 是 packaging/perch-path.sh
 packaging/perch-path.sh  Homebrew 链到 PATH 上的 `perch`：转去执行 ~/.perch/bin/perch，还没有时提示先打开一次 App
 Casks/perch.rb           Homebrew cask，tap 就是本仓库（`brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch`）
@@ -83,7 +86,7 @@ scripts/measure-latency.sh       # M2 验收：隔离的 perchd + App，量 CLI 
 4. **传输层。** Unix socket `~/.perch/perchd.sock`（本机），加 `127.0.0.1:7331` HTTP（给跑在容器里、够不着 socket 的客户端，`host.docker.internal:7331`；本机的 Hermes 走 hook，见下）。两者跑同一套 JSON（`Sources/PerchCore/Protocol.swift`）：socket 上是 newline-delimited JSON，HTTP 上是 `POST /rpc`；`watch` 保持连接并逐行推送带 `event` 的 `Response`。
 5. **文件是单向的。** `~/.perch/todo.md` 是 daemon 渲染的只读镜像；`~/.perch/inbox.md` 是追加式收件箱，daemon 监听到 `- [ ] …` 就经 bridge 写进 Reminders、再从文件里删掉那一行（#52；没有 bridge 时留在文件里）。**没有双向同步，永远不要实现。** Reminders（#51）也不是双向同步：只有一个真相（"Perch" 和勾选的其他列表，#69），SQLite 里只是它最近一次快照的只读缓存加短 id 引用，丢了能重建，缓存只由快照写。
 6. **刘海只是快捷通道，不是唯一通道。** hook 等刘海响应 15–30 秒，超时不返回决定，终端原生提示照常弹出。任何情况下都不会因为 Perch 而默认放行。
-7. **一种语言。** 全部 Swift 5.9 / macOS 14+。daemon 和 CLI 打成单二进制。
+7. **一种语言。** 全部 Swift 5.9 / macOS 14+。daemon 和 CLI 打成单二进制。唯一的例外（#73 定）：dsh 只能从里面扩展，所以有一个不依赖任何包的 `packaging/dsh/perch.mjs`，只搬运事件、不做任何判断；它嵌在 perch 里（`scripts/dsh/embed-plugin.sh` 生成 `Sources/PerchSetup/DshPluginSource.swift`，`DshPatchTests` 保证两者一字不差）。
 
 ## 数据模型
 
@@ -155,6 +158,8 @@ dsh（DeepSeek Harness，#73 / #74，按 dsh 0.2.0-rc.2 + dsh-tui 0.14.0 实测�
 
 进程：dsh 跑成 `node …/bin/dsh <profile>`，argv[0] 规则认不出来。插件直接（不经 shell）spawn perch 并传 `process.pid`，所以 payload 的 `pid` **只有是 `perch hook dsh` 的父进程时才信**（`AgentProcess.dsh(claimed:parent:)`），启动时间从 `SystemProcesses` 拿，pid 存活检测和防复用照旧；不是父进程就不带 pid（24 小时兜底）。关终端（SIGHUP）时 dsh 什么都不发，靠 pid 存活检测（30 秒）清掉。dsh 自带的 Claude Code / Codex hooks bridge（`dsh-hooks-claude-code` / `dsh-hooks-codex`，默认不挂）会跑 `~/.claude/settings.json` / `~/.codex/hooks.json`，而且不给 hook 进程设任何能认的环境变量（`DSH_*` 会被它的执行器清掉），所以 `perch hook claude-code` / `codex` 沿父进程链往上走，先碰到 dsh 进程（`node` 且 argv[1] 是 `…/dsh` 或 `@deepseek-ai/dsh/` 下的脚本，或者叫 `dsh` 的二进制；`SystemProcesses` 现在也读 argv[1]，`ProcessEntry.script`）、再碰到自己的 agent 进程就直接退出（`AgentProcess.insideDsh`，`HookAdapter.isForeign`）；dsh 的 bash 里起的 `claude` 照样是 Claude Code。`dsh web` / `dsh headless` 不支持（插件不动，#75）；插件、安装和图标是 #75 / #76。
 
+安装（#76）：dsh 的 profile 由一层层 patch 叠出来，home 层 `$DSH_HOME/cordis.patch.yml`（`DSH_HOME` 默认 `~/.dsh`）对**所有** profile 生效（以后新建的也算），所以 Perch 只往那里写一段带标记的 insert 行（`DshPatch`，`# >>> perch: …` 到 `# <<< perch <<<`），`name` 是插件的绝对路径、`config.perch` 是 perch 的绝对路径，都用 YAML 单引号。插件嵌在 perch 里（`DshPlugin.source`），作为 hook 的"附带文件"（`HookFile.supportFiles`）写在 perch 二进制旁边（`~/.perch/bin/perch-dsh.mjs`）：先写插件再写那一行；每次同步二进制时只要 dsh 是 on 就重写一遍（`Installer.refreshSupportFiles`），所以插件永远和 perch 同版本；`perch uninstall` 删 `~/.perch/bin` 时它跟着没了。没有 YAML 库，按文本处理（和 Hermes 一样）：只往块状列表（`- …` 行）、空文件、只有注释或只有 `[]` 的文件里加，别的形状（flow 风格、映射）一律报错、不动；改之前写 `.perch-backup`；删掉那一段后只剩空行和注释就删掉文件（`HookFile.isBlank`）。dsh 遇到 `name` 指向不存在的文件照样能启动（实测），所以插件没了也不会弄坏 dsh。检测按 dsh 的 home 目录（`$DSH_HOME` 或 `~/.dsh` 存在）；不需要信任；装完要重开 dsh 会话。
+
 会话 CLI：`perch session ls [--json]`（状态和详情）、`perch session seen <id>`（done → idle）、`perch session rm <id>`（手动移除，之后再来事件会重新出现）；`perch session start|end` 保持旧含义（start = 新一轮 running，end = 移除），Hermes 还在用。`watch` 推 `session.updated`（每次变化）、`session.ended`（移除）和 `session.started`（新一轮开始，给老客户端）。刘海（M8，#18）只显示会话（Hermes 除外：2026-10-08 起暂不支持，M9 搁置）：收起态 = 最紧急会话的状态（像素独眼小怪物，按状态换表情和动作，#22；帧逻辑在 `PerchAppCore/Mascot.swift`，绘制在 `PerchApp/MascotView.swift`）+ Running 数；展开态按状态分组，逻辑在 `PerchAppCore/Panel.swift`（`Panel` / `SessionRow`），像素图标在 `PixelIcon.swift`。Live Activity（"2 agents · 4m"）已去掉。
 
 `perch add --kind request --wait` 的约定：有人回应 → stdout 打印回应值、exit 0；过期（`--expires`）/ 被 done / 被 rm → exit 3、不打印回应。适配器只在 exit 0 时返回决定，其余一律不返回，让终端原生提示接管。
@@ -169,7 +174,7 @@ PermissionRequest 在弹提示框**之前**触发；`Notification` 的 `permissi
 
 - **固定安装位置 `~/.perch/bin/{perch,perchd}`**：真拷贝（不是链接）、去掉隔离标记、原子替换。hook 命令和 launchd plist 永远指向这里，所以升级、挪 App / checkout 都不改 hook 文本，Codex 的信任不丢。`~/.local/bin` 里的只是给人敲的链接，永远不写进 hook。
 - **`~/.perch/agents.json`**：每个 agent 记 `status`（on / off）、实际写过的 `config` 路径、`hooks_written_at`（Perch 的 hook 内容变了才更新）、Codex 的 `trusted_at`（下一步由 App 在看到 Codex 事件后写）。没有条目 = 没问过；但没有条目却有 Perch 的 hook（v0.3 装的）算 on。文件坏了就报错、不覆盖。
-- **检测按配置目录**：依次看 agents.json 里记的路径、`$CLAUDE_CONFIG_DIR` / `$CODEX_HOME` / `$GROK_HOME`、默认目录，取第一个 agent 目录存在的（`ConfigLocation.agentDirectory`：hook 文件路径去掉 `file` 那几级，Grok 是 `~/.grok`，因为 `~/.grok/hooks` 默认不存在）。不看 PATH 上有没有可执行文件。Perch 独占的 hook 文件（`HookFile.ownsFile`，目前只有 Grok 的）不写 `.perch-backup`（会躺在 Grok 的 hooks 目录里），Perch 的 hook 都删掉后文件也删掉（里面有别人的 hook 就留着）。Hermes 不参与检测和连接（手动 `perch hooks install hermes` 照旧）；`perch uninstall` 会顺带删 Hermes 里 Perch 的 hook。
+- **检测按配置目录**：依次看 agents.json 里记的路径、`$CLAUDE_CONFIG_DIR` / `$CODEX_HOME` / `$GROK_HOME` / `$DSH_HOME`、默认目录，取第一个 agent 目录存在的（`ConfigLocation.agentDirectory`：hook 文件路径去掉 `file` 那几级，Grok 是 `~/.grok`，因为 `~/.grok/hooks` 默认不存在）。不看 PATH 上有没有可执行文件。Perch 独占的 hook 文件（`HookFile.ownsFile`，目前只有 Grok 的）不写 `.perch-backup`（会躺在 Grok 的 hooks 目录里），Perch 的 hook 都删掉后文件也删掉（里面有别人的 hook 就留着）。Hermes 不参与检测和连接（手动 `perch hooks install hermes` 照旧）；`perch uninstall` 会顺带删 Hermes 里 Perch 的 hook。
 - **状态评估是纯函数** `Setup.evaluate(snapshot, request:)`：输入 agents.json、各候选配置文件内容、已装 / 自带版本、谁在跑（CLI / App 路径）、环境变量；输出每个 agent 的状态（notDetected / notAsked / connected / outdated / needsTrust / off，外加 error）和计划（同步二进制、要写的 hook）。`perch setup` 和以后 App 的自检都按这个计划做。比较的是 Perch 自己那几条 hook 的规范形式（`HookFile.perchHooks`），别人的 hook、key 顺序、格式都不影响判断。
 - **自修复**：on 的 agent 的 Perch hook 路径或内容不对就重写，保留原来的 `--wait`；只碰 Perch 的 hook；JSON 坏了原样不动、报错；每次改之前写 `.perch-backup`。`perch setup` 显式给 `--wait` 时以它为准。
 - **二进制同步**：`perch setup` 总是拷贝（开发构建版本号相同，不能按版本判断）；App（下一步）只在装在 /Applications 或 ~/Applications、且没设 `PERCH_HOME` 时、版本不同（两个方向）才同步，否则什么都不碰。

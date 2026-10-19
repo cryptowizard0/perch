@@ -204,3 +204,15 @@
 - [x] 测试：假 Reminders + 真 perchd + `QueueModel` + 真 `perch`（`TodoDoingTests` / `TodoDoingCLITests`：有 / 没有 bridge、`ls` / `--json` / `todo.md` 的顺序、完成和删除时清掉、挪列表和取消 / 重新勾选时留着、不是 open 的拒绝、`QueueModel.toggleDoing`）、纯 `TodoList`（`TodoListTests.doingFirstThenPriorityThenAgeThenIdInEachList`）、v6 → v7 迁移（`StartupTests.migratingToV7AddsDoingToTodoReferences`）、线上格式（`ModelsTests.aTodoCarriesDoingOnTheWire`）
 - [x] `swift build` / `swift test` 通过，`CONFIG=debug scripts/bundle-app.sh` 能编；PRD、CLAUDE.md、`project.md` 更新
 - [x] 人工验收（真 Mac，有 Reminders 权限）：胶囊的颜色和大小；悬停时 ▶ 出现（刘海面板不是 key 也能）、离开就消失、点了变白色实心、整行浅底加粗并移到列表最前、再点清掉；点胶囊什么都不做；Doing 的待办完成后再打开不是 Doing（2026-10-19 维护者验收通过）
+
+## M15 — dsh（DeepSeek Harness，#73：#74 / #75 / #76，v0.5 第二个新 agent，#24）
+
+设计和实测结果见 #73（父 issue）和 CLAUDE.md"Hook 适配"里的 dsh 一节。
+
+- [x] 探针实测 dsh 0.2.0-rc.2 + dsh-tui 0.14.0 的事件（`--patch` 挂探针、本地脚本化的假模型）：批准 / 拒绝 / Esc / Ctrl+C、ask_user、出错、Esc 打断、`/new`、`/exit`、关终端（2026-10-19）
+- [x] #74 `perch hook dsh`：规整好的事件 → 会话（PR #77）；pid 只信父进程；dsh 自带的 Claude Code / Codex hooks bridge 不会多出会话；刘海永远不能批准 dsh
+- [x] #75 dsh 插件 `packaging/dsh/perch.mjs`（PR #78）：只搬运事件、不改 dsh 的行为、只在终端 UI 里工作；和 #74 合起来端到端跑通（隔离的 perchd + 假模型，2026-10-19）
+- [x] #76 安装：dsh 的 home patch 层 `$DSH_HOME/cordis.patch.yml` 里一段带标记的行（按文本处理，只加到块状列表 / 空文件 / `[]`），插件嵌在 perch 里、写在 perch 二进制旁边（`perch-dsh.mjs`），同步二进制时刷新；按 `~/.dsh` 检测；设置卡片 / 设置行 / Agents 菜单 / `perch setup` / `perch hooks install|uninstall dsh` / `perch uninstall` 都带上 dsh
+- [x] 刘海：鲸鱼像素图标，名字 "DeepSeek"
+- [x] `swift build` / `swift test` 通过；CLAUDE.md、PRD、README、project.md、调研文档更新
+- [ ] 验收（HITL，真模型）：设置卡片连上 dsh、重开 dsh-tui，跑 #75 的验收清单；断开和卸载后 `$DSH_HOME/cordis.patch.yml` 和装之前一模一样

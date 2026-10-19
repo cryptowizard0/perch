@@ -11,7 +11,7 @@ The loop it is built for: **an agent is waiting for you → the notch lights up 
 - **Allow / Deny in the notch** for commands on your allowlist (`npm test`, `git status`, …). Everything else shows the full command and *Answer in the terminal*.
 - **Click a row** to go back to its terminal (the exact Ghostty tab) or its desktop app.
 - **A Todo tab** for your own todos. They live in Apple Reminders: a list called "Perch" plus any other lists you pick, so they're on your iPhone too. Grouped by list, with each todo's priority in colour and a ▶ to mark what you're doing now. Add one from anywhere with ⌥⇧Space without leaving your terminal.
-- Works with **Claude Code** and **Codex** (in the terminal or their desktop apps) and **Grok** (the `grok` CLI), through their hooks. No changes to how you run them.
+- Works with **Claude Code** and **Codex** (in the terminal or their desktop apps), **Grok** (the `grok` CLI) and **DeepSeek**'s `dsh` (its terminal UI), through their hooks or a small plugin. No changes to how you run them.
 
 macOS 14+. Prebuilt for Apple silicon; builds from source on any Mac, Intel included. On displays without a notch it sits in a small capsule at the top of the screen.
 
@@ -54,6 +54,14 @@ Perch keeps Grok's hooks in a file of its own, `~/.grok/hooks/perch.json`, and G
 
 **The notch can't approve Grok's commands.** Grok has no hook that can answer its permission prompt, so a Grok session that needs you says *Answer in the terminal*. Grok doesn't say which command it's asking about either, so the row shows *Tool permission requested* instead of the command.
 
+### DeepSeek (dsh)
+
+dsh can only be extended from the inside, so Perch connects it with a small plugin: `perch-dsh.mjs`, written next to `~/.perch/bin/perch`. One marked row in `~/.dsh/cordis.patch.yml` (`$DSH_HOME` if set) mounts it. That file is dsh's patch layer for every profile, so profiles you create later are covered too, and Perch leaves the rest of the file alone. dsh loads plugins when it starts, so restart running dsh sessions after connecting.
+
+Only dsh's terminal UI (`dsh-tui`, `dsh tui`) shows up in the notch. `dsh web` and `dsh headless` don't.
+
+**The notch can't approve dsh's commands.** dsh asks almost only when a command wants to leave its sandbox (`danger-full-access`), which is never on the allowlist. A dsh session that needs you shows the full command, dsh's reason and *Answer in the terminal*; so does a question the model asks you (`ask_user_question`).
+
 ### `perch` in the terminal
 
 Homebrew puts `perch` on your `PATH`. Otherwise link it: `ln -s ~/.perch/bin/perch ~/.local/bin/perch` (any directory on your `PATH`). Open the app once first: `~/.perch/bin` appears then, and until macOS has let Perch open, nothing inside the app runs.
@@ -83,14 +91,14 @@ This is the only way onto an Intel Mac: the release zip and the Homebrew cask ar
 
 ## Install with an AI agent
 
-Steps for a coding agent (Claude Code, Codex, Grok, …) installing Perch for its user. Every step is a shell command with a checkable result. The few things only a person can do are marked **👤 Ask the user**: stop there and wait.
+Steps for a coding agent (Claude Code, Codex, Grok, dsh, …) installing Perch for its user. Every step is a shell command with a checkable result. The few things only a person can do are marked **👤 Ask the user**: stop there and wait.
 
 ### 0. Look at the Mac
 
 ```bash
 sw_vers -productVersion                                    # 14.0 or later, or stop: Perch needs macOS 14
 uname -m                                                   # arm64 = Apple silicon, x86_64 = Intel
-ls -d ~/.claude ~/.codex ~/.grok 2>/dev/null               # the agents Perch can connect
+ls -d ~/.claude ~/.codex ~/.grok ~/.dsh 2>/dev/null        # the agents Perch can connect
 ls -d /Applications/Perch.app ~/Applications/Perch.app 2>/dev/null   # already installed? go to "Upgrade"
 ```
 
@@ -154,6 +162,7 @@ Tell them what's left, since only they can do it:
 
 - **Codex** (`needsTrust`, or path A connected Codex): Codex ignores new hooks until trusted. Start `codex`, type `/hooks`, trust Perch's six hooks, then open a new Codex session.
 - **Grok**: restart running `grok` sessions; hooks load when a session starts.
+- **dsh**: restart running dsh sessions; plugins load when dsh starts.
 - **Claude Code**: nothing to do. Running sessions pick the hooks up on their own.
 - Hover the notch to see the panel. The next prompt in any connected agent shows up as a row.
 
@@ -164,7 +173,7 @@ Tell them what's left, since only they can do it:
 
 ### Don't
 
-- Don't edit Perch's hooks into `~/.claude/settings.json`, `~/.codex/hooks.json` or `~/.grok/hooks/perch.json` by hand. Use `perch setup` / `perch hooks install <agent>`, which back the file up and touch only Perch's own entries.
+- Don't edit Perch's hooks into `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.grok/hooks/perch.json` or `~/.dsh/cordis.patch.yml` by hand. Use `perch setup` / `perch hooks install <agent>`, which back the file up and touch only Perch's own entries.
 - Don't set `PERCH_HOME`. It's for development, and an app running with it installs nothing.
 - Don't connect Hermes: it isn't supported in the panel right now.
 
@@ -237,6 +246,7 @@ While Perch.app isn't connected, `perch ls` still lists the todos it saw last an
 | No setup card, no setup rows, no Agents menu | The app must run from `/Applications` or `~/Applications` (macOS runs apps opened from Downloads from a hidden copy), with `PERCH_HOME` unset. The card itself appears only on the first run; afterwards use the *found · Connect* rows or right-click → **Agents**. |
 | Codex sessions never appear | The hooks are not trusted yet: `/hooks` in `codex` (see [Codex](#3-codex-trust-the-hooks-once)). `grep -A1 'hooks.json:permission_request' ~/.codex/config.toml` shows a `trusted_hash` once they are. |
 | Grok sessions never appear | Restart the `grok` session (hooks load when it starts), then check `/hooks` in `grok`: Perch's eight hooks should be listed under Global. A work machine may allow only managed hooks (`allow_managed_hooks_only`; `grok inspect` names the file that sets it). |
+| dsh sessions never appear | Restart the dsh session (plugins load when it starts). `dsh <profile> --dump-config \| grep -A3 'id: perch'` must show Perch's row and `~/.perch/bin/perch-dsh.mjs` must exist; `perch setup dsh` puts both back. Only the terminal UI is supported, not `dsh web` or `dsh headless`. |
 | Claude Code sessions never appear | Claude Code needs no trust step and picks up new hooks on its own. Type `/hooks` in `claude`: Perch's eight hooks should be listed under user settings. If not, check for `"disableAllHooks": true` in any settings file (a project's settings override yours), `allowManagedHooksOnly` in managed settings on a work machine, and that Perch connected the settings file Claude Code reads (the card shows the path; `CLAUDE_CONFIG_DIR` must match). |
 | No session appears for any agent | An error row in the notch says what failed. `perch session ls` must list sessions; if it cannot connect, `perchd` is not running: quit Perch and open it again (it reinstalls the launchd agent if it is gone), or run `perch setup`. |
 | `perch: open Perch.app once to finish installing` | Homebrew's `perch` runs `~/.perch/bin/perch`, which the app installs on its first open. |
@@ -246,7 +256,7 @@ While Perch.app isn't connected, `perch ls` still lists the todos it saw last an
 ## How it works
 
 ```
-Claude Code / Codex / Grok ──hook──▶ perch hook ──▶ perchd ──events──▶ Perch.app (notch)
+Claude Code / Codex / Grok / dsh ──hook──▶ perch hook ──▶ perchd ──events──▶ Perch.app (notch)
                                                     SQLite, ~/.perch/perchd.sock
 ```
 
@@ -283,7 +293,7 @@ Expanded on hover, sessions are grouped by state, most urgent first:
 
 <p align="center"><img src="docs/images/panel-expanded.png" width="460" alt="Perch's expanded panel, close up"></p>
 
-Each row shows the agent (Claude Code's pixel monster, Codex's knot, Grok's slashed ring), the project, how long it has been in that state, and a second line: the prompt while running, the full command when it needs you, the error when it failed, the last reply when done.
+Each row shows the agent (Claude Code's pixel monster, Codex's knot, Grok's slashed ring, DeepSeek's whale), the project, how long it has been in that state, and a second line: the prompt while running, the full command when it needs you, the error when it failed, the last reply when done.
 
 ## License
 
