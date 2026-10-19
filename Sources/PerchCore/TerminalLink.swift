@@ -41,6 +41,15 @@ public struct TerminalLink: Equatable, Sendable {
         return c.string ?? "\(Self.scheme)://\(app)"
     }
 
+    /// Whether a terminal whose shell is in `terminal` can be the one an agent in `agent` runs in: the same directory,
+    /// or one inside the other (a shell cd'd elsewhere is fine; an unrelated directory means focus already moved on).
+    /// Symlinks are resolved on both sides: dsh reports the realpath (`/private/tmp/x`) where the shell says `/tmp/x`.
+    public static func sameTree(_ agent: String, _ terminal: String) -> Bool {
+        func resolved(_ path: String) -> String { URL(fileURLWithPath: path).resolvingSymlinksInPath().standardized.path }
+        let a = resolved(agent), t = resolved(terminal)
+        return a == t || a.hasPrefix(t + "/") || t.hasPrefix(a + "/")
+    }
+
     /// The outermost app bundle in an executable's path ("/Applications/ChatGPT.app" for Codex's desktop agent,
     /// nested in ChatGPT.app/…/CodexCLI.app): the app to bring forward when the hook saw no terminal.
     public static func hostApp(executable: String) -> String? {

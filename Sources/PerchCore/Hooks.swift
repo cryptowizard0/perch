@@ -401,13 +401,28 @@ public enum HookAdapter {
             switch input.reason {
             case "error": return report(.failure) { $0.error = input.errorMessage }
             case "aborted", "blocked": return report(.interrupt)
-            default: return report(.stop) { $0.lastMessage = oneLine(input.lastAssistantMessage ?? "") }
+            default: return report(.stop) { $0.lastMessage = oneLine(dshReply(input.lastAssistantMessage ?? "")) }
             }
         case "SessionEnd":
             return report(.end)
         default:
             return []
         }
+    }
+
+    /// The reply without dsh-tui's `⏵` narration lines: its `dsh-working-activity` plugin has the model open with a
+    /// "⏵ what I'm doing" line, which the TUI shows live and strips from the chat, so the row's Done line should too.
+    /// A reply that is nothing but narration keeps it, without the marker.
+    static func dshReply(_ text: String) -> String {
+        let lines = text.split(whereSeparator: \.isNewline).map(String.init)
+        func isNarration(_ line: String) -> Bool { line.trimmingCharacters(in: .whitespaces).hasPrefix("⏵") }
+        let reply = lines.filter { !isNarration($0) }
+        if reply.contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) { return reply.joined(separator: "\n") }
+        return lines.map { line in
+            var line = line.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("⏵") { line = String(line.dropFirst()).trimmingCharacters(in: .whitespaces) }
+            return line
+        }.joined(separator: "\n")
     }
 
     /// The full command dsh asks about, never shortened: `bash`'s command itself, any other tool its name and every

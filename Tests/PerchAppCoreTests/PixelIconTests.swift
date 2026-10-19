@@ -20,6 +20,7 @@ import Testing
         #expect(PixelIcon.for(agent: "claude") == .claudeCode)
         #expect(PixelIcon.for(agent: "codex") == .codex)
         #expect(PixelIcon.for(agent: "grok") == .grok)
+        #expect(PixelIcon.for(agent: "dsh") == .dsh)
         #expect(PixelIcon.for(agent: "hermes") == .hermes)
         #expect(PixelIcon.for(agent: "unknown") == .robot)
         #expect(PixelIcon.for(agent: "aider") == .robot)

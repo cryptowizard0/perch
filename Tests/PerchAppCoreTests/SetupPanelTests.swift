@@ -374,7 +374,7 @@ import Testing
 
 @Suite struct AgentNamesTests {
     @Test func displayNames() {
-        #expect(["claude-code", "codex", "grok", "hermes", "aider"].map(AgentNames.display)
-                == ["Claude Code", "Codex", "Grok", "Hermes", "aider"])
+        #expect(["claude-code", "codex", "grok", "dsh", "hermes", "aider"].map(AgentNames.display)
+                == ["Claude Code", "Codex", "Grok", "DeepSeek", "Hermes", "aider"])
     }
 }

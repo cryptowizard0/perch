@@ -15,8 +15,8 @@ struct Hook: ParsableCommand {
         abstract: "Hook adapter: reads an agent's hook JSON on stdin and reports to perchd. Prints nothing, exits 0.",
         discussion: "Installed by `perch hooks install`. Agents: \(Hook.agents.joined(separator: ", "))."
     )
-    /// The agents with a hook file, plus dsh (its plugin, not a hook file, runs `perch hook dsh`).
-    static let agents = HookFiles.all.map(\.agent) + ["dsh"]
+    /// The agents setup knows (dsh's "hook file" is the patch row that mounts its plugin, which runs `perch hook dsh`).
+    static let agents = HookFiles.all.map(\.agent)
 
     @Argument(help: "claude-code | codex | grok | hermes | dsh") var agent: String
     @Option(help: "PermissionRequest: seconds to wait for Allow / Deny in the notch before the terminal asks.")
@@ -153,10 +153,7 @@ enum Ghostty {
         let lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         guard let id = lines.first, !id.isEmpty else { return nil }
         // A shell cd'd elsewhere is fine; a terminal in an unrelated directory means focus already moved on.
-        if let cwd, lines.count > 1, !lines[1].isEmpty {
-            let wd = lines[1]
-            guard cwd == wd || cwd.hasPrefix(wd + "/") || wd.hasPrefix(cwd + "/") else { return nil }
-        }
+        if let cwd, lines.count > 1, !lines[1].isEmpty, !TerminalLink.sameTree(cwd, lines[1]) { return nil }
         return id
     }
 

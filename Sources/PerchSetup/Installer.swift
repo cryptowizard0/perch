@@ -98,7 +98,17 @@ public struct Installer: Sendable {
                 throw SetupError("cannot install \(target.path): \(error.localizedDescription)")
             }
         }
+        try? refreshSupportFiles()  // if it fails, the older plugin keeps running; the next sync or setup tries again
         return true
+    }
+
+    /// Rewrites the support files (dsh's plugin) of every connected agent next to the installed perch, so they match
+    /// the binaries just synced.
+    public func refreshSupportFiles() throws {
+        guard let agents = try? loadAgents() else { return }
+        for file in HookFiles.all where agents[file.agent]?.status == .on {
+            try HookFiles.writeSupportFiles(for: file, perch: environment.perchBinary.path)
+        }
     }
 
     /// An old Perch install (v0.3) copied `perch` / `perchd` into ~/.local/bin. Those regular files are replaced
@@ -173,7 +183,10 @@ public struct Installer: Sendable {
         for change in plan.changes {
             if let text = change.text {
                 do {
-                    try HookFiles.save(text, to: change.config, for: Setup.agent(change.agent))
+                    let file = try Setup.agent(change.agent)
+                    // Support files first: dsh must never load a row whose plugin isn't there yet.
+                    try HookFiles.writeSupportFiles(for: file, perch: environment.perchBinary.path)
+                    try HookFiles.save(text, to: change.config, for: file)
                 } catch {
                     failures.append(AgentFailure(agent: change.agent, config: change.config,
                                                  message: "cannot write \(change.config): \(error.localizedDescription)"))

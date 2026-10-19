@@ -5,10 +5,12 @@
 // events, its waterfall listener only observes and always delegates, nothing it
 // does can throw into dsh, and it never waits on perch.
 //
-// Mount (#76 does this through $DSH_HOME/cordis.patch.yml):
+// Setup (#76) embeds this file in perch (scripts/dsh/embed-plugin.sh), writes it
+// next to the perch binary and mounts it through dsh's home patch layer,
+// $DSH_HOME/cordis.patch.yml, which every profile reads:
 //   - insert:
 //       - id: perch
-//         name: '/Users/you/.perch/dsh/perch.mjs'
+//         name: '/Users/you/.perch/bin/perch-dsh.mjs'
 //         config:
 //           perch: '/Users/you/.perch/bin/perch'   # optional; this is the default
 //
