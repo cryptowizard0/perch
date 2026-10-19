@@ -234,9 +234,54 @@ struct HooksInstallTests {
         #expect(mixed.stderr.contains("remove Perch's entries by hand"))
     }
 
+    /// dsh: a marked row in its home patch layer, and the plugin next to the binary the row names (#76).
+    @Test func dshPatchLayerAndPlugin() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+        let layer = dir.appendingPathComponent("dsh/cordis.patch.yml")
+        let bin = dir.appendingPathComponent("perch home/bin")
+        let plugin = bin.appendingPathComponent("perch-dsh.mjs")
+        func text() throws -> String { try String(contentsOf: layer, encoding: .utf8) }
+
+        let dry = try cli.run("hooks", "install", "dsh", "--settings", layer.path, "--binary", bin.appendingPathComponent("perch").path, "--dry-run")
+        #expect(dry.status == 0, "\(dry.stderr)")
+        #expect(dry.stdout.contains("name: '\(plugin.path)'"))
+        #expect(!fm.fileExists(atPath: layer.path) && !fm.fileExists(atPath: plugin.path))
+
+        let mine = "# mine\n- id: tui\n  config:\n    theme: dark\n"
+        try fm.createDirectory(at: layer.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try mine.write(to: layer, atomically: true, encoding: .utf8)
+        let result = try cli.run("hooks", "install", "dsh", "--settings", layer.path, "--binary", bin.appendingPathComponent("perch").path)
+        #expect(result.status == 0, "\(result.stderr)")
+        #expect(result.stdout.contains("restart running dsh sessions"))
+        #expect(try text().hasPrefix(mine + "# >>> perch:"))
+        #expect(try text().contains("        perch: '\(bin.path)/perch'\n"))
+        #expect(try String(contentsOf: plugin, encoding: .utf8).contains("export function apply(ctx, config)"))
+        #expect(try String(contentsOf: layer.appendingPathExtension("perch-backup"), encoding: .utf8) == mine)
+
+        let removed = try cli.run("hooks", "uninstall", "dsh", "--settings", layer.path)
+        #expect(removed.stdout.contains("removed 1 Perch hook from"))
+        #expect(try text() == mine)
+
+        // A layer that held only Perch's row is deleted with it.
+        try fm.removeItem(at: layer)
+        try cli.run("hooks", "install", "dsh", "--settings", layer.path, "--binary", bin.appendingPathComponent("perch").path)
+        #expect(fm.fileExists(atPath: layer.path))
+        try cli.run("hooks", "uninstall", "dsh", "--settings", layer.path)
+        #expect(!fm.fileExists(atPath: layer.path))
+
+        // A flow-style layer is refused and left alone.
+        try "[{id: tui}]\n".write(to: layer, atomically: true, encoding: .utf8)
+        let refused = try cli.run("hooks", "install", "dsh", "--settings", layer.path, "--binary", "/b/perch")
+        #expect(refused.status == 1)
+        #expect(refused.stderr.contains("isn't a YAML list of patch entries in block style"))
+        #expect(try text() == "[{id: tui}]\n")
+    }
+
     @Test func unknownAgent() throws {
         let result = try cli.run("hooks", "install", "cursor", "--settings", settings.path)
         #expect(result.status == 64)
-        #expect(result.stderr == "perch: unknown agent 'cursor'; use claude-code, codex, grok or hermes")
+        #expect(result.stderr == "perch: unknown agent 'cursor'; use claude-code, codex, grok, dsh or hermes")
     }
 }

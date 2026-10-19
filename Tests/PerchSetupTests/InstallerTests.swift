@@ -41,6 +41,44 @@ import Testing
         #expect(try !installer.syncBinaries(from: bin))
     }
 
+    /// dsh's row names a plugin next to the installed perch: writing the row writes the plugin first, and every sync
+    /// rewrites it while dsh is connected (#76).
+    @Test func dshPluginFollowsTheRowAndTheBinaries() throws {
+        let fm = FileManager.default
+        defer { try? fm.removeItem(at: root) }
+        let plugin = installer.environment.binDirectory.appendingPathComponent("perch-dsh.mjs")
+        let layer = root.appendingPathComponent(".dsh/cordis.patch.yml").path
+        try fm.createDirectory(at: root.appendingPathComponent(".dsh"), withIntermediateDirectories: true)
+
+        var agents = AgentsFile()
+        let row = try DshPatch().installing(nil, path: layer, perch: installer.environment.perchBinary.path, wait: 20)
+        let snapshot = installer.snapshot(agents: agents, runner: .cli, bundledVersion: "0.5.0", installedVersion: nil)
+        let plan = Setup.evaluate(snapshot, request: .setup(agents: ["dsh"])).plan
+        #expect(plan.changes.map(\.agent) == ["dsh"])
+        #expect(installer.perform(plan, recordingIn: &agents).isEmpty)
+        try installer.saveAgents(agents)
+        #expect(try String(contentsOf: plugin, encoding: .utf8) == DshPlugin.source)
+        #expect(try String(contentsOfFile: layer, encoding: .utf8) == row)
+
+        // A sync puts back the plugin that matches the binaries.
+        try "stale".write(to: plugin, atomically: true, encoding: .utf8)
+        let build = root.appendingPathComponent("build")
+        try fm.createDirectory(at: build, withIntermediateDirectories: true)
+        for name in ["perch", "perchd"] {
+            try "#!/bin/sh\n".write(to: build.appendingPathComponent(name), atomically: true, encoding: .utf8)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: build.appendingPathComponent(name).path)
+        }
+        try installer.syncBinaries(from: build)
+        #expect(try String(contentsOf: plugin, encoding: .utf8) == DshPlugin.source)
+
+        // Not connected: a sync writes no plugin.
+        try fm.removeItem(at: plugin)
+        agents.turnOff("dsh", config: layer)
+        try installer.saveAgents(agents)
+        try installer.syncBinaries(from: build)
+        #expect(!fm.fileExists(atPath: plugin.path))
+    }
+
     @Test func syncNeedsBothBinaries() throws {
         let fm = FileManager.default
         defer { try? fm.removeItem(at: root) }

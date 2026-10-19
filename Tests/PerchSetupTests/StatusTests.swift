@@ -9,6 +9,7 @@ import Testing
     static let claudePath = "/Users/me/.claude/settings.json"
     static let codexPath = "/Users/me/.codex/hooks.json"
     static let grokPath = "/Users/me/.grok/hooks/perch.json"
+    static let dshPath = "/Users/me/.dsh/cordis.patch.yml"
     static let app = SetupRunner.app(path: "/Applications/Perch.app")
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -29,16 +30,16 @@ import Testing
 
     @Test func notDetectedWithoutAConfigDirectory() {
         let result = Setup.evaluate(snapshot(), request: .setup())
-        #expect(result.agents.map(\.agent) == ["claude-code", "codex", "grok"])
-        #expect(result.agents.map(\.state) == [.notDetected, .notDetected, .notDetected])
-        #expect(result.agents.map(\.config) == [Self.claudePath, Self.codexPath, Self.grokPath])
+        #expect(result.agents.map(\.agent) == ["claude-code", "codex", "grok", "dsh"])
+        #expect(result.agents.map(\.state) == [.notDetected, .notDetected, .notDetected, .notDetected])
+        #expect(result.agents.map(\.config) == [Self.claudePath, Self.codexPath, Self.grokPath, Self.dshPath])
         #expect(result.plan.changes.isEmpty)
     }
 
     @Test func notAskedIsConnectedBySetupButNotBySelfCheck() throws {
         let files: [String: ConfigFile] = [Self.claudePath: .missing, Self.codexPath: .text("{}")]
         let check = Setup.evaluate(snapshot(files: files, runner: Self.app), request: .selfCheck)
-        #expect(check.agents.map(\.state) == [.notAsked, .notAsked, .notDetected])
+        #expect(check.agents.map(\.state) == [.notAsked, .notAsked, .notDetected, .notDetected])
         #expect(check.plan.changes.isEmpty)
 
         let setup = Setup.evaluate(snapshot(files: files), request: .setup())
@@ -230,6 +231,48 @@ import Testing
         // ~/.grok exists, ~/.grok/hooks does not yet: still Grok's place.
         #expect(location.resolve(recorded: nil, environment: ["GROK_HOME": "/g"], userHome: Self.home) { $0 == Self.grokPath }
                 == Self.grokPath)
+    }
+
+    /// dsh is set up where its home is (`$DSH_HOME`, else ~/.dsh); the row goes into that home's patch layer.
+    @Test func dshIsSetUpWhereItsHomeIs() throws {
+        let location = DshPatch().location
+        #expect(location.candidates(recorded: nil, environment: ["DSH_HOME": "/d"], userHome: Self.home)
+                == ["/d/cordis.patch.yml", Self.dshPath])
+        #expect(location.agentDirectory(of: Self.dshPath) == "/Users/me/.dsh")
+
+        // ~/.dsh exists with no patch layer yet: not asked; setup writes the row.
+        let files: [String: ConfigFile] = [Self.dshPath: .missing]
+        let check = Setup.evaluate(snapshot(files: files, runner: Self.app), request: .selfCheck)
+        #expect(state(check, "dsh") == .notAsked)
+        #expect(check.plan.changes.isEmpty)
+        let setup = Setup.evaluate(snapshot(files: files), request: .setup())
+        let change = try #require(setup.plan.changes.first { $0.agent == "dsh" })
+        #expect(change.config == Self.dshPath)
+        #expect(change.text == (try DshPatch().installing(nil, path: "", perch: Self.bin, wait: 20)))
+        #expect(change.text?.contains("name: '/Users/me/.perch/bin/perch-dsh.mjs'") == true)
+
+        // Connected: nothing to do; a row for an old place is repaired by the self-check.
+        let agents = AgentsFile(agents: ["dsh": AgentRecord(status: .on, config: Self.dshPath)])
+        let connected = Setup.evaluate(snapshot(agents: agents, files: [Self.dshPath: .text(change.text!)], runner: Self.app),
+                                       request: .selfCheck)
+        #expect(state(connected, "dsh") == .connected)
+        #expect(connected.plan.changes.isEmpty)
+        let old = try DshPatch().installing("- id: mine\n  name: x\n", path: "", perch: "/old/bin/perch", wait: 20)
+        let repair = Setup.evaluate(snapshot(agents: agents, files: [Self.dshPath: .text(old)], runner: Self.app), request: .selfCheck)
+        #expect(state(repair, "dsh") == .outdated)
+        let fixed = try #require(repair.plan.changes.first?.text)
+        #expect(fixed.hasPrefix("- id: mine\n  name: x\n"))
+        #expect(fixed.contains("perch: '/Users/me/.perch/bin/perch'") && !fixed.contains("/old/"))
+    }
+
+    /// A patch layer Perch can't add a row to as text is an error, never rewritten.
+    @Test func dshPatchLayerItCannotReadIsLeftAlone() {
+        let agents = AgentsFile(agents: ["dsh": AgentRecord(status: .on, config: Self.dshPath)])
+        let result = Setup.evaluate(snapshot(agents: agents, files: [Self.dshPath: .text("[{id: mine, name: x}]\n")]),
+                                    request: .setup())
+        #expect(state(result, "dsh") == .outdated)
+        #expect(result.plan.failures.map(\.agent) == ["dsh"])
+        #expect(result.plan.changes.isEmpty)
     }
 
     @Test func candidatesRecordedThenEnvironmentThenDefault() {

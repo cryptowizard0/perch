@@ -11,6 +11,7 @@ struct SetupCLITests {
     var claude: URL { home.appendingPathComponent(".claude/settings.json") }
     var codex: URL { home.appendingPathComponent(".codex/hooks.json") }
     var grok: URL { home.appendingPathComponent(".grok/hooks/perch.json") }
+    var dsh: URL { home.appendingPathComponent(".dsh/cordis.patch.yml") }
     var plist: URL { home.appendingPathComponent("Library/LaunchAgents/dev.perch.perchd.plist") }
     var launchctlLog: URL { home.appendingPathComponent("launchctl.log") }
     let fm = FileManager.default
@@ -79,6 +80,7 @@ struct SetupCLITests {
             ["agent": "claude-code", "state": "connected", "config": claude.path],
             ["agent": "codex", "state": "needsTrust", "config": codex.path],
             ["agent": "grok", "state": "notDetected", "config": grok.path],
+            ["agent": "dsh", "state": "notDetected", "config": dsh.path],
         ])
 
         // Real copies in the fixed location, and every hook runs them.
@@ -154,6 +156,29 @@ struct SetupCLITests {
         #expect(!fm.fileExists(atPath: grok.path))
     }
 
+    /// dsh: setup finds ~/.dsh, writes the row into its home patch layer and the plugin next to the installed perch;
+    /// uninstall takes both away and leaves the user's own rows.
+    @Test func dshIsConnectedThroughItsPatchLayer() throws {
+        defer { cleanUp() }
+        let mine = "- id: tui\n  config:\n    theme: dark\n"
+        try write(mine, to: dsh)
+        let result = try perch("setup", "--json")
+        #expect(result.status == 0, "\(result.stderr)")
+        let lines = try #require(try parse(result.stdout)["agents"] as? [[String: String]])
+        #expect(lines.first { $0["agent"] == "dsh" } == ["agent": "dsh", "state": "connected", "config": dsh.path])
+        let layer = try String(contentsOf: dsh, encoding: .utf8)
+        let plugin = perchHome.appendingPathComponent("bin/perch-dsh.mjs")
+        #expect(layer.hasPrefix(mine + "# >>> perch:"))
+        #expect(layer.contains("      name: '\(plugin.path)'\n"))
+        #expect(layer.contains("        perch: '\(bin)'\n"))
+        #expect(try String(contentsOf: plugin, encoding: .utf8).contains("export function apply(ctx, config)"))
+        #expect(try agents()["dsh"]?["status"] as? String == "on")
+
+        #expect(try perch("uninstall").status == 0)
+        #expect(try String(contentsOf: dsh, encoding: .utf8) == mine)
+        #expect(!fm.fileExists(atPath: plugin.path))
+    }
+
     /// Someone else's hook in Perch's file stays (with the file) when Perch's hooks go.
     @Test func grokFileWithSomeoneElsesHookIsKept() throws {
         defer { cleanUp() }
@@ -205,7 +230,7 @@ struct SetupCLITests {
         let result = try perch("setup", "--json")
         #expect(result.status == 0, "\(result.stderr)")
         let lines = try #require(try parse(result.stdout)["agents"] as? [[String: String]])
-        #expect(lines.map { $0["state"] } == ["connected", "off", "notDetected"])
+        #expect(lines.map { $0["state"] } == ["connected", "off", "notDetected", "notDetected"])
         #expect(try perchCommands(codex).isEmpty)
 
         // `hooks install` connects it again, by default against the fixed location.
@@ -339,7 +364,7 @@ struct SetupCLITests {
         defer { cleanUp() }
         let hermes = try perch("setup", "hermes")
         #expect(hermes.status == 64)
-        #expect(hermes.stderr == "perch: unknown agent 'hermes'; use claude-code, codex or grok")
+        #expect(hermes.stderr == "perch: unknown agent 'hermes'; use claude-code, codex, grok or dsh")
         let wait = try perch("setup", "--wait", "1", "--json")
         #expect(wait.status == 64)
         #expect(try parse(wait.stdout)["ok"] as? Bool == false)

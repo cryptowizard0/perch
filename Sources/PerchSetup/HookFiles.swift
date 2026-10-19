@@ -22,14 +22,21 @@ public protocol HookFile {
     func perchHooks(in text: String?, path: String) throws -> String
     /// The `--wait` Perch's PermissionRequest hook was installed with, if any.
     func wait(in text: String?) -> Int?
+    /// Files the hooks need next to the perch binary they run, by path (dsh's plugin). `perch` may be shell-quoted.
+    /// Written with the hooks and whenever the binaries are synced.
+    func supportFiles(perch: String) -> [String: String]
+    /// Whether `text` holds nothing worth keeping once Perch's part is gone: the file is deleted instead.
+    func isBlank(_ text: String) -> Bool
 }
 
 extension HookFile {
     public var ownsFile: Bool { false }
+    public func supportFiles(perch: String) -> [String: String] { [:] }
+    public func isBlank(_ text: String) -> Bool { false }
 }
 
 public enum HookFiles {
-    public static var all: [any HookFile] { [HookSettings.claudeCode, HookSettings.codex, HookSettings.grok, HermesHooks()] }
+    public static var all: [any HookFile] { [HookSettings.claudeCode, HookSettings.codex, HookSettings.grok, DshPatch(), HermesHooks()] }
 
     public static func `for`(_ agent: String) throws -> any HookFile {
         guard let file = all.first(where: { $0.agent == agent }) else {
@@ -57,7 +64,12 @@ public enum HookFiles {
 
     /// Writes `file`'s hook file after a change: `write`, except that a file Perch owns gets no backup (it would sit
     /// next to the agent's hook files) and is deleted once it holds nothing.
+    /// A file left blank (see `HookFile.isBlank`) is deleted too.
     public static func save(_ text: String, to path: String, for file: any HookFile) throws {
+        if file.isBlank(text) {
+            if FileManager.default.fileExists(atPath: path) { try FileManager.default.removeItem(atPath: path) }
+            return
+        }
         guard file.ownsFile else { return try write(text, to: path) }
         let root = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
         if root?.isEmpty == true {
@@ -78,6 +90,31 @@ public enum HookFiles {
             try fm.copyItem(at: url, to: backup)
         }
         try Data(text.utf8).write(to: url, options: .atomic)
+    }
+
+    /// Writes `file`'s support files for `perch` (see `HookFile.supportFiles`), each replaced atomically, and only when
+    /// its contents differ. Returns the paths written.
+    @discardableResult
+    public static func writeSupportFiles(for file: any HookFile, perch: String) throws -> [String] {
+        var written: [String] = []
+        for (path, contents) in file.supportFiles(perch: perch).sorted(by: { $0.key < $1.key }) {
+            if (try? String(contentsOfFile: path, encoding: .utf8)) == contents { continue }
+            do {
+                try FileManager.default.createDirectory(at: URL(fileURLWithPath: path).deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+                try Data(contents.utf8).write(to: URL(fileURLWithPath: path), options: .atomic)
+            } catch {
+                throw SetupError("cannot write \(path): \(error.localizedDescription)")
+            }
+            written.append(path)
+        }
+        return written
+    }
+
+    /// The path `shellQuote` quoted, back as it was.
+    public static func shellUnquote(_ s: String) -> String {
+        guard s.count >= 2, s.hasPrefix("'"), s.hasSuffix("'") else { return s }
+        return String(s.dropFirst().dropLast()).replacingOccurrences(of: #"'\''"#, with: "'")
     }
 
     /// Single-quotes a path for the hook's shell command when it needs it.

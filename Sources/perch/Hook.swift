@@ -15,8 +15,8 @@ struct Hook: ParsableCommand {
         abstract: "Hook adapter: reads an agent's hook JSON on stdin and reports to perchd. Prints nothing, exits 0.",
         discussion: "Installed by `perch hooks install`. Agents: \(Hook.agents.joined(separator: ", "))."
     )
-    /// The agents with a hook file, plus dsh (its plugin, not a hook file, runs `perch hook dsh`).
-    static let agents = HookFiles.all.map(\.agent) + ["dsh"]
+    /// The agents setup knows (dsh's "hook file" is the patch row that mounts its plugin, which runs `perch hook dsh`).
+    static let agents = HookFiles.all.map(\.agent)
 
     @Argument(help: "claude-code | codex | grok | hermes | dsh") var agent: String
     @Option(help: "PermissionRequest: seconds to wait for Allow / Deny in the notch before the terminal asks.")
