@@ -153,10 +153,7 @@ enum Ghostty {
         let lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         guard let id = lines.first, !id.isEmpty else { return nil }
         // A shell cd'd elsewhere is fine; a terminal in an unrelated directory means focus already moved on.
-        if let cwd, lines.count > 1, !lines[1].isEmpty {
-            let wd = lines[1]
-            guard cwd == wd || cwd.hasPrefix(wd + "/") || wd.hasPrefix(cwd + "/") else { return nil }
-        }
+        if let cwd, lines.count > 1, !lines[1].isEmpty, !TerminalLink.sameTree(cwd, lines[1]) { return nil }
         return id
     }
 

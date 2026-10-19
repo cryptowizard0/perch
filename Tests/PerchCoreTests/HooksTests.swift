@@ -112,6 +112,18 @@ import Testing
         #expect(TerminalLink(string: "/tmp") == nil)
     }
 
+    /// The focused Ghostty terminal belongs to the agent when their directories are one tree, symlinks resolved: dsh
+    /// reports the realpath (`/private/tmp/…`) where Ghostty's shell says `/tmp/…`.
+    @Test func sameTreeResolvesSymlinks() {
+        #expect(TerminalLink.sameTree("/Users/me/p", "/Users/me/p"))
+        #expect(TerminalLink.sameTree("/Users/me/p/sub", "/Users/me/p"))
+        #expect(TerminalLink.sameTree("/Users/me/p", "/Users/me/p/sub"))
+        #expect(!TerminalLink.sameTree("/Users/me/p", "/Users/me/other"))
+        #expect(!TerminalLink.sameTree("/Users/me/p", "/Users/me/p2"))
+        #expect(TerminalLink.sameTree("/private/tmp/perch-dsh-real", "/tmp/perch-dsh-real"))
+        #expect(TerminalLink.sameTree("/tmp/perch-dsh-real/x", "/private/tmp/perch-dsh-real"))
+    }
+
     /// Codex's desktop app runs its agent inside ChatGPT.app and passes hooks no terminal or bundle variables:
     /// the outermost app in the agent's path is what to bring forward.
     @Test func hostAppFromTheAgentsPath() {
@@ -596,6 +608,11 @@ import Testing
             #expect(r.map(\.kind) == [.stop] && r.first?.lastMessage == "Done: hi" && r.first?.turn == "4")
         }
         #expect(try reports("TurnEnd").map(\.kind) == [.stop])
+        // dsh-tui's narration line (⏵) is not the reply (seen on the real model, 2026-10-19).
+        let narrated = try reports("TurnEnd", #","reason":"completed","last_assistant_message":"⏵ Replying briefly as requested\nok, nothing to build.""#)
+        #expect(narrated.first?.lastMessage == "ok, nothing to build.")
+        let onlyNarration = try reports("TurnEnd", #","reason":"completed","last_assistant_message":"⏵ Waiting on the actual project brief""#)
+        #expect(onlyNarration.first?.lastMessage == "Waiting on the actual project brief")
         let error = try reports("TurnEnd", #","reason":"error","error":"400 mock: scripted failure""#)
         #expect(error.map(\.kind) == [.failure] && error.first?.error == "400 mock: scripted failure" && error.first?.turn == "4")
         // dsh's own shape, should the plugin pass it through.
