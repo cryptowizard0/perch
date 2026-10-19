@@ -140,6 +140,21 @@ Grok Build（M11，#31；按 grok 1.0.50 实测，2026-10-12）：同一个适�
 
 带 `subagentType` 的事件（子 agent 自己的会话）一律忽略。进程：hook 的父进程就是 `grok`（`~/.grok/bin/grok` 和 `agent` 都是指向带版本号二进制的链接，按 argv[0] 认这两个名字）；开了 leader 模式（`[cli] use_leader`，默认关）时会话共用 leader 进程，只能等 `SessionEnd` 或退出 leader 才清掉。**Grok 默认也跑 `~/.claude/settings.json` 里的 hook**（`[compat.claude] hooks`），payload 带 `session_id` / `hook_event_name` 能解出来，所以除了 `grok` 以外的适配器看到 `GROK_HOOK_EVENT` 就直接退出（`HookAdapter.isForeign`），不然会多出一条没有 pid 的 claude-code 会话。Grok Bot.app（桌面 App）不在范围内。
 
+dsh（DeepSeek Harness，#73 / #74，按 dsh 0.2.0-rc.2 + dsh-tui 0.14.0 实测，2026-10-19）：dsh 是 Node 写的、只能从里面扩展，所以 Perch 自己带一个 dsh 插件（#75），它看 dsh 自己的事件，每个状态变化 spawn 一次 `perch hook dsh`、stdin 一个**已经规整好**的 JSON（不等它结束），状态怎么判全在 Swift（`HookAdapter.dsh`）。payload：`hook_event_name`、`session_id`、`cwd`、`at`（dsh 的事件时间，epoch 毫秒，就是报告的 `at`：一个事件一个 perch，到达可能乱序，perchd 丢掉比会话最后一次事件旧的）、`pid`、`turn`（像 Grok 的 `promptId`：别的轮的 TurnEnd 丢掉；字符串或数字都认）。标题照旧是 `cwd` 的项目名（不用 dsh 自己的 `session/title`）。**刘海永远不能批准 dsh**：不建 request、`perch hook dsh` 不走 PermissionRequest，Needs you 永远写 "Answer in the terminal"（dsh 几乎只为沙箱升级 `danger-full-access` 提问，本来就在白名单外）。
+
+| 事件 | 会话 |
+| --- | --- |
+| `Prompt`（`prompt`；`keep_prompt`：不是人起的轮——goal driver、schedule、后台任务） | running（prompt 首行），`turn` 记成当前轮；Ghostty 下记下聚焦的 terminal（`keep_prompt` 的不记、保留人上一条 prompt） |
+| `ApprovalAsked`（`tool_name`、`tool_input`（对象或 JSON 字符串）、`reason`） | waiting：完整命令（`bash` 是 `command` 本身，别的工具是名字 + 所有参数）+ "Answer in the terminal: <reason>" |
+| `QuestionAsked`（`questions` 的 `question` / `header`） | waiting：第一个问题（+ "(and N more)"）+ "Answer in the terminal" |
+| `Answered`（批准、拒绝、Esc / Ctrl+C、回答或取消问题） | resume → running |
+| `TurnEnd` `reason`：`completed` / `max-tokens` / 其他 | done（`last_assistant_message` 首行） |
+| `TurnEnd` `error` | failed（`error`：字符串，或对象的 `message`） |
+| `TurnEnd` `aborted`（Esc）/ `blocked`（hook 拦了 prompt） | interrupt → idle |
+| `SessionEnd`（`session/disposed`、插件 dispose 时给所有还活着的会话） | 移除 |
+
+进程：dsh 跑成 `node …/bin/dsh <profile>`，argv[0] 规则认不出来。插件直接（不经 shell）spawn perch 并传 `process.pid`，所以 payload 的 `pid` **只有是 `perch hook dsh` 的父进程时才信**（`AgentProcess.dsh(claimed:parent:)`），启动时间从 `SystemProcesses` 拿，pid 存活检测和防复用照旧；不是父进程就不带 pid（24 小时兜底）。关终端（SIGHUP）时 dsh 什么都不发，靠 pid 存活检测（30 秒）清掉。dsh 自带的 Claude Code / Codex hooks bridge（`dsh-hooks-claude-code` / `dsh-hooks-codex`，默认不挂）会跑 `~/.claude/settings.json` / `~/.codex/hooks.json`，而且不给 hook 进程设任何能认的环境变量（`DSH_*` 会被它的执行器清掉），所以 `perch hook claude-code` / `codex` 沿父进程链往上走，先碰到 dsh 进程（`node` 且 argv[1] 是 `…/dsh` 或 `@deepseek-ai/dsh/` 下的脚本，或者叫 `dsh` 的二进制；`SystemProcesses` 现在也读 argv[1]，`ProcessEntry.script`）、再碰到自己的 agent 进程就直接退出（`AgentProcess.insideDsh`，`HookAdapter.isForeign`）；dsh 的 bash 里起的 `claude` 照样是 Claude Code。`dsh web` / `dsh headless` 不支持（插件不动，#75）；插件、安装和图标是 #75 / #76。
+
 会话 CLI：`perch session ls [--json]`（状态和详情）、`perch session seen <id>`（done → idle）、`perch session rm <id>`（手动移除，之后再来事件会重新出现）；`perch session start|end` 保持旧含义（start = 新一轮 running，end = 移除），Hermes 还在用。`watch` 推 `session.updated`（每次变化）、`session.ended`（移除）和 `session.started`（新一轮开始，给老客户端）。刘海（M8，#18）只显示会话（Hermes 除外：2026-10-08 起暂不支持，M9 搁置）：收起态 = 最紧急会话的状态（像素独眼小怪物，按状态换表情和动作，#22；帧逻辑在 `PerchAppCore/Mascot.swift`，绘制在 `PerchApp/MascotView.swift`）+ Running 数；展开态按状态分组，逻辑在 `PerchAppCore/Panel.swift`（`Panel` / `SessionRow`），像素图标在 `PixelIcon.swift`。Live Activity（"2 agents · 4m"）已去掉。
 
 `perch add --kind request --wait` 的约定：有人回应 → stdout 打印回应值、exit 0；过期（`--expires`）/ 被 done / 被 rm → exit 3、不打印回应。适配器只在 exit 0 时返回决定，其余一律不返回，让终端原生提示接管。
