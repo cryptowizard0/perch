@@ -50,9 +50,10 @@ public struct Banner: Equatable, Sendable {
     public static let minDuration: TimeInterval = 4
     public static let maxDuration: TimeInterval = 12
 
-    /// The right wing while the banner shows, for content `contentWidth` points wide.
-    public static func wing(contentWidth: Double) -> Double {
-        (inset + min(contentWidth, maxContentWidth) + inset).rounded(.up)
+    /// The right wing while the banner shows, for content `contentWidth` points wide; `carried` (the Done run, #64)
+    /// adds room for the mascot to stand at its end.
+    public static func wing(contentWidth: Double, carried: Bool = false) -> Double {
+        (inset + min(contentWidth, maxContentWidth) + inset).rounded(.up) + (carried ? DoneRun.room : 0)
     }
 
     /// How far a line `contentWidth` points wide scrolls (0 if it fits).

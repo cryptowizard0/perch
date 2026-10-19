@@ -579,6 +579,13 @@ PR #57 squash 合并为 `0c267b8`，#56 已关；合并前从分支装到了本�
 设计在 #58，拆成 #59–#64 六步，从小到大做（Done 带横幅飞那步最后）。所有步骤的规矩：状态的颜色和眼睛（信号）从不变弱、不加新声音、"减少动态效果"全关、todo 从不影响小怪物。
 
 - **#59 Failed / Done 的彩蛋**：`Mood.hasQuirks` 换成每个心情自己的一套 `Mood.quirks`（Idle / asleep 还是哈欠、张望、鼻涕泡，顺序不变所以时间表和以前一模一样，`idleQuirksAreUnchanged` 钉住了 main 的值；Failed 是 `sigh` / `rubHead`，Done 是 `sway` / `hum`）。`nextQuirk(after:in:)` 时间点和心情无关，只按心情的那套抽种类；`Mascot.quirks(_:online:reduceMotion:)` 是 `MascotView` 里 quirk task 的 id（同一套就不重启，所以 idle ↔ asleep 不打断，failed ↔ done 重新排），`Mascot.fps(_:reacting:quirking:)` 管重绘（Failed / Done 平时 0）。Done 的眨眼是 ^ 压扁一点（`Eye.happyBlink`），没有白色，测试按"笑眼或压扁的笑眼"检查；哼歌的 ♪ 和 Idle 的 z 一样飘到右边（Done 是信号时没有 Running，所以盖不到运行数）。
+- **#60–#64**（2026-10-19，一个 PR，建在 #59 的 PR #65 上）：
+  - #60 汗：`Mascot.frame(_:time:since:…)` 多一个 `since`（`Panel.signalSince`：Running 最早那一轮的 `turnStartedAt`，Needs you 等得最久的 `statusAt`）。≥ 600 s 头边两个白格，每 6 秒（2–3 s 处）右手擦额头。
+  - #61 Needs you：60 s 起双手一起挥、每 4 秒跳、天线 0.25 s 闪；300 s 起每 8 秒（从 300 s 起算）敲玻璃 1.75 s（`Eye.wide`、沉 1pt、`Arms.knock`、手边白格）。帧率没动（4 fps；0.25 s 的节奏和原来的轮流挥手一样）。测试用 8 s 的整数倍比 5 / 30 / 120 分钟。
+  - #62 鞠躬 / 挠头：`AnswerReactions`（纯，5 秒窗口）+ `QueueModel.answerReaction`（计时器到时清掉，脉冲清掉，展开清掉）。Failed 时保留 X 眼（PR 里注明的选择）。
+  - #63 看指针：先用探针 App 验证全局 `.mouseMoved` 不要辅助功能权限（记在 #58）。`Gaze`（纯，45° 五个方向，250pt，别的屏 = nil）、`GazeTracker`（可注入 `PointerMonitor`，只在方向变时发布，Reduce Motion 不装监听），App 侧 `AppKitPointerMonitor` + `panel.acceptsMouseMovedEvents`。`Eye.looking(_:)` / `.peeking(_:)`。
+  - #64 Done 飞：`DoneRun`（腿 `Leg` 的分段线性路线，打断时 `cut` 不改原来的参数化，所以打断前的位置一字不差），`DoneRun.flies`（Done 横幅、没有 waiting / failed、没 Reduce Motion），`QueueModel.flight` / `carriesBanner` / `notchWidth` / `reduceMotion`；横幅计时到 `bannerEnd`（卷完）为止，飞行计时到 `end`。`FlightView` / `FlightReveal` 在 `MascotView.swift`。遮罩放在 BannerView 自己身上，横幅淡出时也保持卷起（截图里发现的：放在右翼上时横幅淡出那 0.2 s 会整条重新露出来）。
+  - 截图（隔离 perchd + debug App 跑在内建刘海屏上，`-Display automatic -Chimes NO -QuickEntryHotKey …` 只走参数域，不写用户的 defaults）：跳、钻进刘海、拉帘子、站着撒彩纸、卷回去、回到左翼都对。看指针没法截（不能合成鼠标事件），留在 PR 的人工检查清单里。
 
 ## 未决问题
 

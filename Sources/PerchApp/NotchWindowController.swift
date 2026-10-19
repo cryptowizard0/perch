@@ -68,6 +68,8 @@ final class NotchWindowController {
     let notch: NotchModel
     let queue: QueueModel
     let setup: SetupModel
+    /// Where the folded mascot looks (#63). No pointer monitor at all under Reduce Motion.
+    let gaze = GazeTracker(monitor: AppKitPointerMonitor(), reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     /// While the right wing shrinks, the window keeps its old width until the shape has finished.
@@ -84,11 +86,24 @@ final class NotchWindowController {
         self.notch = notch
         self.queue = queue
         self.setup = setup
-        let host = NotchHostingView(rootView: NotchView(notch: notch, queue: queue, setup: setup, menu: menu))
+        let host = NotchHostingView(rootView: NotchView(notch: notch, queue: queue, setup: setup, gaze: gaze, menu: menu))
         host.sizingOptions = []
         host.onHover = { [weak notch] inside in notch?.hover(inside) }
         panel.contentView = host
+        // The local pointer monitor sees moves over the panel itself.
+        panel.acceptsMouseMovedEvents = true
+        gaze.locate = { [weak self] in self?.mascotSpot() }
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                self?.gaze.reduceMotion = reduceMotion
+                self?.queue.reduceMotion = reduceMotion
+            }
+        })
         queue.expanded = notch.expanded
+        queue.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         // Dev aid next to PERCH_PIN_EXPANDED: `PERCH_PIN_TAB=todo` starts on that tab (screenshots without a mouse).
         if let tab = ProcessInfo.processInfo.environment["PERCH_PIN_TAB"].flatMap(PanelTab.init(rawValue:)) { queue.pick(tab) }
         observers.append(NotificationCenter.default.addObserver(
@@ -134,7 +149,10 @@ final class NotchWindowController {
         if notch.geometry != geometry { notch.geometry = geometry }
         let left = NotchGeometry.collapsedWing(runningCount: queue.panel.runningCount, online: queue.online,
                                                todoCount: queue.collapsedTodoCount)
-        let right = queue.banner.map { CGFloat(Banner.wing(contentWidth: BannerView.contentWidth($0))) } ?? left
+        let right = queue.banner.map {
+            CGFloat(Banner.wing(contentWidth: BannerView.contentWidth($0), carried: queue.carriesBanner))
+        } ?? left
+        queue.notchWidth = Double(geometry.notch?.width ?? 0)
         if notch.leftWing != left { notch.leftWing = left }
         if notch.expanded {
             endShrink()
@@ -177,6 +195,16 @@ final class NotchWindowController {
             }
         }
         if !panel.isVisible { panel.orderFrontRegardless() }
+        // The mascot may have moved, appeared (folded) or gone (expanded).
+        gaze.refresh()
+    }
+
+    /// The folded mascot's centre on screen, and that screen; nil while expanded or not shown.
+    private func mascotSpot() -> (center: CGPoint, screen: CGRect)? {
+        guard !notch.expanded, panel.isVisible, let geometry = notch.geometry else { return nil }
+        let frame = panel.frame
+        let center = CGPoint(x: frame.minX + NotchGeometry.collapsedInset + CGFloat(Mascot.width) / 2, y: frame.midY)
+        return (center, geometry.screenFrame)
     }
 
     private func endShrink() {

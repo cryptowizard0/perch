@@ -430,3 +430,407 @@ import Testing
         }
     }
 }
+
+/// Time in the state (#60, #61).
+extension MascotTests {
+    /// Below 10 minutes a running turn looks as it always has; from 10 minutes a drop hangs by its head.
+    @Test func aLongRunSweats() {
+        for time in times {
+            #expect(Mascot.frame(.running, time: 1000 + time, since: 1000 + time - 599) == Mascot.frame(.running, time: 1000 + time),
+                    "\(time)")
+        }
+        let sweating = Mascot.frame(.running, time: 600.5, since: 0.5)
+        #expect(art(sweating, x: 0..<16, y: 3..<16) == [
+            ".......#........",
+            ".......#........",
+            "....#######..w..",
+            "...#########.w..",
+            "..####www####...",
+            "..###wwwww###...",
+            "..###wwoww###...",
+            "..###wwwww###...",
+            ".#####www#####..",
+            ".#############..",
+            "...###ooo###....",
+            "...#########....",
+            "....##...##.....",
+        ])
+        // The drop is all that's new: same eye, same colours, still trotting.
+        #expect(Set(sweating).subtracting(Mascot.frame(.running, time: 600.5)) == [
+            Mascot.Cell(x: 13, y: 5, ink: .white), Mascot.Cell(x: 13, y: 6, ink: .white),
+        ])
+        let hop = Mascot.frame(.running, time: 600.3, since: 0)
+        #expect(hop.map(\.y).min()! < sweating.map(\.y).min()!)
+    }
+
+    /// Reduce Motion: the plain still frame, no drop.
+    @Test func reducedMotionNeverSweats() {
+        #expect(Mascot.still(.running) == Mascot.frame(.running, time: 0))
+        #expect(!Mascot.still(.running).contains { $0.x == 13 && $0.y == 5 })
+    }
+
+    /// Every `wipePeriod` it lifts its right hand to its brow and wipes the drop away; then a new one forms.
+    @Test func aLongRunWipesItsForehead() {
+        let start = 6000.0
+        func at(_ offset: Double) -> [String] { art(Mascot.frame(.running, time: start + offset, since: 0), x: 0..<16, y: 3..<16) }
+        #expect(at(2.1) == [
+            ".......#........",
+            ".......#........",
+            "....#######.....",
+            "...##########...",
+            "..####www#####..",
+            "..###wwwww####..",
+            "..###wwoww###...",
+            "..###wwwww###...",
+            ".#####www####...",
+            ".############...",
+            "...###ooo###....",
+            "...#########....",
+            "....##...##.....",
+        ])
+        let drop = { (offset: Double) in Mascot.frame(.running, time: start + offset, since: 0).contains { $0.x == 13 && $0.ink == .white } }
+        let hand = { (offset: Double) in
+            Mascot.frame(.running, time: start + offset, since: 0).contains { $0.x == 13 && $0.y < 10 && $0.ink == .body }
+        }
+        // Before: the drop. During the wipe: the hand, back and forth across the brow. After: neither, then a new drop.
+        #expect(drop(1.9) && !hand(1.9))
+        let wiping = stride(from: 2.0, to: 3.0, by: 0.05).map { start + $0 }
+        #expect(wiping.allSatisfy { !drop($0 - start) && hand($0 - start) })
+        #expect(Set(wiping.map { Mascot.frame(.running, time: $0, since: 0).filter { $0.ink == .body && $0.x >= 11 && $0.y <= 6 } }).count > 1)
+        #expect(!drop(3.3) && !hand(3.3))
+        #expect(drop(3.7) && !hand(3.7))
+        // Every period, for as long as it runs (48 s: whole wipes and whole glance cycles).
+        #expect(at(2.1) == art(Mascot.frame(.running, time: start + 2.1 + 10 * 48, since: 0), x: 0..<16, y: 3..<16))
+        #expect(at(2.1) == art(Mascot.frame(.running, time: start + 2.1 - 112 * 48, since: 0), x: 0..<16, y: 3..<16))
+    }
+}
+
+/// Needs you escalates (#61).
+extension MascotTests {
+    func waiting(_ waited: Double) -> [String] { art(Mascot.frame(.waiting, time: waited, since: 0), x: 0..<16, y: 2..<17) }
+
+    /// Leaning in to knock: the wide eye (24 white cells; the upward eye has 20, plus the tip).
+    func knocking(_ waited: Double) -> Bool {
+        Mascot.frame(.waiting, time: waited, since: 0).filter { $0.ink == .white }.count >= 24
+    }
+
+    /// Both arms in the same place: waving together, not taking turns.
+    func armsTogether(_ waited: Double) -> Bool {
+        let cells = Mascot.frame(.waiting, time: waited, since: 0).filter { $0.ink == .body }
+        return Set(cells.filter { $0.x == 1 }.map(\.y)) == Set(cells.filter { $0.x == 13 }.map(\.y))
+    }
+
+    var quarter: [Double] { [0.05, 0.3, 0.55, 0.8] }
+
+    @Test func needsYouLevelsGoByTheLongestWait() {
+        // Under a minute: today's look, arms taking turns.
+        for x in stride(from: 0.0, to: 1, by: 0.05) {
+            #expect(Mascot.frame(.waiting, time: 59 + x, since: 0) == Mascot.frame(.waiting, time: 59 + x), "\(x)")
+        }
+        #expect(quarter.allSatisfy { !armsTogether(59 + $0) })
+        // From a minute: both arms together, and a hop every few seconds.
+        #expect(quarter.allSatisfy { armsTogether(60 + $0) && armsTogether(299 + $0) })
+        #expect(waiting(62.1) == [
+            ".......#........",
+            "....#######.....",
+            "...#########....",
+            ".#####www#####..",
+            ".####wwoww####..",
+            "..###wwwww###...",
+            "..###wwwww###...",
+            "..####www####...",
+            "..###########...",
+            "...###ooo###....",
+            "...###ooo###....",
+            ".....#...#......",
+            "................",
+            "................",
+            "................",
+        ])
+        #expect(Mascot.frame(.waiting, time: 62.1, since: 0).map(\.y).min()! < Mascot.frame(.waiting, time: 61.1, since: 0).map(\.y).min()!)
+        // The tip flashes faster: on and off every quarter second instead of every half.
+        let tip = { (time: Double, since: Double?) in Mascot.frame(.waiting, time: time, since: since).contains { $0.x == 7 && $0.ink == .white && $0.y < 5 } }
+        #expect([0.1, 0.35, 0.6, 0.85].map { tip(120 + $0, 0) } == [false, true, false, true])
+        #expect([0.1, 0.35, 0.6, 0.85].map { tip(120 + $0, nil) } == [false, false, true, true])
+        // From five minutes, a knock.
+        #expect(!stride(from: 0.0, to: 300, by: 0.05).contains(where: knocking))
+        #expect(knocking(300) && knocking(300.1))
+    }
+
+    /// It leans in, eye wide, and knocks three times, a glint at its hand on each.
+    @Test func fromFiveMinutesItKnocksOnTheGlass() {
+        #expect(waiting(300.3) == [
+            "................",
+            "................",
+            ".......w........",
+            ".......#........",
+            "....#######.....",
+            "...#########....",
+            "..###wwwww####w.",
+            "..###wwwww####..",
+            "..###wwoww###...",
+            "..###wwwww###...",
+            ".####wwwww###...",
+            ".############...",
+            "...###ooo###....",
+            "...###ooo###....",
+            "....##...##.....",
+        ])
+        let glint = { (waited: Double) in Mascot.frame(.waiting, time: waited, since: 0).contains { $0.x == 14 && $0.ink == .white } }
+        let samples = stride(from: 300.0, to: 300 + Mascot.knockPeriod, by: 0.05).map(glint)
+        let knocks = zip(samples, [false] + samples).filter { $0 && !$1 }.count
+        #expect(knocks == 3)
+        // Then back to waving until the next one.
+        #expect(!knocking(302) && !knocking(307.9) && knocking(308.1))
+        // It sinks a point to lean in.
+        #expect(Mascot.frame(.waiting, time: 300.1, since: 0).map(\.y).max()! > Mascot.frame(.waiting, time: 61.1, since: 0).map(\.y).max()!)
+    }
+
+    /// Five minutes is the top: at 30 and 120 minutes it's the same cycle, every 8 s, nothing new.
+    @Test func theKnockNeverChangesAfterFiveMinutes() {
+        for x in stride(from: 0.0, to: Mascot.knockPeriod, by: 0.05) {
+            let five = Mascot.frame(.waiting, time: 300 + x, since: 0)
+            #expect(five == Mascot.frame(.waiting, time: 300 + 188 * Mascot.knockPeriod + x, since: 0), "\(x)")
+            #expect(five == Mascot.frame(.waiting, time: 300 + 863 * Mascot.knockPeriod + x, since: 0), "\(x)")
+        }
+    }
+
+    /// The signal never weakens: orange body, never another colour, in every frame of every level.
+    @Test func needsYouStaysOrangeAtEveryLevel() {
+        let inks: Set<Mascot.Ink> = [.body, .white, .dark]
+        for waited in stride(from: 0.0, to: 320, by: 0.1) {
+            let cells = Mascot.frame(.waiting, time: waited, since: 0)
+            #expect(Set(cells.map(\.ink)).isSubset(of: inks) && cells.filter { $0.ink == .body }.count > 60, "\(waited)")
+        }
+    }
+
+    /// The entry reaction still plays first; Reduce Motion is the still frame.
+    @Test func theEntryReactionStillComesFirst() {
+        for age in stride(from: 0.0, to: Mascot.Mood.waiting.reactionDuration!, by: 0.1) {
+            let reaction = Mascot.Reaction(mood: .waiting, age: age)
+            #expect(Mascot.frame(.waiting, time: 400, since: 0, reaction: reaction) == Mascot.frame(.waiting, time: 400, reaction: reaction))
+        }
+        #expect(Mascot.still(.waiting) == Mascot.frame(.waiting, time: 0))
+    }
+}
+
+/// Bow and scratch (#62).
+extension MascotTests {
+    func answered(_ answer: Mascot.Answer, _ age: Double, _ mood: Mascot.Mood = .running, time: Double = 0) -> [Mascot.Cell] {
+        Mascot.frame(mood, time: time, answer: .init(answer, age: age))
+    }
+
+    /// Allow: it leans forward, eye down, antenna tipped towards you, holds, and comes back up.
+    @Test func allowBows() {
+        #expect(art(answered(.bow, 0.5), x: 0..<15, y: 3..<17) == [
+            "...............",
+            "...............",
+            ".......#.......",
+            "....#######....",
+            "...#########...",
+            "..####www####..",
+            "..###wwwww###..",
+            "..###wwwww###..",
+            "..###wwoww###..",
+            ".#####www#####.",
+            ".#############.",
+            "...###ooo###...",
+            "...#########...",
+            "....##...##....",
+        ])
+        #expect(answered(.bow, 1.0) == Mascot.still(.running))
+        #expect(answered(.bow, Mascot.Answer.bow.duration) == Mascot.frame(.running, time: 0))
+    }
+
+    /// Deny: the left hand up behind its head, scratching, its eye glancing away, a small embarrassed mouth.
+    @Test func denyScratchesItsHead() {
+        #expect(art(answered(.scratch, 0.3), x: 0..<15, y: 3..<16) == [
+            ".......#.......",
+            ".......#.......",
+            "..#.#######....",
+            "..##########...",
+            ".#####www####..",
+            ".####wwwww###..",
+            "..###wwwow###..",
+            "..###wwwww###..",
+            "..####www#####.",
+            "..############.",
+            "...####o####...",
+            "...#########...",
+            "....##...##....",
+        ])
+        let hand = { (age: Double) in self.art(self.answered(.scratch, age), x: 0..<15, y: 5..<6)[0] }
+        #expect([0.3, 0.4, 0.5, 0.7].map(hand) == ["..#.#######....", "...########....", "..#.#######....", "...########...."])
+        #expect(answered(.scratch, 1.3) != Mascot.still(.running))
+        #expect(answered(.scratch, Mascot.Answer.scratch.duration) == Mascot.frame(.running, time: 0))
+    }
+
+    /// They play over the mood's loop, in its colour (no other inks), and Failed keeps its X eye.
+    @Test func answersOverrideTheLoopButNotTheSignal() {
+        for mood in Mascot.Mood.allCases {
+            for answer in Mascot.Answer.allCases {
+                for age in stride(from: 0.0, to: answer.duration, by: 0.05) {
+                    let cells = answered(answer, age, mood, time: 600.3)
+                    #expect(Set(cells.map(\.ink)).isSubset(of: [.body, .white, .dark]), "\(mood) \(answer) \(age)")
+                    if mood == .failed {
+                        #expect(cells.contains { $0.ink == .dark && $0.x == 6 && $0.y == 8 + (answer == .bow && age < 0.95 ? 1 : 0) },
+                                "\(answer) \(age)")
+                    }
+                }
+            }
+        }
+        // A sweating run bows without its drop or trot, then goes back to them.
+        #expect(Mascot.frame(.running, time: 600.3, since: 0, answer: .init(.bow, age: 0.5)) == answered(.bow, 0.5))
+        // A quirk waits; the entry reaction wins.
+        #expect(Mascot.frame(.done, time: 0, answer: .init(.bow, age: 0.5), quirk: .init(.sway, age: 1)) == answered(.bow, 0.5, .done))
+        let reaction = Mascot.Reaction(mood: .waiting, age: 0.2)
+        #expect(Mascot.frame(.running, time: 0, reaction: reaction, answer: .init(.bow, age: 0.5)) == Mascot.frame(.running, time: 0, reaction: reaction))
+    }
+}
+
+/// The eye follows the pointer (#63).
+extension MascotTests {
+    /// The 5 × 5 eye of a frame that hasn't moved the sprite.
+    func eye(_ cells: [Mascot.Cell]) -> [String] { art(cells, x: 5..<10, y: 7..<12) }
+
+    /// A time in each mood's loop with the sprite at rest and the eye not blinking (Running's 0.5 is between hops).
+    func restTime(_ mood: Mascot.Mood) -> Double { mood == .running ? 0.5 : 0.1 }
+
+    @Test func everyMoodWithEveryGaze() {
+        let looking: [Gaze: [String]] = [
+            .left: ["#www#", "wwwww", "wowww", "wwwww", "#www#"],
+            .downLeft: ["#www#", "wwwww", "wwwww", "wowww", "#www#"],
+            .down: ["#www#", "wwwww", "wwwww", "wwoww", "#www#"],
+            .downRight: ["#www#", "wwwww", "wwwww", "wwwow", "#www#"],
+            .right: ["#www#", "wwwww", "wwwow", "wwwww", "#www#"],
+        ]
+        let peeking: [Gaze: [String]] = [
+            .left: ["#####", "#####", "ooooo", "wowww", "#www#"],
+            .downLeft: ["#####", "#####", "ooooo", "wwwww", "#oww#"],
+            .down: ["#####", "#####", "ooooo", "wwwww", "#wow#"],
+            .downRight: ["#####", "#####", "ooooo", "wwwww", "#wwo#"],
+            .right: ["#####", "#####", "ooooo", "wwwow", "#www#"],
+        ]
+        for mood in Mascot.Mood.allCases {
+            let time = restTime(mood)
+            let plain = Mascot.frame(mood, time: time)
+            for gaze in Gaze.allCases {
+                let looked = Mascot.frame(mood, time: time, gaze: gaze)
+                switch mood {
+                case .failed: #expect(looked == plain, "\(gaze)")
+                case .idle, .asleep: #expect(eye(looked) == peeking[gaze], "\(mood) \(gaze)")
+                case .running, .waiting, .done: #expect(eye(looked) == looking[gaze], "\(mood) \(gaze)")
+                }
+                // Only the eye moves: the body, antenna, arms, mouth, "z" stay, and so does the colour.
+                let outside = { (cells: [Mascot.Cell]) in cells.filter { !(5..<10).contains($0.x) || !(7..<12).contains($0.y) } }
+                #expect(outside(looked) == outside(plain), "\(mood) \(gaze)")
+            }
+        }
+        // Done keeps its smile with its eye open.
+        #expect(art(Mascot.frame(.done, time: 0, gaze: .downRight)) == [
+            "......#......",
+            "......#......",
+            "...#######...",
+            "..#########..",
+            ".####www####.",
+            ".###wwwww###.",
+            ".###wwwww###.",
+            ".###wwwow###.",
+            "#####www#####",
+            "#############",
+            "..##o###o##..",
+            "..###ooo###..",
+            "...##...##...",
+        ])
+        // Asleep peeks; the "z" and drooping antenna stay.
+        #expect(art(Mascot.frame(.asleep, time: 0, gaze: .left)) == [
+            ".......#.....",
+            "......#......",
+            "...#######...",
+            "..#########..",
+            ".###########.",
+            ".###########.",
+            ".###ooooo###.",
+            ".###wowww###.",
+            "#####www#####",
+            "#############",
+            "..####o####..",
+            "..#########..",
+            "...##...##...",
+        ])
+    }
+
+    /// The loop keeps going under the gaze: Running trots and blinks, Needs you waves and knocks with its own stare.
+    @Test func theLoopKeepsGoingUnderTheGaze() {
+        let hop = Mascot.frame(.running, time: 0.3, gaze: .down), rest = Mascot.frame(.running, time: 0.5, gaze: .down)
+        #expect(hop.map(\.y).min()! < rest.map(\.y).min()!)
+        #expect(Mascot.frame(.running, time: 3.65, gaze: .down) == Mascot.frame(.running, time: 3.65))
+        // The pupil no longer glances left and right.
+        #expect(Set([0.5, 1.3, 2.1, 2.9].map { eye(Mascot.frame(.running, time: $0, gaze: .right)) }).count == 1)
+        #expect(Mascot.frame(.waiting, time: 300.3, since: 0, gaze: .left) == Mascot.frame(.waiting, time: 300.3, since: 0))
+        let waving = { (gaze: Gaze?) in Mascot.frame(.waiting, time: 62.6, since: 0, gaze: gaze).filter { $0.x == 1 || $0.x == 13 } }
+        #expect(waving(.down) == waving(nil))
+        #expect(Mascot.frame(.running, time: 600.5, since: 0, gaze: .down).contains { $0.x == 13 && $0.y == 5 && $0.ink == .white })
+    }
+
+    /// Reactions, bows and quirks use their own eyes; the gaze comes back when they end.
+    @Test func reactionsAndQuirksOverrideTheGaze() {
+        let reaction = Mascot.Reaction(mood: .done, age: 0.3)
+        #expect(Mascot.frame(.running, time: 0, gaze: .down, reaction: reaction) == Mascot.frame(.running, time: 0, reaction: reaction))
+        let bow = Mascot.AnswerPlay(.scratch, age: 0.5)
+        #expect(Mascot.frame(.running, time: 0, gaze: .left, answer: bow) == Mascot.frame(.running, time: 0, answer: bow))
+        let yawn = Mascot.QuirkPlay(.yawn, age: 1)
+        #expect(Mascot.frame(.asleep, time: 0, gaze: .down, quirk: yawn) == Mascot.frame(.asleep, time: 0, quirk: yawn))
+        let sway = Mascot.QuirkPlay(.sway, age: 0.5)
+        #expect(Mascot.frame(.done, time: 0, gaze: .down, quirk: sway) == Mascot.frame(.done, time: 0, quirk: sway))
+        // Over: the gaze is back.
+        let over = Mascot.QuirkPlay(.yawn, age: Mascot.Quirk.yawn.duration)
+        #expect(Mascot.frame(.asleep, time: 0, gaze: .down, quirk: over) == Mascot.frame(.asleep, time: 0, gaze: .down))
+        #expect(Mascot.frame(.asleep, time: 0, gaze: .down) != Mascot.frame(.asleep, time: 0))
+    }
+}
+
+/// The Done run's look (#64).
+extension MascotTests {
+    func flying(_ move: DoneRun.Move, age: Double, right: Bool = true, mood: Mascot.Mood = .done) -> [Mascot.Cell] {
+        Mascot.frame(flying: DoneRun.Position(x: 0, hidden: false, reveal: nil, move: move, age: age, facingRight: right), mood: mood)
+    }
+
+    /// Running out it trots in Done's look, its trailing (left) hand up holding the curtain; coming back, the right.
+    @Test func onTheRunItHoldsTheCurtain() {
+        #expect(art(flying(.run, age: 0.05)) == [
+            "......#......",
+            "......#......",
+            "...#######...",
+            "..#########..",
+            "############.",
+            "######o#####.",
+            ".####o#o####.",
+            ".###o###o###.",
+            ".############",
+            ".############",
+            "..##o###o##..",
+            "..###ooo###..",
+            "...##...##...",
+        ])
+        let back = art(flying(.run, age: 0.05, right: false))
+        #expect(back[4] == ".############" && back[8] == "############.")
+        // The trot: up a point and feet tucked every other tenth.
+        #expect(flying(.run, age: 0.15).map(\.y).min()! < flying(.run, age: 0.05).map(\.y).min()!)
+        #expect(flying(.hop, age: 0.2) == Mascot.frame(.done, time: 0, reaction: .init(mood: .done, age: 0.2)))
+    }
+
+    /// On the banner's end: Done's sway under a burst of confetti; dashing home: the signal's own look, trotting.
+    @Test func atTheEndItSwaysUnderTheConfetti() {
+        let confetti: Set<Mascot.Ink> = [.confetti0, .confetti1, .confetti2]
+        let standing = flying(.stand, age: 0.4)
+        #expect(standing.contains { confetti.contains($0.ink) })
+        #expect(standing.filter { !confetti.contains($0.ink) && $0.ink != .white }
+                == Mascot.frame(.done, time: 0, quirk: .init(.sway, age: 0.4)).filter { $0.ink != .white })
+        #expect(!flying(.stand, age: 3).contains { confetti.contains($0.ink) })
+        #expect(flying(.stand, age: 0.4 + Mascot.Quirk.sway.duration).filter { $0.ink == .body }
+                == standing.filter { $0.ink == .body })
+        #expect(art(flying(.dash, age: 0.05, mood: .waiting)) == art(Mascot.still(.waiting)))
+        #expect(art(flying(.dash, age: 0.05, mood: .failed)) == art(Mascot.still(.failed)))
+    }
+}

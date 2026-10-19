@@ -8,6 +8,8 @@ import SwiftUI
 /// with Reduce Motion it is cut with an ellipsis instead.
 struct BannerView: View {
     var banner: Banner
+    /// How long before a too-long line scrolls: longer while the Done run is still pulling it open (#64).
+    var delay = Banner.scrollDelay
     @State private var scrolled = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -33,7 +35,7 @@ struct BannerView: View {
                     ], startPoint: .leading, endPoint: .trailing))
                     .task {
                         // Not an animation delay: started while the banner fades in, that one lands at its end at once.
-                        try? await Task.sleep(for: .seconds(Banner.scrollDelay))
+                        try? await Task.sleep(for: .seconds(delay))
                         withAnimation(.linear(duration: Double(overflow) / Banner.scrollSpeed)) { scrolled = true }
                     }
             }

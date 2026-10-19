@@ -8,7 +8,10 @@ import PerchCore
 /// "nothing to show" stand still. Entering Needs you / Failed / Done (the panel's pulse) plays a reaction: the first
 /// beat is timed to its chime (#35), then a second act (an "!", a fall and some smoke, confetti). Asleep, idle, failed
 /// or done, it now and then plays a quirk from its mood's set (a yawn, a look around, a snot bubble; a sigh, rubbing
-/// its head; a sway, a hum). Failed keeps its X eye and Done its happy eye through theirs (#59).
+/// its head; a sway, a hum). Failed keeps its X eye and Done its happy eye through theirs (#59). It also feels the
+/// time: a turn running over 10 minutes makes it sweat (#60); Needs you insists after a minute and knocks on the glass
+/// from five (#61). After you answer it, it bows (Allow) or scratches its head (Deny) (#62). With the pointer near the
+/// notch its eye follows it; asleep, it peeks with its eye half open (#63).
 public enum Mascot {
     /// The canvas, in points: the 13 × 13 sprite at `origin`, with room above for the hop and beside for the
     /// shake and the sparkles. Idle's "z" drifts past the right edge, up to `overflowWidth`.
@@ -108,19 +111,122 @@ public enum Mascot {
         public let x: Int
         public let y: Int
         public let ink: Ink
+
+        public init(x: Int, y: Int, ink: Ink) {
+            self.x = x
+            self.y = y
+            self.ink = ink
+        }
     }
 
     /// The cells to draw `time` seconds into any clock (the loops repeat), sorted row by row. A reaction wins over
     /// a quirk; a quirk plays only in the mood whose set has it.
-    public static func frame(_ mood: Mood, time: TimeInterval, reaction: Reaction? = nil, quirk: QuirkPlay? = nil) -> [Cell] {
+    ///
+    /// `since` is when the signal's state began, on the same clock: the oldest running turn's start (Running sweats
+    /// from `sweatAfter`), the longest wait's start (Needs you insists from `insistAfter`, knocks from `knockAfter`).
+    /// Nil leaves time out of it.
+    ///
+    /// Precedence, highest first: the entry reaction, an answer's bow or scratch, a quirk, the mood's own loop. `gaze`
+    /// (the pointer nearby, #63) turns the loop's eye towards it; reactions, quirks, blinks and the knock keep their own.
+    public static func frame(_ mood: Mood, time: TimeInterval, since: TimeInterval? = nil, gaze: Gaze? = nil,
+                             reaction: Reaction? = nil, answer: AnswerPlay? = nil, quirk: QuirkPlay? = nil) -> [Cell] {
         if let reaction, !reaction.isOver {
             return draw(look(reaction.mood, time: time, reaction: reaction.age))
+        }
+        if let answer, !answer.isOver {
+            return draw(look(answer.answer, age: answer.age, mood: mood))
         }
         if let quirk, mood.quirks.contains(quirk.quirk), !quirk.isOver {
             return draw(look(quirk.quirk, age: quirk.age, mood: mood))
         }
-        return draw(look(mood, time: time, reaction: nil))
+        var look = look(mood, time: time, reaction: nil, waited: since.map { time - $0 })
+        if let gaze { look.eye = look.eye.turned(to: gaze, mood: mood) }
+        return draw(look)
     }
+
+    // MARK: - The Done run
+
+    /// The mascot on its Done run (#64), at `position`. In Done's look throughout (it is a Done celebration): the hop,
+    /// a trot with the trailing hand up (holding the curtain), and on the banner's end a sway under the confetti.
+    /// Dashing home it is `mood`, the signal that called it back. The run outranks everything, gaze included.
+    public static func frame(flying position: DoneRun.Position, mood: Mood) -> [Cell] {
+        switch position.move {
+        case .hop:
+            return draw(look(.done, time: 0, reaction: min(position.age, DoneRun.hopDuration - 0.01)))
+        case .run:
+            var look = look(.done, time: 0, reaction: nil)
+            trot(&look, age: position.age)
+            look.arms = position.facingRight ? .leftUp : .rightUp
+            return draw(look)
+        case .stand:
+            var look = look(.sway, age: position.age.truncatingRemainder(dividingBy: Quirk.sway.duration), mood: .done)
+            look.confetti = position.age
+            return draw(look)
+        case .dash:
+            var look = look(mood, time: 0, reaction: nil)
+            look.z = nil
+            trot(&look, age: position.age)
+            return draw(look)
+        }
+    }
+
+    /// Feet tucked and up a point every other tenth of a second.
+    static func trot(_ look: inout Look, age: TimeInterval) {
+        guard Int((max(age, 0) / 0.1).rounded(.down)) % 2 == 1 else { return }
+        look.feetTucked = true
+        look.dy = -1
+    }
+
+    // MARK: - Answers
+
+    /// What it does after you answer it (#62): a bow for Allow (or any other option), a sheepish head scratch for Deny.
+    /// Neither a quirk nor a pulse: no banner, no sound; it plays in the signal's colour.
+    public enum Answer: Equatable, Sendable, CaseIterable {
+        case bow, scratch
+
+        /// The reaction to sending `value` to a request.
+        public init(response value: String) {
+            self = value == "deny" ? .scratch : .bow
+        }
+
+        public var duration: TimeInterval {
+            switch self {
+            case .bow: return 1.2
+            case .scratch: return 1.4
+            }
+        }
+    }
+
+    public struct AnswerPlay: Equatable, Sendable {
+        public let answer: Answer
+        public let age: TimeInterval
+
+        public init(_ answer: Answer, age: TimeInterval) {
+            self.answer = answer
+            self.age = age
+        }
+
+        public var isOver: Bool { age < 0 || age >= answer.duration }
+    }
+
+    // MARK: - Time in the state
+
+    /// A running turn this old makes it sweat: a drop by its head, and every `wipePeriod` it wipes its forehead.
+    public static let sweatAfter: TimeInterval = 600
+    public static let wipePeriod: TimeInterval = 6
+    /// Where in each `wipePeriod` the wipe plays, and when the next drop has formed.
+    static let wipe: Range<TimeInterval> = 2..<3
+    static let dropBack: TimeInterval = 3.6
+
+    /// Needs you after this long waves both arms together, hops every `hopPeriod` and flashes its tip faster.
+    public static let insistAfter: TimeInterval = 60
+    static let hopPeriod: TimeInterval = 4
+    static let hop: Range<TimeInterval> = 2..<2.5
+    /// From this long it also knocks on the glass, every `knockPeriod`; nothing changes after that.
+    public static let knockAfter: TimeInterval = 300
+    public static let knockPeriod: TimeInterval = 8
+    /// A lean in, then three knocks, a quarter second each way.
+    static let knockDuration: TimeInterval = 1.75
 
     // MARK: - Quirks
 
@@ -226,9 +332,14 @@ public enum Mascot {
         var wisp: Int?
         /// Done's hum: a ♪, 0…3 steps up and to the right.
         var note: Int?
+        /// A long run's sweat drop by its head.
+        var sweat = false
+        /// A knock on the glass: a white glint by the hand.
+        var glint = false
     }
 
-    static func look(_ mood: Mood, time: TimeInterval, reaction age: TimeInterval?) -> Look {
+    /// `waited`: how long the signal's state has lasted, when known.
+    static func look(_ mood: Mood, time: TimeInterval, reaction age: TimeInterval?, waited: TimeInterval? = nil) -> Look {
         var look = Look()
         let t = max(time, 0)
         func step(_ seconds: Double) -> Int { Int((t / seconds).rounded(.down)) }
@@ -248,11 +359,39 @@ public enum Mascot {
             // Late in the cycle, so the still frame (t = 0) has its eye open. Longer than a redraw (≤ ~0.22 s once
             // the display rounds the 5 fps interval up) so every cycle catches it, whatever the sampling phase.
             if (3.6..<3.9).contains(t.truncatingRemainder(dividingBy: 4)) { look.eye = .blink }
+            if let waited, waited >= sweatAfter {
+                // It keeps trotting; the hand comes up to its brow and wipes the drop away, then a new one forms.
+                let cycle = t.truncatingRemainder(dividingBy: wipePeriod)
+                if wipe.contains(cycle) {
+                    look.arms = .wipe(across: Int(((cycle - wipe.lowerBound) / 0.25).rounded(.down)) % 2 == 1)
+                } else {
+                    look.sweat = cycle < wipe.lowerBound || cycle >= dropBack
+                }
+            }
         case .waiting:
             look.eye = .up
             look.mouth = .open
             look.arms = step(0.25) % 2 == 1 ? .leftUp : .rightUp
             look.tipLit = step(0.5) % 2 == 1
+            if let waited, waited >= insistAfter {
+                look.arms = step(0.25) % 2 == 1 ? .bothUp : .down
+                look.tipLit = step(0.25) % 2 == 1
+                if hop.contains(waited.truncatingRemainder(dividingBy: hopPeriod)) {
+                    look.dy = waited.truncatingRemainder(dividingBy: hopPeriod) < hop.lowerBound + 0.25 ? -2 : -1
+                    look.feetTucked = true
+                    look.arms = .bothUp
+                }
+                let knock = (waited - knockAfter).truncatingRemainder(dividingBy: knockPeriod)
+                if waited >= knockAfter, knock < knockDuration {
+                    // Leans in, eye wide, and knocks three times; a white glint at its hand on each.
+                    let beat = Int((knock / 0.25).rounded(.down))
+                    look.dy = 1
+                    look.feetTucked = false
+                    look.eye = .wide
+                    look.arms = .knock(hit: beat % 2 == 1)
+                    look.glint = beat % 2 == 1
+                }
+            }
             if let age, let dy = at([-2, -3, -2, 0, -2, -3, -2, 0], fps: 12, age) {
                 look.dy = dy
                 look.feetTucked = true
@@ -301,6 +440,33 @@ public enum Mascot {
             look.mouth = .small
             look.antenna = .drooping
         }
+        return look
+    }
+
+    /// A bow or scratch over the mood's still look. Failed keeps its X eye: the signal never softens.
+    static func look(_ answer: Answer, age: TimeInterval, mood: Mood) -> Look {
+        var look = look(mood, time: 0, reaction: nil)
+        look.z = nil
+        var eye: Eye?
+        switch answer {
+        case .bow:
+            // Leans forward, eye down, antenna tipped towards you; holds; comes back up.
+            if age < 0.95 {
+                look.dy = 1
+                look.antenna = .forward
+                look.arms = .down
+                eye = .down
+            }
+        case .scratch:
+            switch age {
+            case ..<0.2, 1.2...: look.arms = .leftUp
+            default:
+                look.arms = .behindHead(scratching: Int(((age - 0.2) / 0.15).rounded(.down)) % 2 == 1)
+                look.mouth = .small
+                eye = .right
+            }
+        }
+        if let eye, mood != .failed { look.eye = eye }
         return look
     }
 
@@ -391,6 +557,23 @@ public enum Mascot {
     /// The 5 × 5 eye at (4, 4): `w` white, `o` dark, `.` body.
     enum Eye {
         case open, up, left, right, blink, closed, happy, cross, drowsy, squeezed
+        /// Leaning in to knock: wide open, staring straight out.
+        case wide
+        /// Looking down (a bow).
+        case down
+        /// Looking at the pointer (#63): the pupil off-centre that way. `.left`, `.right` and `.down` are three of them.
+        case looking(Gaze)
+        /// Asleep or idle, peeking at the pointer: half open, the pupil that way.
+        case peeking(Gaze)
+
+        /// The loop's eye with the pointer nearby. Failed keeps its X; a blink, the knock's stare and the like stay.
+        func turned(to gaze: Gaze, mood: Mood) -> Eye {
+            switch (mood, self) {
+            case (.failed, _), (_, .blink), (_, .wide): return self
+            case (.idle, _), (.asleep, _): return .peeking(gaze)
+            case (.running, _), (.waiting, _), (.done, _): return .looking(gaze)
+            }
+        }
         /// Done's blink: the happy arc squeezed flatter, still a "^".
         case happyBlink
 
@@ -407,6 +590,17 @@ public enum Mascot {
             case .drowsy: return [".....", ".....", "ooooo", "wwoww", ".www."]
             case .squeezed: return [".....", "o...o", ".o.o.", "..o..", "....."]
             case .happyBlink: return [".....", ".....", ".ooo.", "o...o", "....."]
+            case .wide: return ["wwwww", "wwwww", "wwoww", "wwwww", "wwwww"]
+            case .down, .looking(.down): return [".www.", "wwwww", "wwwww", "wwoww", ".www."]
+            case .looking(.left): return Eye.left.rows
+            case .looking(.right): return Eye.right.rows
+            case .looking(.downLeft): return [".www.", "wwwww", "wwwww", "wowww", ".www."]
+            case .looking(.downRight): return [".www.", "wwwww", "wwwww", "wwwow", ".www."]
+            case .peeking(.left): return [".....", ".....", "ooooo", "wowww", ".www."]
+            case .peeking(.right): return [".....", ".....", "ooooo", "wwwow", ".www."]
+            case .peeking(.down): return [".....", ".....", "ooooo", "wwwww", ".wow."]
+            case .peeking(.downLeft): return [".....", ".....", "ooooo", "wwwww", ".oww."]
+            case .peeking(.downRight): return [".....", ".....", "ooooo", "wwwww", ".wwo."]
             }
         }
     }
@@ -431,6 +625,8 @@ public enum Mascot {
         case up, left, drooping, bent
         /// Failed's sigh: bent all the way over onto its head.
         case flat
+        /// A bow: tipped towards you, so only its base shows, the tip in front of it.
+        case forward
 
         var cells: [(Int, Int)] {
             switch self {
@@ -439,6 +635,7 @@ public enum Mascot {
             case .drooping: return [(7, 0), (6, 1)]
             case .bent: return [(7, 1), (6, 1)]
             case .flat: return [(8, 1), (7, 1)]
+            case .forward: return [(6, 1)]
             }
         }
     }
@@ -447,6 +644,12 @@ public enum Mascot {
         case down, leftUp, rightUp, bothUp
         /// Failed's rub: the right arm over the top of its head, the hand reaching further in or back.
         case onHead(reaching: Bool)
+        /// A long run's wipe: the right hand at its brow, or further across it.
+        case wipe(across: Bool)
+        /// A long wait's knock: the right hand raised, up against the glass or drawn back.
+        case knock(hit: Bool)
+        /// Deny's scratch: the left hand up behind its head, scratching back and forth.
+        case behindHead(scratching: Bool)
 
         var cells: [(Int, Int)] {
             let left = [(0, 8), (0, 9)], right = [(12, 8), (12, 9)]
@@ -457,6 +660,9 @@ public enum Mascot {
             case .rightUp: return left + rightRaised
             case .bothUp: return leftRaised + rightRaised
             case .onHead(let reaching): return left + [(12, 5), (12, 4), (11, 3), (10, 2), (9, 1)] + (reaching ? [(8, 1)] : [])
+            case .wipe(let across): return left + (across ? [(12, 4), (11, 3), (10, 2)] : [(12, 5), (12, 4), (11, 3)])
+            case .knock(let hit): return left + (hit ? rightRaised : [(12, 5), (12, 6)])
+            case .behindHead(let scratching): return [(0, 5), (0, 4), (1, 3), scratching ? (2, 2) : (1, 2)] + right
             }
         }
     }
@@ -495,6 +701,8 @@ public enum Mascot {
         for (x, y) in look.mouth.cells { put(x, y, .dark) }
         if look.sparkle { overlay(-1, 2, .white); overlay(13, 2, .white) }
         if look.exclaim { for y in [-1, 0, 1, 3] { overlay(11, y, .white) } }
+        if look.sweat { overlay(12, 2, .white); overlay(12, 3, .white) }
+        if look.glint { overlay(13, 4, .white) }
         if let step = look.smoke {
             for (x, y) in [(5, 0), (7, -1), (6, -3), (8, -4)] { overlay(x, y - step, .faint) }
         }

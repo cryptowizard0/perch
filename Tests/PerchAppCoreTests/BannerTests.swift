@@ -124,6 +124,8 @@ import Testing
         #expect(Banner.duration(contentWidth: long) == Banner.scrollDelay + 200 / Banner.scrollSpeed + Banner.endHold)
         #expect(Banner.duration(contentWidth: 10_000) == Banner.maxDuration)
         #expect(Banner.wing(contentWidth: 80) == 100)
+        // The Done run's mascot stands at its end (#64).
+        #expect(Banner.wing(contentWidth: 80, carried: true) == 100 + Double(Mascot.width))
         #expect(Banner.wing(contentWidth: 10_000) == Banner.maxContentWidth + 2 * Banner.inset)
     }
 }

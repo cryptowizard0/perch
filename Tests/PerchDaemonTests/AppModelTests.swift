@@ -243,3 +243,176 @@ extension AppModelTests {
         #expect(model.panel.signal == .waiting && model.pulseStatus == .done)
     }
 }
+
+/// The mascot's bow and scratch after an answer (#62).
+extension AppModelTests {
+    /// A session needing you, with a request the panel can answer.
+    func askedModel(_ d: TestDaemon) async throws -> (QueueModel, Item) {
+        let model = QueueModel()
+        model.connect(client: d.client)
+        try await until { model.online }
+        try report(d, "a", .waiting, detail: "npm test")
+        let request = try #require(try d.client.send(Request(op: .add, item: Item(
+            title: "npm test", kind: .request, meta: ["session_id": "a"]))).item)
+        try await until { model.headRequest != nil }
+        return (model, request)
+    }
+
+    @Test func aHotkeyAnswerBowsAtOnceWithNoBannerOrSound() async throws {
+        let d = try TestDaemon()
+        let (model, _) = try await askedModel(d)
+        defer { model.disconnect() }
+        var played: [ChimeSound] = []
+        model.onChime = { played.append($0) }
+        let pulses = model.pulse
+        #expect(model.answerReaction == nil)
+        model.answerHead("allow")
+        #expect(model.answerReaction?.answer == .bow)
+        try report(d, "a", .resume)
+        try await until { model.sessions["a"]?.status == .running }
+        #expect(model.pulse == pulses && played.isEmpty && model.banner == nil)
+        // It ends by itself.
+        try await until(timeout: 3) { model.answerReaction == nil }
+    }
+
+    @Test func aPanelAnswerScratchesWhenTheNotchFolds() async throws {
+        let d = try TestDaemon()
+        let (model, request) = try await askedModel(d)
+        defer { model.disconnect() }
+        model.expanded = true
+        model.respond(request, "deny")
+        #expect(model.answerReaction == nil)
+        model.expanded = false
+        #expect(model.answerReaction?.answer == .scratch)
+        // Expanding again stops it; folding again doesn't replay it.
+        model.expanded = true
+        #expect(model.answerReaction == nil)
+        model.expanded = false
+        #expect(model.answerReaction == nil)
+    }
+
+    @Test func aPulseReplacesABow() async throws {
+        let d = try TestDaemon()
+        let (model, _) = try await askedModel(d)
+        defer { model.disconnect() }
+        model.answerHead("allow")
+        #expect(model.answerReaction?.answer == .bow)
+        try report(d, "b", .waiting, detail: "rm -rf build/")
+        try await until { model.pulseStatus == .waiting && model.sessions["b"] != nil }
+        #expect(model.answerReaction == nil)
+    }
+}
+
+/// The Done banner run (#64).
+extension AppModelTests {
+    func connected(_ d: TestDaemon) async throws -> QueueModel {
+        let model = QueueModel()
+        model.notchWidth = 185
+        model.measureBanner = { _ in 120 }
+        model.connect(client: d.client)
+        try await until { model.online }
+        return model
+    }
+
+    @Test func doneFliesWithTheBanner() async throws {
+        let d = try TestDaemon()
+        let model = try await connected(d)
+        defer { model.disconnect() }
+        try report(d, "a", .prompt)
+        try report(d, "b", .prompt)
+        try report(d, "a", .stop)
+        try await until { model.banner != nil }
+        let flight = try #require(model.flight)
+        #expect(model.banner?.status == .done && model.carriesBanner)
+        // The left wing as the bar draws it (mascot and one running digit), and the app's notch.
+        #expect(flight.band == DoneRun.Band(leftWing: 37, notchWidth: 185))
+        #expect(flight.bannerWing == Banner.wing(contentWidth: 120))
+    }
+
+    /// A session needing you or failed elsewhere: the mascot stays home (hop and confetti), the banner as usual.
+    @Test(arguments: [SessionReport.Kind.waiting, .failure])
+    func somethingMoreUrgentKeepsItHome(_ kind: SessionReport.Kind) async throws {
+        let d = try TestDaemon()
+        try report(d, "w", .prompt)
+        try report(d, "w", kind, detail: "rm -rf build/")
+        let model = try await connected(d)
+        defer { model.disconnect() }
+        try report(d, "a", .prompt)
+        try report(d, "a", .stop)
+        try await until { model.sessions["a"]?.status == .done }
+        #expect(model.flight == nil && !model.carriesBanner)
+        #expect(model.pulseStatus == .done)
+    }
+
+    @Test(arguments: [SessionReport.Kind.waiting, .failure])
+    func somethingUrgentCallsItHome(_ kind: SessionReport.Kind) async throws {
+        let d = try TestDaemon()
+        let model = try await connected(d)
+        defer { model.disconnect() }
+        try report(d, "a", .prompt)
+        try report(d, "a", .stop)
+        try await until { model.flight != nil }
+        try report(d, "b", .prompt)
+        try report(d, "b", kind, detail: "npm test")
+        try await until { model.banner?.sessionID == "b" }
+        // Dashing home (or already there), the entry reaction's pulse in the new state, the banner switched.
+        #expect(model.flight?.interrupted ?? true)
+        #expect(!model.carriesBanner && model.pulseStatus == (kind == .waiting ? .waiting : .failed))
+        try await until(timeout: 2) { model.flight == nil }
+    }
+
+    @Test func anotherDoneSwapsTheBannerAndKeepsFlying() async throws {
+        let d = try TestDaemon()
+        let model = try await connected(d)
+        defer { model.disconnect() }
+        try report(d, "a", .prompt)
+        try report(d, "b", .prompt)
+        try report(d, "a", .stop)
+        try await until { model.flight != nil }
+        let first = try #require(model.banner?.id)
+        try report(d, "b", .stop)
+        try await until { model.banner?.sessionID == "b" }
+        #expect(model.banner?.id != first && model.carriesBanner && model.flight?.interrupted == false)
+    }
+
+    @Test func expandingEndsTheRun() async throws {
+        let d = try TestDaemon()
+        let model = try await connected(d)
+        defer { model.disconnect() }
+        try report(d, "a", .prompt)
+        try report(d, "a", .stop)
+        try await until { model.flight != nil }
+        model.showsBanners = false
+        model.expanded = true
+        #expect(model.flight == nil && model.banner == nil)
+        model.expanded = false
+        model.showsBanners = true
+        #expect(model.flight == nil)
+    }
+
+    @Test func reduceMotionNeverFlies() async throws {
+        let d = try TestDaemon()
+        let model = try await connected(d)
+        defer { model.disconnect() }
+        model.reduceMotion = true
+        try report(d, "a", .prompt)
+        try report(d, "a", .stop)
+        try await until { model.banner != nil }
+        #expect(model.flight == nil && !model.carriesBanner && model.banner?.status == .done)
+    }
+
+    /// Its session leaving Done takes the banner away: the mascot runs back.
+    @Test func theBannerGoingEarlySendsItBack() async throws {
+        let d = try TestDaemon()
+        let model = try await connected(d)
+        defer { model.disconnect() }
+        try report(d, "a", .prompt)
+        try report(d, "a", .stop)
+        try await until { model.flight != nil }
+        let planned = try #require(model.flight?.end)
+        try report(d, "a", .prompt)
+        try await until { model.banner == nil }
+        // Still hopping at home, it is simply home.
+        #expect((model.flight?.end ?? 0) < planned)
+    }
+}
