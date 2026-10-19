@@ -31,6 +31,8 @@ import Testing
         defer { process.terminate() }
         Thread.sleep(forTimeInterval: 0.2)
         #expect(SystemProcesses.entry(pid: process.processIdentifier)?.name == "claude")
+        // argv[1] too: what tells `node …/bin/dsh` from any other node.
+        #expect(SystemProcesses.entry(pid: process.processIdentifier)?.script == "-c")
     }
 
     @Test func startTimeOrNothing() throws {

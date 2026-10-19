@@ -17,10 +17,15 @@ public enum SystemProcesses {
         return table
     }
 
-    /// The process with this pid, named after its argv[0] (see `ProcessEntry.name`), or nil if there is none.
+    /// The process with this pid, named after its argv[0] (see `ProcessEntry.name`) and with its argv[1] as `script`,
+    /// or nil if there is none.
     public static func entry(pid: Int32) -> ProcessEntry? {
         guard var entry = kernelEntry(pid: pid) else { return nil }
-        if let argv0 = argv0(pid: pid) { entry.name = argv0 }
+        let argv = arguments(pid: pid, count: 2)
+        if let argv0 = argv.first.flatMap({ $0.split(separator: "/").last.map(String.init) }), !argv0.isEmpty {
+            entry.name = argv0
+        }
+        if argv.count > 1, !argv[1].isEmpty { entry.script = argv[1] }
         return entry
     }
 
@@ -50,19 +55,23 @@ public enum SystemProcesses {
                             startedAt: Date(timeIntervalSince1970: TimeInterval(proc.p_un.__p_starttime.tv_sec)))
     }
 
-    /// The last path component of argv[0]. Only readable for this user's processes.
-    /// KERN_PROCARGS2 is `argc`, the exec path, NUL padding, then argv.
-    private static func argv0(pid: Int32) -> String? {
+    /// The first `count` arguments (argv[0], argv[1], …), fewer if the process has fewer. Only readable for this
+    /// user's processes. KERN_PROCARGS2 is `argc`, the exec path, NUL padding, then argv.
+    private static func arguments(pid: Int32, count: Int) -> [String] {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
-        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
+        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         var buffer = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, u_int(mib.count), &buffer, &size, nil, 0) == 0 else { return nil }
+        guard sysctl(&mib, u_int(mib.count), &buffer, &size, nil, 0) == 0 else { return [] }
+        let argc = buffer.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
         var rest = buffer.prefix(size).dropFirst(MemoryLayout<Int32>.size)
         rest = rest.drop { $0 != 0 }.drop { $0 == 0 }
-        let arg = rest.prefix { $0 != 0 }
-        guard !arg.isEmpty else { return nil }
-        let name = String(decoding: arg, as: UTF8.self).split(separator: "/").last.map(String.init)
-        return name?.isEmpty == false ? name : nil
+        var argv: [String] = []
+        while argv.count < min(count, Int(argc)), !rest.isEmpty {
+            let arg = rest.prefix { $0 != 0 }
+            argv.append(String(decoding: arg, as: UTF8.self))
+            rest = rest.dropFirst(arg.count + 1)
+        }
+        return argv
     }
 }

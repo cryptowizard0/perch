@@ -8,12 +8,15 @@ public struct ProcessEntry: Equatable, Sendable {
     /// `…/versions/2.1.x`, which is what the kernel calls it) is `claude`.
     public var name: String
     public var startedAt: Date
+    /// argv[1]: for an interpreter (`node`), the script it runs (dsh is `node …/bin/dsh <profile>`).
+    public var script: String?
 
-    public init(pid: Int32, ppid: Int32, name: String, startedAt: Date) {
+    public init(pid: Int32, ppid: Int32, name: String, startedAt: Date, script: String? = nil) {
         self.pid = pid
         self.ppid = ppid
         self.name = name
         self.startedAt = startedAt
+        self.script = script
     }
 }
 
@@ -39,5 +42,37 @@ public enum AgentProcess {
             current = table[entry.ppid]
         }
         return nil
+    }
+
+    // MARK: - dsh
+
+    /// dsh runs as `node`, so the argv[0] rule cannot find it. Its plugin runs inside that process and spawns
+    /// `perch hook dsh` directly (no shell), saying `process.pid`: trusted only when that pid is perch's parent.
+    public static func dsh(claimed pid: Int32?, parent: ProcessEntry?) -> ProcessEntry? {
+        guard let pid, let parent, parent.pid == pid else { return nil }
+        return parent
+    }
+
+    /// A dsh process: `node` running dsh's `bin/dsh` (npm's link) or its package's script, or a packaged `dsh` binary.
+    public static func isDsh(_ entry: ProcessEntry) -> Bool {
+        if entry.name == "dsh" { return true }
+        guard entry.name.hasPrefix("node"), let script = entry.script else { return false }
+        return URL(fileURLWithPath: script).lastPathComponent == "dsh" || script.contains("/@deepseek-ai/dsh/")
+    }
+
+    /// Whether `agent`'s hook runs under dsh rather than under `agent` itself: walking up from `pid`, a dsh process
+    /// comes before any of `agent`'s own (dsh's Claude Code / Codex hooks bridge runs those agents' hook files).
+    /// A `claude` started from dsh's shell is still Claude Code.
+    public static func insideDsh(agent: String, from pid: Int32, in table: [Int32: ProcessEntry]) -> Bool {
+        let own = names[agent] ?? []
+        var seen: Set<Int32> = []
+        var current = table[pid]
+        while let entry = current, seen.insert(entry.pid).inserted {
+            if own.contains(entry.name) { return false }
+            if isDsh(entry) { return true }
+            guard entry.ppid > 0, entry.ppid != entry.pid else { return false }
+            current = table[entry.ppid]
+        }
+        return false
     }
 }
