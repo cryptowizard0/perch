@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-16 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50 · 收起态右翼的 todo 图标和数（#56）已完成，PR #57 squash 合并为 `0c267b8`，见下方"收起态右翼的 todo 数"
+最后更新：2026-10-19 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50 · 收起态右翼的 todo 图标和数（#56）已完成，PR #57 squash 合并为 `0c267b8`，见下方"收起态右翼的 todo 数" · **更多 Reminders 列表（M14，#66）进行中**：#69（数据通路、列表选择、Todo tab 和 CLI 按列表分组）代码和文档在分支 `multi-list-reminders`，没推、等维护者验收；#70（Lists… 窗口、列表选择器、`--list`）和 #71（优先级胶囊、Doing）没开始，见下方"更多 Reminders 列表（M14）"
 
 ## 发布
 
@@ -34,6 +34,7 @@
 | M11 | Grok Build（#31，v0.5 第一个新 agent） | ✅ 完成 | 363 个测试；2026-10-12 维护者真实会话验收通过，PR #33 合并为 `1f83a18`，#31 已关（见"M11 进度"） |
 | M12 | Todo tab（#41：#42 / #43） | 🚧 待验收 | #42 已合并（PR #46）；#43 代码和文档完成，等维护者用一天后验收（见"Todo tab（M12）"） |
 | M13 | Todo 搬进 Apple Reminders（#50：#51 / #52 / #53） | ✅ 完成 | #51 bridge、#52 CLI / inbox 经 bridge 写、#53 日期 / ✎ / 大编辑器，2026-10-16 维护者验收通过（见"Todo 搬进 Reminders（M13）"）；App 写入 → `EKEventStoreChanged` 和 iCloud 手机 → Mac 的延迟还没记到 #50 |
+| M14 | 更多 Reminders 列表，按列表分组（#66：#69 / #70 / #71） | 🚧 进行中 | #69 代码和文档完成（分支 `multi-list-reminders`，575 个测试），等维护者人工验收；#70 / #71 没开始（见"更多 Reminders 列表（M14）"） |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -586,6 +587,29 @@ PR #57 squash 合并为 `0c267b8`，#56 已关；合并前从分支装到了本�
   - #63 看指针：先用探针 App 验证全局 `.mouseMoved` 不要辅助功能权限（记在 #58）。`Gaze`（纯，45° 五个方向，250pt，别的屏 = nil）、`GazeTracker`（可注入 `PointerMonitor`，只在方向变时发布，Reduce Motion 不装监听），App 侧 `AppKitPointerMonitor` + `panel.acceptsMouseMovedEvents`。`Eye.looking(_:)` / `.peeking(_:)`。
   - #64 Done 飞：`DoneRun`（腿 `Leg` 的分段线性路线，打断时 `cut` 不改原来的参数化，所以打断前的位置一字不差），`DoneRun.flies`（Done 横幅、没有 waiting / failed、没 Reduce Motion），`QueueModel.flight` / `carriesBanner` / `notchWidth` / `reduceMotion`；横幅计时到 `bannerEnd`（卷完）为止，飞行计时到 `end`。`FlightView` / `FlightReveal` 在 `MascotView.swift`。遮罩放在 BannerView 自己身上，横幅淡出时也保持卷起（截图里发现的：放在右翼上时横幅淡出那 0.2 s 会整条重新露出来）。
   - 截图（隔离 perchd + debug App 跑在内建刘海屏上，`-Display automatic -Chimes NO -QuickEntryHotKey …` 只走参数域，不写用户的 defaults）：跳、钻进刘海、拉帘子、站着撒彩纸、卷回去、回到左翼都对。看指针没法截（不能合成鼠标事件），留在 PR 的人工检查清单里。
+
+## 更多 Reminders 列表（M14，#66 / #69，2026-10-19）
+
+设计在 #66（父 issue），拆成 #69 → #70 → #71。#69 只做数据通路、列表选择和按列表分组；Lists… 窗口、添加弹窗 / 编辑器的列表选择器、`--list`、优先级胶囊、Doing 都不在 #69 里。行为见 `docs/PRD.md` 的"Todo tab"和 Reminders 一节，这里只记实现和坑。
+
+- **列表选择**：`PerchAppCore/Reminders.swift` 的 `ListSelection`（注入 `UserDefaults`），`RemindersBridge.selection` / `checkedLists`。defaults 的键按 "Perch" 列表名分命名空间，值都是 `calendarIdentifier` 的字符串数组：
+  - `RemindersOrder.Perch`：所有已知列表的顺序；`RemindersChecked.Perch`：勾选的（顺序无所谓）。隔离运行是 `RemindersOrder.Perch Dev` / `RemindersChecked.Perch Dev`。
+  - `resolve(lists:perch:)` 在每次 `refresh()`（有权限时）跑：去掉不存在的、把新的追加到最后（不勾）、加上 "Perch"，只在变了时写回。
+  - #70 之前手动改：先在 App 跑过一次（顺序里就有所有列表的 id），`defaults read dev.perch.app 'RemindersOrder.Perch'` 看 id（列表名要自己对，EventKit 的 id 没有名字；也可以 `perch ls --json` 看 `todo_lists`，但那里只有勾选的），然后 `defaults write dev.perch.app 'RemindersChecked.Perch' -array <PerchID> <WorkID>`、`defaults write dev.perch.app 'RemindersOrder.Perch' -array <WorkID> <PerchID> …`，展开一次面板（`QueueModel.expanded` → `remindersChanged(listChanged: false)` 发现勾选变了就发快照）或等 Reminders 有变化。
+- **接缝**：`RemindersStore.reminders(inLists:completedSince:)` 一次读多个列表、每条带 `Reminder.list`（EventKit 实现里列表全没了就返回空：空的 calendars 对 EventKit 是"所有列表"）。别的方法还是按单个列表；`RemindersBridge.listOf(_:hint:)` 找提醒在哪个勾选列表里（先 hint = 缓存的 `meta.list_id` / `TodoOperation.list`，再别的勾选列表），找不到就报 "that reminder isn't in a list Perch shows"。新建（`add`、`apply(.create)`）还是 `readyList()` = "Perch"；`upsert` 先在勾选列表里找，没有就在 "Perch" 新建。
+- **"Perch" 不在时**：`settle(.createList, lists:)` 仍然算勾选的其他列表，所以快照里还有它们（Todo tab 照样只显示 Create Perch list 按钮）。
+- **线上协议**：`ReminderList` 从 PerchAppCore 挪到 PerchCore（Codable：`id` / `title` / `icloud`）。`todo_snapshot` 多 `lists`；`list` 的回答多 `todo_lists`（有才带）；watch 上 `Response(todoLists:)` 推送（`Push.lists` / `QueueConnection.Update.lists`），perchd 在同一份快照的 item 事件**之前**推，连接时 `QueueConnection` 也先发 `.lists` 再发 `.snapshot`。`Item` 编码多一个只出不进的 `list`（= `meta.list_name`）。`TodoOperation.list`。
+- **perchd**：`Service.applySnapshot(_:lists:)` 把列表描述存在 `daemon_state` 的 `todo_lists`（JSON，不改 schema；没有 `lists` 的快照存空数组 = 旧的不分组模式），每条 todo 的 `meta` 写 `list_id` / `list_name`；列表改名会让 todo 的 `meta` 变，发 updated。`queueOrdered(now:calendar:lists:)`：open task 一个槽，按列表位置（不在列表里的排后面）、优先级、创建时间、id，**到期日期不再排序**（#69 写明"then priority, then age"，`QueueOrderTests.fixedOrder` 跟着改了）。`MirrorRenderer.render(_:lists:todosAsOf:)`：有列表时 "To do" 总是出现，每个列表一个 `###`，空的 "All clear"，这时不写 "Nothing waiting."。分组的共用逻辑是 PerchCore 的 `todoGroups(lists:)` / `Item.todoOrder`。
+- **App**：`QueueModel.todoLists`（perchd 推来的，所以不是 bridge 的 App 和没有 Reminders 的 App 也一样分组）；`todos` = `TodoList(items:lists:unlisted:)`。`TodoList` 丢掉不在勾选列表里的 todo（列表先到、item 事件后到，所以那是刚取消勾选的）；一个列表都没有（#69 之前的缓存）时所有 todo 一组，叫 `remindersListName`。`RemindersState.note` 删了，换成 `TodoList.Group.notSyncing`。`PanelLayout.todoHeight` 给空组算一行 "All clear"。
+- **CLI**：`perch ls` 的人类输出在每组 open todo 前打一行 `[列表名]`（按 `listID` 换组）；只在 todo 带列表时打，所以只有旧缓存（或测试里不带 `lists` 的假 bridge）时和以前一样。
+- **测试**：`TodoListsTests`（真 perchd + `QueueModel` bridge + 假 Reminders：分组和顺序、计数、Todo tab 写到自己的列表、添加进 Perch、取消 / 重新勾选短 id 不变、挪到没勾的列表、删掉勾选列表、改名 / 不在 iCloud、"Perch" 没了、perchd 重启后列表还在且普通 App 也分组）、`TodoListsCLITests`（真 `perch`：`ls` / `--json` / `todo.md` 分组、没有 bridge 照样、CLI 写任何勾选列表、`perch add` 和 inbox 进 Perch）、`ListSelectionTests`（注入 defaults）、`TodoListTests`（纯函数）、`ServiceTests.snapshotsCarryTheirLists`、`MirrorTests.toDoHasASubheadingPerList`、`QueueOrderTests.openTasksGoByListFirst`、`ModelsTests.aTodoCarriesItsListOnTheWire`。`FakeRemindersStore` 加了 `phoneMove` / `phoneCreateList` / `setICloud` / `lastRead`。坑：测试里 `TestDaemon()` 一定要先存进变量，直接写在参数里会在调用后释放、server 停掉，现象是快照永远到不了。
+- 提交：`db18c32`（perchd / CLI / todo.md）、`2aaa364`（bridge、选择、Todo tab），之后是文档。
+- **没做（要人）**：真 Mac 上的人工验收（本机开发版没有 Reminders 权限，没截图）：用 `defaults write` 勾上别的列表后展开面板，看分组、"All clear"、"Not syncing"、组标题样式；在别的列表里完成 / Undo / 编辑 / 改优先级 / 删除 / ✎；取消勾选再勾上短 id 不变。`CONFIG=debug scripts/bundle-app.sh` 能编过。
+- **已知限制 / 风险**：
+  - 删掉的列表会被立刻从 defaults 去掉；如果 EventKit 在启动时一瞬间只返回部分列表（比如 iCloud 账户还没加载完），那时被认为"不存在"的勾选列表会丢掉勾选（没实测到，#70 的窗口能重新勾）。
+  - `defaults write` 改选择要等下次展开面板或 Reminders 有变化才生效（App 不监听外部 defaults 改动）。
+  - 跨账户挪提醒（iCloud → 本机）时 EventKit 可能换外部标识符，那时短 id 会变：#66 的 Further Notes 说留给 #70（移动列表）去核实。
+  - 两个勾选列表同名时 `perch ls` 的组标题一样（按 id 分组，不会混）。
 
 ## 未决问题
 

@@ -157,3 +157,28 @@
 - [x] 设时间同时加 alarm（刘海和 CLI 都是），时间改了跟着走，别的 alarm 不动
 - [x] 添加弹窗不变；`swift build` / `swift test` 通过；PRD、CLAUDE.md 更新
 - [x] 人工验收（真 Mac，有 Reminders 权限，2026-10-16 维护者验收通过）：行的样子、✎ 跳过去、大编辑器（日期 / 时间选择器、Return / Esc / Tab）、在刘海里设的时间到点会提醒、iCloud 列表上 ✎ 也能找到那条
+
+## M14 — 更多 Reminders 列表，按列表分组（#66：#69 / #70 / #71）
+
+设计见 #66（父 issue）和 `docs/PRD.md` 的"Todo tab"、Reminders 一节。
+
+**#69 数据通路、列表选择、Todo tab 和 CLI 按列表分组**
+- [x] 列表选择存在 App 的 defaults（`RemindersOrder.<名字>` / `RemindersChecked.<名字>`，按 `calendarIdentifier`）："Perch" 永远勾选、位置可变；新列表排到最后不勾；删掉的默默去掉；改名的照样勾着、位置不变；隔离运行自己一套、只勾 "Perch Dev"；升级的用户只勾 "Perch"
+- [x] "Perch" 的特殊处理不变（记下的 id → 名字、第一次自动建、从不自动重建、Connect / Open System Settings / Create Perch list）；别的勾选列表被删了就消失
+- [x] 快照覆盖所有勾选列表（未完成 + 7 天内完成），每条带列表，加按顺序的列表描述（id、名字、iCloud）
+- [x] perchd 把 todo 的列表记在 `meta`，列表描述存在 `daemon_state`（不改 schema），没有 bridge、重启后照样分组；`todo_refs` 从不删
+- [x] Todo tab：每个勾选列表一组（按选择顺序、空的灰色 "All clear"）；组标题灰色列表名 + 数、不用列表颜色；不在 iCloud 的写 "Not syncing"；组内 High → Normal → Low、再创建时间、再 id
+- [x] 摘要、tab 栏的数、收起态右翼的数（#56）都算所有勾选列表
+- [x] 完成（带 Undo）、Edit…、Priority ▸、Delete、✎ 对任何勾选列表的 todo 都能用，只写它自己的列表，Perch 不管的字段不动；添加进 "Perch"
+- [x] `perch ls` 按列表分组（再优先级、再创建时间；标出 High / Low），`--json` 带 `list`；`todo.md` 每个勾选列表一个小标题、空的 "All clear"；没有 bridge 时照样（"Todos as of HH:MM"）
+- [x] `done` / `update` / `rm` / 重新打开 / `ls --status done` 对任何勾选列表都能用；`inbox.md` 和 `perch add` 进 "Perch"
+- [x] 取消勾选只把那个列表的 todo 从 tab、`perch ls`、`todo.md` 拿掉，Reminders 不动；重新勾上短 id 不变；在 Reminders 里挪到没勾的列表就消失
+- [x] 测试：假 Reminders + 真 perchd + `QueueModel`（`TodoListsTests` / `TodoListsCLITests`）、纯 `TodoList`（`TodoListTests`）、注入 `UserDefaults` 的选择（`ListSelectionTests`）
+- [x] `swift build` / `swift test` 通过；PRD、CLAUDE.md、`project.md` 更新
+- [ ] 人工验收（真 Mac，有 Reminders 权限）：`defaults write` 勾上别的列表后展开面板，分组、"All clear"、"Not syncing"、在别的列表里完成 / 编辑 / 改优先级 / 删除 / ✎ 都对；取消勾选再勾上短 id 不变
+
+**#70 Lists… 窗口、添加弹窗和编辑器的列表选择、`--list`**
+- [ ] 未开始
+
+**#71 优先级胶囊、Doing**
+- [ ] 未开始

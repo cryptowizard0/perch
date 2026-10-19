@@ -10,7 +10,7 @@ The loop it is built for: **an agent is waiting for you → the notch lights up 
 - **A pixel cyclops lives in the notch** and acts out the most urgent state: it trots while an agent runs, waves at you when one needs you, and hops when one starts needing you, fails or finishes.
 - **Allow / Deny in the notch** for commands on your allowlist (`npm test`, `git status`, …). Everything else shows the full command and *Answer in the terminal*.
 - **Click a row** to go back to its terminal (the exact Ghostty tab) or its desktop app.
-- **A Todo tab** for your own todos, grouped High / Normal / Low. They live in a Reminders list called "Perch", so they're on your iPhone too. Add one from anywhere with ⌥⇧Space without leaving your terminal.
+- **A Todo tab** for your own todos, grouped by Reminders list. They live in a Reminders list called "Perch" (plus any other lists you check), so they're on your iPhone too. Add one from anywhere with ⌥⇧Space without leaving your terminal.
 - Works with **Claude Code** and **Codex** (in the terminal or their desktop apps) and **Grok** (the `grok` CLI), through their hooks. No changes to how you run them.
 
 macOS 14+. Prebuilt for Apple silicon; builds from source on any Mac, Intel included. On displays without a notch it sits in a small capsule at the top of the screen.
@@ -191,7 +191,7 @@ perch allowlist init                   # write ~/.perch/allowlist.json to edit
 
 The expanded notch has two tabs, picked from the icons left of the notch: **Agents** (the mascot; an orange dot while a session needs you, red while one failed) and **Todo** (a checklist with your open count). The panel opens on Agents whenever a session needs you or failed; otherwise on the tab you last picked. The folded notch shows your open count on its right wing, next to a checklist icon (dimmed when there's nothing open); todos never pulse, chime, or move the mascot.
 
-The Todo tab shows the **"Perch" list in Apple Reminders**, grouped High / Normal / Low, oldest first. Due dates show on the right of each row (Today, Tomorrow, a weekday, or a date), white once overdue. Add a todo on your iPhone and it shows up in the notch; complete or add one in the notch and it's in Reminders, and on your phone through iCloud. The first time you open the tab, click **Connect Reminders** and allow access; Perch finds the "Perch" list or creates it in iCloud. If you delete the list, the tab offers **Create Perch list**; Perch never recreates it on its own. High and Low match Reminders' High and Low; Normal is "no priority" (Medium on the phone also shows as Normal).
+The Todo tab shows the **"Perch" list in Apple Reminders**, and any other Reminders lists you check, one group per list; in each list High first, then Normal, then Low, oldest first. A list with nothing open says "All clear"; one that isn't in iCloud says "Not syncing". Until the Lists… window arrives, check other lists with `defaults write dev.perch.app 'RemindersChecked.Perch' -array <list ids>` (the ids of every list are in `defaults read dev.perch.app 'RemindersOrder.Perch'`, which also sets their order), then open the notch. Due dates show on the right of each row (Today, Tomorrow, a weekday, or a date), white once overdue. Add a todo on your iPhone and it shows up in the notch; complete or add one in the notch and it's in Reminders, and on your phone through iCloud. The first time you open the tab, click **Connect Reminders** and allow access; Perch finds the "Perch" list or creates it in iCloud. If you delete the list, the tab offers **Create Perch list**; Perch never recreates it on its own. High and Low match Reminders' High and Low; Normal is "no priority" (Medium on the phone also shows as Normal).
 
 | | |
 | --- | --- |
@@ -203,7 +203,7 @@ The Todo tab shows the **"Perch" list in Apple Reminders**, grouped High / Norma
 | Right-click → *Edit…* | A larger editor: title, notes, date and time, priority, URL. Return saves, Esc cancels. A time you set notifies just like one set in Reminders |
 | Right-click → *Priority* / *Delete* | Re-rank it, or delete it at once (it goes to Reminders' Recently Deleted) |
 
-The CLI and `~/.perch/inbox.md` change the same list, through Perch.app: it applies the change in Reminders before `perch` returns, so `perch ls` right after always shows it. If Perch.app isn't running (or doesn't answer within 2 seconds), the command fails with one line and nothing is saved for later. Lines you append to `inbox.md` (`- [ ] title`) wait in the file until Perch.app is running, then become reminders.
+The CLI and `~/.perch/inbox.md` change the same lists, through Perch.app (`perch ls` groups todos by list, and `--json` gives each its `list`; new todos go to "Perch"): it applies the change in Reminders before `perch` returns, so `perch ls` right after always shows it. If Perch.app isn't running (or doesn't answer within 2 seconds), the command fails with one line and nothing is saved for later. Lines you append to `inbox.md` (`- [ ] title`) wait in the file until Perch.app is running, then become reminders.
 
 ```bash
 perch add "Renew passport" -p high --due 2026-11-03     # a day; --due @15:00 or +2h for a time
