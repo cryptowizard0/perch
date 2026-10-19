@@ -178,7 +178,17 @@
 - [ ] 人工验收（真 Mac，有 Reminders 权限）：`defaults write` 勾上别的列表后展开面板，分组、"All clear"、"Not syncing"、在别的列表里完成 / 编辑 / 改优先级 / 删除 / ✎ 都对；取消勾选再勾上短 id 不变
 
 **#70 Lists… 窗口、添加弹窗和编辑器的列表选择、`--list`**
-- [ ] 未开始
+- [x] 先核实 EventKit：改提醒的 calendar 在同一个账户里外部标识符不变（macOS 15.6.1、iCloud 实测，记在 #70）；跨账户没法验证，Perch 拒绝跨账户挪
+- [x] 右键刘海 → Lists…（只在有 Reminders 权限时）：不激活 App 的面板，每个列表一行（把手、勾选框、名字），按选择顺序；新列表在最下面不勾，删了的消失
+- [x] 拖动改 Todo tab、`perch ls`、`todo.md` 的分组顺序；勾选 / 取消立刻生效；"Perch" 不能取消勾选但能拖
+- [x] `perch add --list <名字>` 建在那个勾选列表里，不给是 "Perch"；`perch update <id> --list <名字>` 挪过去，短 id 不变
+- [x] 没勾的、不存在的、重名的（精确、区分大小写）：一行错误列出勾选的列表、exit 非 0、`--json` 是 `{"ok":false,…}`、什么都不写；perchd 先拒绝，bridge 写的时候再查
+- [x] `inbox.md` 照样进 "Perch"
+- [x] 添加弹窗的列表选择器只列勾选的列表，每次打开都在 "Perch"
+- [x] 大编辑器的 List 选择器挪 todo，不动它就不写列表（`TodoEditor.edited` / `ReminderChange(from:to:)`）
+- [x] 测试：CLI `--list`（成功、每种拒绝、出错什么都不写）、bridge 再查、跨账户、假 Reminders 里挪列表、Lists… 的模型（`TodoListFlagTests` / `ListPickerTests`）、编辑器的列表 diff（`TodoEditorTests`）、选择的拖动和勾选持久化（`ListSelectionTests`）、按名字找列表（`ListNameTests`）
+- [x] `swift build` / `swift test` 通过，`CONFIG=debug scripts/bundle-app.sh` 能编；PRD、CLAUDE.md、`project.md` 更新
+- [ ] 人工验收（真 Mac，有 Reminders 权限）：右键 → Lists… 不抢终端焦点；拖动（包括 "Perch"）和勾选立刻改 Todo tab；"Perch" 的勾选框点不动；添加弹窗的选择器每次在 "Perch"、选了别的列表能加进去；编辑器换列表能挪、不动就不挪
 
 **#71 优先级胶囊、Doing**
 - [ ] 未开始
