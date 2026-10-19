@@ -54,11 +54,15 @@ public struct Panel: Equatable, Sendable {
         sessions.map(\.status).min { $0.priority < $1.priority }
     }
 
-    /// When the signal's state began, for the mascot's sense of time (#60): Running, the oldest running turn's start
-    /// (the Running group's first row). Nil for the other states.
+    /// When the signal's state began, for the mascot's sense of time: Running, the oldest running turn's start (#60);
+    /// Needs you, the longest wait's start (#61, the session ⌥⇧O opens). Both are their group's first row, the same
+    /// times the rows show. Nil for the other states.
     public var signalSince: Date? {
-        guard let signal, signal == .running else { return nil }
-        return groups.first { $0.status == signal }?.sessions.first?.turnStartedAt
+        switch signal {
+        case .running: return groups.first { $0.status == .running }?.sessions.first?.turnStartedAt
+        case .waiting: return headSession?.statusAt
+        case .failed, .done, .idle, nil: return nil
+        }
     }
 
     public var runningCount: Int {

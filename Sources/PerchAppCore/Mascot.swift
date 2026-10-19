@@ -9,7 +9,8 @@ import PerchCore
 /// beat is timed to its chime (#35), then a second act (an "!", a fall and some smoke, confetti). Asleep, idle, failed
 /// or done, it now and then plays a quirk from its mood's set (a yawn, a look around, a snot bubble; a sigh, rubbing
 /// its head; a sway, a hum). Failed keeps its X eye and Done its happy eye through theirs (#59). It also feels the
-/// time: a turn running over 10 minutes makes it sweat (#60).
+/// time: a turn running over 10 minutes makes it sweat (#60); Needs you insists after a minute and knocks on the glass
+/// from five (#61).
 public enum Mascot {
     /// The canvas, in points: the 13 × 13 sprite at `origin`, with room above for the hop and beside for the
     /// shake and the sparkles. Idle's "z" drifts past the right edge, up to `overflowWidth`.
@@ -121,7 +122,8 @@ public enum Mascot {
     /// a quirk; a quirk plays only in the mood whose set has it.
     ///
     /// `since` is when the signal's state began, on the same clock: the oldest running turn's start (Running sweats
-    /// from `sweatAfter`). Nil leaves time out of it.
+    /// from `sweatAfter`), the longest wait's start (Needs you insists from `insistAfter`, knocks from `knockAfter`).
+    /// Nil leaves time out of it.
     public static func frame(_ mood: Mood, time: TimeInterval, since: TimeInterval? = nil, reaction: Reaction? = nil,
                              quirk: QuirkPlay? = nil) -> [Cell] {
         if let reaction, !reaction.isOver {
@@ -141,6 +143,16 @@ public enum Mascot {
     /// Where in each `wipePeriod` the wipe plays, and when the next drop has formed.
     static let wipe: Range<TimeInterval> = 2..<3
     static let dropBack: TimeInterval = 3.6
+
+    /// Needs you after this long waves both arms together, hops every `hopPeriod` and flashes its tip faster.
+    public static let insistAfter: TimeInterval = 60
+    static let hopPeriod: TimeInterval = 4
+    static let hop: Range<TimeInterval> = 2..<2.5
+    /// From this long it also knocks on the glass, every `knockPeriod`; nothing changes after that.
+    public static let knockAfter: TimeInterval = 300
+    public static let knockPeriod: TimeInterval = 8
+    /// A lean in, then three knocks, a quarter second each way.
+    static let knockDuration: TimeInterval = 1.75
 
     // MARK: - Quirks
 
@@ -248,6 +260,8 @@ public enum Mascot {
         var note: Int?
         /// A long run's sweat drop by its head.
         var sweat = false
+        /// A knock on the glass: a white glint by the hand.
+        var glint = false
     }
 
     /// `waited`: how long the signal's state has lasted, when known.
@@ -285,6 +299,25 @@ public enum Mascot {
             look.mouth = .open
             look.arms = step(0.25) % 2 == 1 ? .leftUp : .rightUp
             look.tipLit = step(0.5) % 2 == 1
+            if let waited, waited >= insistAfter {
+                look.arms = step(0.25) % 2 == 1 ? .bothUp : .down
+                look.tipLit = step(0.25) % 2 == 1
+                if hop.contains(waited.truncatingRemainder(dividingBy: hopPeriod)) {
+                    look.dy = waited.truncatingRemainder(dividingBy: hopPeriod) < hop.lowerBound + 0.25 ? -2 : -1
+                    look.feetTucked = true
+                    look.arms = .bothUp
+                }
+                let knock = (waited - knockAfter).truncatingRemainder(dividingBy: knockPeriod)
+                if waited >= knockAfter, knock < knockDuration {
+                    // Leans in, eye wide, and knocks three times; a white glint at its hand on each.
+                    let beat = Int((knock / 0.25).rounded(.down))
+                    look.dy = 1
+                    look.feetTucked = false
+                    look.eye = .wide
+                    look.arms = .knock(hit: beat % 2 == 1)
+                    look.glint = beat % 2 == 1
+                }
+            }
             if let age, let dy = at([-2, -3, -2, 0, -2, -3, -2, 0], fps: 12, age) {
                 look.dy = dy
                 look.feetTucked = true
@@ -423,6 +456,8 @@ public enum Mascot {
     /// The 5 × 5 eye at (4, 4): `w` white, `o` dark, `.` body.
     enum Eye {
         case open, up, left, right, blink, closed, happy, cross, drowsy, squeezed
+        /// Leaning in to knock: wide open, staring straight out.
+        case wide
         /// Done's blink: the happy arc squeezed flatter, still a "^".
         case happyBlink
 
@@ -439,6 +474,7 @@ public enum Mascot {
             case .drowsy: return [".....", ".....", "ooooo", "wwoww", ".www."]
             case .squeezed: return [".....", "o...o", ".o.o.", "..o..", "....."]
             case .happyBlink: return [".....", ".....", ".ooo.", "o...o", "....."]
+            case .wide: return ["wwwww", "wwwww", "wwoww", "wwwww", "wwwww"]
             }
         }
     }
@@ -481,6 +517,8 @@ public enum Mascot {
         case onHead(reaching: Bool)
         /// A long run's wipe: the right hand at its brow, or further across it.
         case wipe(across: Bool)
+        /// A long wait's knock: the right hand raised, up against the glass or drawn back.
+        case knock(hit: Bool)
 
         var cells: [(Int, Int)] {
             let left = [(0, 8), (0, 9)], right = [(12, 8), (12, 9)]
@@ -492,6 +530,7 @@ public enum Mascot {
             case .bothUp: return leftRaised + rightRaised
             case .onHead(let reaching): return left + [(12, 5), (12, 4), (11, 3), (10, 2), (9, 1)] + (reaching ? [(8, 1)] : [])
             case .wipe(let across): return left + (across ? [(12, 4), (11, 3), (10, 2)] : [(12, 5), (12, 4), (11, 3)])
+            case .knock(let hit): return left + (hit ? rightRaised : [(12, 5), (12, 6)])
             }
         }
     }
@@ -531,6 +570,7 @@ public enum Mascot {
         if look.sparkle { overlay(-1, 2, .white); overlay(13, 2, .white) }
         if look.exclaim { for y in [-1, 0, 1, 3] { overlay(11, y, .white) } }
         if look.sweat { overlay(12, 2, .white); overlay(12, 3, .white) }
+        if look.glint { overlay(13, 4, .white) }
         if let step = look.smoke {
             for (x, y) in [(5, 0), (7, -1), (6, -3), (8, -4)] { overlay(x, y - step, .faint) }
         }

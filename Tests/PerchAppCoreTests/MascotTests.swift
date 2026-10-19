@@ -504,3 +504,112 @@ extension MascotTests {
         #expect(at(2.1) == art(Mascot.frame(.running, time: start + 2.1 - 112 * 48, since: 0), x: 0..<16, y: 3..<16))
     }
 }
+
+/// Needs you escalates (#61).
+extension MascotTests {
+    func waiting(_ waited: Double) -> [String] { art(Mascot.frame(.waiting, time: waited, since: 0), x: 0..<16, y: 2..<17) }
+
+    /// Leaning in to knock: the wide eye (24 white cells; the upward eye has 20, plus the tip).
+    func knocking(_ waited: Double) -> Bool {
+        Mascot.frame(.waiting, time: waited, since: 0).filter { $0.ink == .white }.count >= 24
+    }
+
+    /// Both arms in the same place: waving together, not taking turns.
+    func armsTogether(_ waited: Double) -> Bool {
+        let cells = Mascot.frame(.waiting, time: waited, since: 0).filter { $0.ink == .body }
+        return Set(cells.filter { $0.x == 1 }.map(\.y)) == Set(cells.filter { $0.x == 13 }.map(\.y))
+    }
+
+    var quarter: [Double] { [0.05, 0.3, 0.55, 0.8] }
+
+    @Test func needsYouLevelsGoByTheLongestWait() {
+        // Under a minute: today's look, arms taking turns.
+        for x in stride(from: 0.0, to: 1, by: 0.05) {
+            #expect(Mascot.frame(.waiting, time: 59 + x, since: 0) == Mascot.frame(.waiting, time: 59 + x), "\(x)")
+        }
+        #expect(quarter.allSatisfy { !armsTogether(59 + $0) })
+        // From a minute: both arms together, and a hop every few seconds.
+        #expect(quarter.allSatisfy { armsTogether(60 + $0) && armsTogether(299 + $0) })
+        #expect(waiting(62.1) == [
+            ".......#........",
+            "....#######.....",
+            "...#########....",
+            ".#####www#####..",
+            ".####wwoww####..",
+            "..###wwwww###...",
+            "..###wwwww###...",
+            "..####www####...",
+            "..###########...",
+            "...###ooo###....",
+            "...###ooo###....",
+            ".....#...#......",
+            "................",
+            "................",
+            "................",
+        ])
+        #expect(Mascot.frame(.waiting, time: 62.1, since: 0).map(\.y).min()! < Mascot.frame(.waiting, time: 61.1, since: 0).map(\.y).min()!)
+        // The tip flashes faster: on and off every quarter second instead of every half.
+        let tip = { (time: Double, since: Double?) in Mascot.frame(.waiting, time: time, since: since).contains { $0.x == 7 && $0.ink == .white && $0.y < 5 } }
+        #expect([0.1, 0.35, 0.6, 0.85].map { tip(120 + $0, 0) } == [false, true, false, true])
+        #expect([0.1, 0.35, 0.6, 0.85].map { tip(120 + $0, nil) } == [false, false, true, true])
+        // From five minutes, a knock.
+        #expect(!stride(from: 0.0, to: 300, by: 0.05).contains(where: knocking))
+        #expect(knocking(300) && knocking(300.1))
+    }
+
+    /// It leans in, eye wide, and knocks three times, a glint at its hand on each.
+    @Test func fromFiveMinutesItKnocksOnTheGlass() {
+        #expect(waiting(300.3) == [
+            "................",
+            "................",
+            ".......w........",
+            ".......#........",
+            "....#######.....",
+            "...#########....",
+            "..###wwwww####w.",
+            "..###wwwww####..",
+            "..###wwoww###...",
+            "..###wwwww###...",
+            ".####wwwww###...",
+            ".############...",
+            "...###ooo###....",
+            "...###ooo###....",
+            "....##...##.....",
+        ])
+        let glint = { (waited: Double) in Mascot.frame(.waiting, time: waited, since: 0).contains { $0.x == 14 && $0.ink == .white } }
+        let samples = stride(from: 300.0, to: 300 + Mascot.knockPeriod, by: 0.05).map(glint)
+        let knocks = zip(samples, [false] + samples).filter { $0 && !$1 }.count
+        #expect(knocks == 3)
+        // Then back to waving until the next one.
+        #expect(!knocking(302) && !knocking(307.9) && knocking(308.1))
+        // It sinks a point to lean in.
+        #expect(Mascot.frame(.waiting, time: 300.1, since: 0).map(\.y).max()! > Mascot.frame(.waiting, time: 61.1, since: 0).map(\.y).max()!)
+    }
+
+    /// Five minutes is the top: at 30 and 120 minutes it's the same cycle, every 8 s, nothing new.
+    @Test func theKnockNeverChangesAfterFiveMinutes() {
+        for x in stride(from: 0.0, to: Mascot.knockPeriod, by: 0.05) {
+            let five = Mascot.frame(.waiting, time: 300 + x, since: 0)
+            #expect(five == Mascot.frame(.waiting, time: 300 + 188 * Mascot.knockPeriod + x, since: 0), "\(x)")
+            #expect(five == Mascot.frame(.waiting, time: 300 + 863 * Mascot.knockPeriod + x, since: 0), "\(x)")
+        }
+    }
+
+    /// The signal never weakens: orange body, never another colour, in every frame of every level.
+    @Test func needsYouStaysOrangeAtEveryLevel() {
+        let inks: Set<Mascot.Ink> = [.body, .white, .dark]
+        for waited in stride(from: 0.0, to: 320, by: 0.1) {
+            let cells = Mascot.frame(.waiting, time: waited, since: 0)
+            #expect(Set(cells.map(\.ink)).isSubset(of: inks) && cells.filter { $0.ink == .body }.count > 60, "\(waited)")
+        }
+    }
+
+    /// The entry reaction still plays first; Reduce Motion is the still frame.
+    @Test func theEntryReactionStillComesFirst() {
+        for age in stride(from: 0.0, to: Mascot.Mood.waiting.reactionDuration!, by: 0.1) {
+            let reaction = Mascot.Reaction(mood: .waiting, age: age)
+            #expect(Mascot.frame(.waiting, time: 400, since: 0, reaction: reaction) == Mascot.frame(.waiting, time: 400, reaction: reaction))
+        }
+        #expect(Mascot.still(.waiting) == Mascot.frame(.waiting, time: 0))
+    }
+}
