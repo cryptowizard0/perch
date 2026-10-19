@@ -4,6 +4,8 @@ import SwiftUI
 
 /// Right-click menu on the notch (a row has its own).
 struct NotchMenu {
+    /// "Lists…" (#70): the window that chooses and orders the Todo tab's Reminders lists.
+    var lists: () -> Void
     /// "Uninstall Perch…": asks first.
     var uninstall: () -> Void
     var quit: () -> Void
@@ -40,6 +42,11 @@ struct NotchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contextMenu {
+            // Only with Reminders access (#70): without it there are no lists to choose.
+            if queue.choosesLists {
+                Button("Lists…", action: menu.lists)
+                Divider()
+            }
             // Not setup, so every build has it (#35). Turning a state on plays it.
             Menu("Sounds") {
                 Toggle("Play Sounds", isOn: $queue.chimes.enabled)

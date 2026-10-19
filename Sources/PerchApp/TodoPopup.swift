@@ -75,8 +75,8 @@ final class TodoPopupController {
     private let focus = PopupFocus()
     private var cancellables: Set<AnyCancellable> = []
     static let size = CGSize(width: 420, height: 88)
-    /// The larger editor (#53).
-    static let editorSize = CGSize(width: 440, height: 318)
+    /// The larger editor (#53), with its List row (#70).
+    static let editorSize = CGSize(width: 440, height: 348)
     static let gap: CGFloat = 8
 
     init(queue: QueueModel, notchWindow: NotchWindowController) {
@@ -131,17 +131,10 @@ final class TodoPopupController {
     private func place() {
         guard let editor = queue.editor else { return }
         let size = editor.isLarge ? Self.editorSize : Self.size
-        var frame: CGRect
         // Below the panel whenever it is expanded, even for a ⌥⇧Space popup the notch expanded under afterwards.
-        if editor.fromPanel || notchWindow.notch.expanded {
-            let notch = notchWindow.panel.frame
-            frame = CGRect(x: notch.midX - size.width / 2, y: notch.minY - Self.gap - size.height, width: size.width, height: size.height)
-        } else {
-            guard let geometry = notchWindow.notch.geometry else { return }
-            frame = geometry.expandedFrame(size: size)
-            frame.origin.y -= geometry.bandHeight + Self.gap
-        }
-        if panel.frame != frame { panel.setFrame(frame.integral, display: true) }
+        guard let frame = notchWindow.popupFrame(size: size, belowPanel: editor.fromPanel || notchWindow.notch.expanded, gap: Self.gap)
+        else { return }
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
     }
 }
 
@@ -168,8 +161,8 @@ struct TodoPopupView: View {
     }
 }
 
-/// The add popup (#43): the title field over the High / Normal / Low buttons. Everything it shows comes from
-/// `QueueModel.editor`.
+/// The add popup (#43): the title field, and the list it goes in when more than one is checked (#70), over the High /
+/// Normal / Low buttons. Everything it shows comes from `QueueModel.editor`.
 struct TodoAddView: View {
     @ObservedObject var queue: QueueModel
     @ObservedObject var focus: PopupFocus
@@ -192,6 +185,10 @@ struct TodoAddView: View {
                 .foregroundStyle(.white)
                 .focused($focused)
                 .onSubmit { queue.submitEditor() }
+                if queue.editorLists.count > 1 {
+                    ListPicker(queue: queue, onPick: { focused = true })
+                        .frame(maxWidth: 130)
+                }
             }
             HStack(spacing: 6) {
                 ForEach(ItemPriority.allCases, id: \.self) { priority in
@@ -224,8 +221,8 @@ struct TodoAddView: View {
 }
 
 /// The larger editor (#53), modeled on Reminders' detail view: title, notes, a date switch with an optional time,
-/// High / Normal / Low and a URL. Repeat rules, alarms, subtasks, flags and the rest stay as they are (✎ opens
-/// Reminders for those).
+/// High / Normal / Low, a URL and the list (#70; another one moves the todo). Repeat rules, alarms, subtasks, flags and
+/// the rest stay as they are (✎ opens Reminders for those).
 struct TodoEditorView: View {
     @ObservedObject var queue: QueueModel
     @ObservedObject var focus: PopupFocus
@@ -287,6 +284,13 @@ struct TodoEditorView: View {
                 }
             }
             HStack(spacing: 6) {
+                Image(systemName: "list.bullet").frame(width: 18).foregroundStyle(.white.opacity(0.5))
+                ListPicker(queue: queue)
+                    .fixedSize()
+                Spacer(minLength: 0)
+            }
+            .frame(height: 22)
+            HStack(spacing: 6) {
                 Image(systemName: "link").frame(width: 18).foregroundStyle(.white.opacity(0.5))
                 TextField("URL", text: binding(\.url, ""))
                     .textFieldStyle(.plain)
@@ -314,5 +318,30 @@ struct TodoEditorView: View {
             trailing()
         }
         .frame(height: 22)
+    }
+}
+
+/// The popup's list picker (#70): `QueueModel.editorLists` (the checked lists; for a todo being edited, those it can
+/// move to). Adding starts on "Perch".
+struct ListPicker: View {
+    @ObservedObject var queue: QueueModel
+    var onPick: () -> Void = {}
+
+    var body: some View {
+        let lists = queue.editorLists
+        Picker("List", selection: Binding(
+            get: { queue.editorList?.id ?? "" },
+            set: { id in
+                queue.editor?.list = lists.first { $0.id == id }
+                onPick()
+            }
+        )) {
+            ForEach(lists, id: \.id) { list in
+                Text(list.title).tag(list.id)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .controlSize(.small)
     }
 }

@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let setup = SetupModel()
     private var notchWindow: NotchWindowController?
     private var todoPopup: TodoPopupController?
+    private var listsWindow: ListsWindowController?
     /// ⌥⇧Space (or `QuickEntryHotKey`): the todo popup, from anywhere.
     private var popupHotKey: GlobalHotKey?
     /// ⌥⇧A / ⌥⇧D exist only while the panel shows a request, ⌥⇧O while a session needs you,
@@ -41,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notch.display = DisplayChoice(defaults: .standard)
         displayWatch = notch.$display.dropFirst().sink { $0.save(to: .standard) }
         let controller = NotchWindowController(notch: notch, queue: queue, setup: setup, menu: NotchMenu(
+            lists: { [weak self] in self?.listsWindow?.show() },
             uninstall: { [weak self] in self?.confirmUninstall() },
             quit: { NSApp.terminate(nil) }
         ))
@@ -48,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notchWindow = controller
         let popup = TodoPopupController(queue: queue, notchWindow: controller)
         todoPopup = popup
+        listsWindow = ListsWindowController(queue: queue, notchWindow: controller)
         let (hotKey, problem) = HotKey.quickEntry(UserDefaults.standard.string(forKey: HotKey.quickEntryDefaultsKey))
         if let problem { NSLog("Perch: \(problem)") }
         popupHotKey = GlobalHotKey(hotKey) { [weak popup] in
