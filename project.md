@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-19 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50 · 收起态右翼的 todo 图标和数（#56）已完成，PR #57 squash 合并为 `0c267b8`，见下方"收起态右翼的 todo 数" · **更多 Reminders 列表（M14，#66）进行中**：#69（数据通路、列表选择、Todo tab 和 CLI 按列表分组）和 #70（Lists… 窗口、列表选择器、`--list`）的代码和文档都在分支 `multi-list-reminders`（PR #72，没合并，等维护者验收）；#71（优先级胶囊、Doing）没开始，见下方"更多 Reminders 列表（M14）"
+最后更新：2026-10-19 · **v0.4.2 已发布**（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.2`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50 · 收起态右翼的 todo 图标和数（#56）已完成，PR #57 squash 合并为 `0c267b8`，见下方"收起态右翼的 todo 数" · **更多 Reminders 列表（M14，#66）进行中**：#69（数据通路、列表选择、Todo tab 和 CLI 按列表分组）和 #70（Lists… 窗口、列表选择器、`--list`）的代码和文档都在分支 `multi-list-reminders`（PR #72，没合并，等维护者验收）；#71（优先级胶囊、Doing）的代码和文档也在这个分支，三步都等维护者验收，见下方"更多 Reminders 列表（M14）"
 
 ## 发布
 
@@ -34,7 +34,7 @@
 | M11 | Grok Build（#31，v0.5 第一个新 agent） | ✅ 完成 | 363 个测试；2026-10-12 维护者真实会话验收通过，PR #33 合并为 `1f83a18`，#31 已关（见"M11 进度"） |
 | M12 | Todo tab（#41：#42 / #43） | 🚧 待验收 | #42 已合并（PR #46）；#43 代码和文档完成，等维护者用一天后验收（见"Todo tab（M12）"） |
 | M13 | Todo 搬进 Apple Reminders（#50：#51 / #52 / #53） | ✅ 完成 | #51 bridge、#52 CLI / inbox 经 bridge 写、#53 日期 / ✎ / 大编辑器，2026-10-16 维护者验收通过（见"Todo 搬进 Reminders（M13）"）；App 写入 → `EKEventStoreChanged` 和 iCloud 手机 → Mac 的延迟还没记到 #50 |
-| M14 | 更多 Reminders 列表，按列表分组（#66：#69 / #70 / #71） | 🚧 进行中 | #69 代码和文档完成（分支 `multi-list-reminders`，575 个测试），等维护者人工验收；#70 / #71 没开始（见"更多 Reminders 列表（M14）"） |
+| M14 | 更多 Reminders 列表，按列表分组（#66：#69 / #70 / #71） | 🚧 待验收 | #69 / #70 / #71 代码和文档完成（分支 `multi-list-reminders`，PR #72，604 个测试），等维护者人工验收（见"更多 Reminders 列表（M14）"） |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -588,7 +588,7 @@ PR #57 squash 合并为 `0c267b8`，#56 已关；合并前从分支装到了本�
   - #64 Done 飞：`DoneRun`（腿 `Leg` 的分段线性路线，打断时 `cut` 不改原来的参数化，所以打断前的位置一字不差），`DoneRun.flies`（Done 横幅、没有 waiting / failed、没 Reduce Motion），`QueueModel.flight` / `carriesBanner` / `notchWidth` / `reduceMotion`；横幅计时到 `bannerEnd`（卷完）为止，飞行计时到 `end`。`FlightView` / `FlightReveal` 在 `MascotView.swift`。遮罩放在 BannerView 自己身上，横幅淡出时也保持卷起（截图里发现的：放在右翼上时横幅淡出那 0.2 s 会整条重新露出来）。
   - 截图（隔离 perchd + debug App 跑在内建刘海屏上，`-Display automatic -Chimes NO -QuickEntryHotKey …` 只走参数域，不写用户的 defaults）：跳、钻进刘海、拉帘子、站着撒彩纸、卷回去、回到左翼都对。看指针没法截（不能合成鼠标事件），留在 PR 的人工检查清单里。
 
-## 更多 Reminders 列表（M14，#66 / #69 / #70，2026-10-19）
+## 更多 Reminders 列表（M14，#66 / #69 / #70 / #71，2026-10-19）
 
 设计在 #66（父 issue），拆成 #69 → #70 → #71。#69 只做数据通路、列表选择和按列表分组；Lists… 窗口、添加弹窗 / 编辑器的列表选择器、`--list` 是 #70（见本节最后）；优先级胶囊、Doing 是 #71。行为见 `docs/PRD.md` 的"Todo tab"和 Reminders 一节，这里只记实现和坑。
 
@@ -623,7 +623,17 @@ PR #57 squash 合并为 `0c267b8`，#56 已关；合并前从分支装到了本�
 - **测试**：`TodoListPickTests.swift`：`TodoListFlagTests`（真 `perch`：`add --list` / 默认 / inbox、`update --list` 挪且短 id 和别的字段不变、四种坏名字 × add / update × 人类 / `--json` 且什么都不写、非 todo 拒绝、bridge 再查、跨账户拒绝和编辑器只列同账户）、`ListPickerTests`（`QueueModel`：Lists… 的行、勾选 / 拖动立刻改分组 / `list` / `todo.md`、"Perch" 不能取消、新列表 / 删列表、没权限没有窗口、添加弹窗、编辑器挪且不动别的、普通 App 经 perchd 加和挪）；`ListSelectionTests` 加了拖动和勾选的持久化；`TodoEditorTests.theListPickerMovesOnlyWhenChanged`；`ListNameTests`（ModelsTests.swift）。`FakeRemindersStore` 的列表都带账户（`iCloud` / `onMyMac`，`phoneCreateList(_, iCloud: false)` 是本机），`updateReminder` 能挪。
 - **没做（要人）**：Lists… 窗口、拖动、两个选择器的样子和手感都没截图、没点过（本机不能合成鼠标事件，打开窗口要右键）：要在真 Mac 上验：窗口打开时终端还是前台、拖动 "Perch"、锁死的勾选框、Picker 的菜单在不激活的面板里能弹出且选完标题栏还有焦点、编辑器的 List 行。跨账户的真实行为（有"本机"账户的 Mac 上 EventKit 挪提醒会不会换外部标识符）没验证，现在是拒绝。
 - **评审后改的**：上面的错误顺序、`--wait`、旧 bridge 的检查和 `editorList`；`NotchWindowController.popupFrame(size:belowPanel:gap:)` 给弹窗和 Lists… 窗口共用位置（没有位置时 Lists… 不显示）；`ReminderList` 退回 Equatable。`TodoEditorModelTests.aTodoAddedWhileThePanelIsOpenHighlightsBriefly` 的高亮时间从 0.3 秒放宽到 2 秒：新的 CLI 测试并行起很多 `perch` 进程，整套测试时主线程慢，0.3 秒会在两次检查之间过期（单独跑总是过）。
-- **已知限制**：不是 bridge 的 App 的选择器按列表名经 perchd 写，所以两个勾选列表同名时它选哪个都报"重名"（bridge App 按 id 写，不受影响）。不是 bridge 的 App（同时开了两个 Perch.app）在 Lists… 里改的选择写进同一个 defaults，但 bridge 要等下次 Reminders 变化或展开面板才发快照。弹窗的列表选择器列的是 perchd 推来的 `todo_lists`，所以刚勾上的列表要等那份快照到了才出现。
+- **已知限制（#70）**：不是 bridge 的 App 的选择器按列表名经 perchd 写，所以两个勾选列表同名时它选哪个都报"重名"（bridge App 按 id 写，不受影响）。不是 bridge 的 App（同时开了两个 Perch.app）在 Lists… 里改的选择写进同一个 defaults，但 bridge 要等下次 Reminders 变化或展开面板才发快照。弹窗的列表选择器列的是 perchd 推来的 `todo_lists`，所以刚勾上的列表要等那份快照到了才出现。
+
+**#71（优先级胶囊、Doing）**，同一个分支、同一个 PR #72：
+- **存储**：schema v7 是 `ALTER TABLE todo_refs ADD COLUMN doing INTEGER NOT NULL DEFAULT 0`。`Store.select` 用相关子查询 `COALESCE((SELECT doing FROM todo_refs WHERE todo_refs.id = items.id), 0)` 把它读进 `Item.doing`（第 17 列），所以 `get` / `list` / 事件里都有；`Store.update(item)` 不写它，只有 `Store.setDoing(_:forRef:)` 写。`TodoRef.doing`。
+- **线上**：`Item.doing` 在 JSON 里对每条 todo（有 `meta.reminder`）都出现（true / false），别的 item 没有；解码时缺省 false。`Request.Patch.doing`。`add` 的 `normalized` 把它清成 false（HTTP 客户端塞进来也没用）。
+- **perchd**：`planUpdate` 看到 patch 有 `doing` 就返回 `.local`（不经 bridge），`Service.update` 再交给 `setDoing`：patch 里还有别的字段 → "doing (--doing / --no-doing) goes on its own …"；不是 todo（`todo_refs` 里没有）→ "… Doing only applies to todos (open tasks in Reminders)"；不是 open → "… isn't open (it's done); only open todos can be Doing"；值没变 → 成功、不发事件；否则写引用、`save`（`updated_at` 变、发 updated）。`applySnapshot`：每条提醒的 `item.doing = ref.doing && !completed`，完成的同时清引用；缓存里有、快照里没有的 todo，Doing 为真且（快照没有 `lists`，或它的 `list_id` 为空，或 `list_id` 在快照的勾选列表里）就清引用，否则（列表取消勾选了）留着。
+- **排序和标记**：`Item.todoOrder` 先比 Doing，所以 `todoGroups`（Todo tab、`todo.md`）和 `queueOrdered`（`perch ls`）一起变。`Format.row` 在标题后面加 `  · doing`（在优先级标记之前）；`MirrorRenderer.line` 的详情第一项是 `doing`（在 `request` 之后，todo 不会是 request）。标记用小写，和 "high priority" 一致。
+- **App**：`QueueModel.toggleDoing(_:)` 发 `update` + `Patch(doing: !item.doing)`，bridge 和普通 App 一样经 perchd。`TodoViews.swift`：▶ 是 `play` / `play.fill`（9.5pt），不显示时 `.opacity(0)` + 不接点击但占位（悬停时日期不跳）；完成中（Undo）不显示 ▶。`PriorityCapsule`：10pt semibold，水平 6pt、高 15pt，High / Low 字 95%、底 20%，Normal 字 50%、底 10% 白；颜色复用 `SessionStatus.color(.waiting)` / `.running`。悬停用 `HoverTracker`（`NSViewRepresentable`，`.activeAlways` + `.inVisibleRect` 的 tracking area，`hitTest` 返回 nil），因为 SwiftUI 的 `.onHover` 在不是 key 的面板里靠不住（`NotchHostingView` 也是这么做的）。
+- **测试**：`TodoDoingTests`（`QueueModel` 的 ▶、Doing 在列表最前且可以多条、计数和摘要不变、Reminders 不动；手机上完成 / tab 里完成后清掉、重新打开不回来；挪到没勾的列表再挪回来是普通的、删掉后引用不再是 Doing；手机上挪 / 编辑器挪到别的勾选列表、取消再勾选都还在）、`TodoDoingCLITests`（真 `perch`：有 bridge 和没 bridge 都能设、`ls` / `--json` / `todo.md` 的顺序和标记、`--no-doing`、重复设、做完的 / 等待中的 task / 和别的字段一起 都拒绝）、`TodoListTests.doingFirstThenPriorityThenAgeThenIdInEachList`、`StartupTests.migratingToV7AddsDoingToTodoReferences`、`ModelsTests.aTodoCarriesDoingOnTheWire`。`UpdateTests` / `UpdateCLITests` 的"至少给一个"文案多了 doing。
+- **没做（要人）**：胶囊的颜色、▶ 的悬停（尤其是刘海面板不是 key 时 `HoverTracker` 收不收得到）、点 ▶ 的手感都没截图、没点过（本机开发版没有 Reminders 权限，不能合成鼠标事件）。
+- **已知限制**：Doing 只在这台 Mac 的 perchd 里，`~/.perch` 的数据库丢了就没了（和短 id 一样）；两台 Mac 各有各的。`perch update --doing` 不能和别的字段一起给（要两次）。
 
 ## 未决问题
 

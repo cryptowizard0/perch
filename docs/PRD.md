@@ -83,6 +83,7 @@ v0.1 只做一个闭环：agent 在等你 → 刘海亮 → 就地处理或跳�
 | 在刘海面板里直接打字、任何输入语法（优先级标记、`@15:00`） | 刘海面板永远不拿键盘焦点；打字只在单独的弹窗里，输入什么存什么 |
 | 删除确认、删除撤销 | 删除很少误点，确认框比偶尔重写一条更烦 |
 | 自己的同步、iPhone App、日历、多用户 | 不做自己的同步：多设备只通过 Apple Reminders 的列表（#50 / #69），iCloud 负责同步；单用户 |
+| 把 Doing 同步到 Reminders / 手机（标题或备注里的标记、专门的列表、旗标、标签）、限制 Doing 的个数、右键菜单和编辑器里的 Doing、Doing 影响收起态 | Reminders 没有"进行中"，EventKit 也读写不了旗标和标签；往提醒里写 Perch 专用的标记是 #51 就定了不做的。Doing 只是"我眼下在做这几条"，留在这台 Mac 上就够；只在 ▶ 和 `perch update --doing` 一个地方改（#71） |
 | 没有 Reminders 权限时的本地 todo | Reminders 就是真相；没有权限就没有 todo 功能。读别的列表 2026-10-19 起做了（#69：只读勾选的），但不读 Reminders 侧边栏的顺序、智能列表（今天、计划等）、标签、列表分组和分区，也不用列表颜色 |
 | Windows / Linux | 刘海是 Mac 硬件特性 |
 
@@ -99,7 +100,8 @@ v0.1 只做一个闭环：agent 在等你 → 刘海亮 → 就地处理或跳�
 | kind | enum | `task` 需要我行动 / `notice` 仅告知、到时自动消失 / `request` agent 在等一个决定 |
 | status | enum | `open` / `waiting`（agent 在等我）/ `done` / `dismissed` |
 | source | string | `human` / `claude-code` / `codex` / `hermes`；自由字符串，新 agent 不用改代码 |
-| priority | enum | `high` / `normal` / `low`，默认 normal（2026-10-15，#41，schema v4）；Todo tab、`perch ls`、`todo.md` 在每个列表里按它排序（#69 起分组按列表）。todo 的优先级来自 Reminders（见"Todo tab"的 Reminders 一节） |
+| priority | enum | `high` / `normal` / `low`，默认 normal（2026-10-15，#41，schema v4）；Todo tab、`perch ls`、`todo.md` 在每个列表里按它排序（#69 起分组按列表，#71 起排在 Doing 之后）。todo 的优先级来自 Reminders（见"Todo tab"的 Reminders 一节） |
+| doing | bool | todo 正在做（#71）：Perch 自己的状态，存在 perchd 的短 id 引用表 `todo_refs` 上（schema v7），不写进 Reminders；`status` 仍是 `open`。JSON 里每条 todo 都带（true / false），别的 item 没有 |
 | due_at | datetime? | 到期时间。v0.2 起刘海不再用它（不显示、不提醒），只为兼容留在 CLI 和库里 |
 | due_date_only | bool | `due_at` 是一整天（那天的零点）而不是某个时刻：只有日期的提醒（#52，schema v6）；JSON 里只在为 true 时出现 |
 | link | string? | URL、文件路径或终端 session 引用，点一下跳回去 |
@@ -307,9 +309,11 @@ v0.2 时 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task�
 **Todo tab 的内容**
 - 粗大的 "Todo" 标题，下面一行灰色摘要："6 open · 2 high"；没有 High 时 "6 open"；没有未完成的就是 "All clear"（只有这一种空状态，#51）。数的是所有勾选列表（#69），和 tab 栏的数、收起态右翼的数（#56）一致。
 - 没有 Reminders 权限或 "Perch" 列表时，整个 tab 只有一行说明和一个按钮（见"Reminders"）。
-- 只显示 open 的 task（notice、request、等待中的、做完的都不显示），**按列表分组**（#69，原来的 High / Normal / Low 分组去掉了）：每个勾选的列表一组，按选择的顺序，空的也显示（一行灰色 "All clear"）。组标题是灰色的列表名和未完成数，和 Agents 的组标题同一个样式，**不用列表的颜色**；不在 iCloud 的列表标题上加灰色 "Not syncing"（代替原来摘要后面的 "Not syncing — no iCloud"）。**优先级不用颜色**：橙、红、绿、蓝只属于 agent 状态（每行的优先级胶囊是 #71，还没做）。
-- 组内 High → Normal → Low，同优先级最老的在前，再按 id；改了优先级的待办按创建时间排进新位置。
-- 每行一行：`○ 标题 … 日期 ✎`（#53）。标题太长尾部截断；悬停显示完整标题和完整日期（"Friday, October 16, 2026 at 15:00"）。没有来源、链接。
+- 只显示 open 的 task（notice、request、等待中的、做完的都不显示），**按列表分组**（#69，原来的 High / Normal / Low 分组去掉了）：每个勾选的列表一组，按选择的顺序，空的也显示（一行灰色 "All clear"）。组标题是灰色的列表名和未完成数，和 Agents 的组标题同一个样式，**不用列表的颜色**；不在 iCloud 的列表标题上加灰色 "Not syncing"（代替原来摘要后面的 "Not syncing — no iCloud"）。
+- 组内 Doing 的在最前（#71），然后 High → Normal → Low，同优先级最老的在前，再按 id；改了优先级的待办按创建时间排进新位置。
+- 每行一行：`○ 标题 … 日期 ▶ 胶囊 ✎`（#53、#71）。标题太长尾部截断；悬停显示完整标题和完整日期（"Friday, October 16, 2026 at 15:00"）。没有来源、链接。
+- **优先级胶囊**（#71，推翻 #41 / #42 的"优先级不用颜色"）：每行都有，紧挨 ✎ 左边，写 High / Normal / Low，底是同色的半透明胶囊：High 橙、Normal 灰（最淡：底约 10% 白、字 50% 白，大多数行都是 Normal，要退到背景里）、Low 绿。橙和绿与 Needs you / Running 同色，接受，因为胶囊只出现在 Todo tab，不在收起态和 Agents tab。只显示、点了什么都不做（点偏了不会改掉一个会同步到手机的优先级）；改优先级照旧用右键 Priority ▸ 和大编辑器。
+- **Doing**（#71）：Perch 自己的"我眼下在做"（Reminders 没有进行中，EventKit 读写不了旗标和标签），不写进提醒，所以手机上看不到。日期和胶囊之间有个 ▶：不是 Doing 的行只在指针放在行上时出现，灰色；Doing 的行一直显示，白色实心，它本身就是标记。点它切换。Doing 的待办排在自己列表的最前（没有单独的 Doing 分组），可以同时有任意多条。它算未完成：摘要、tab 栏的数、收起态右翼的数照算，摘要不提 Doing（还是 "6 open · 2 high"），收起态没有别的变化。完成（包括在 tab 里完成）、在 Reminders 里删掉、或在 Reminders 里挪到没勾的列表时自动清掉，重新打开也不会回来；挪到另一个勾选的列表、取消勾选它的列表再勾上，都还在（跟着短 id 走）。右键菜单和大编辑器里没有它。
 - 日期（有到期日期时）：灰色；今天是 "Today"，明天 "Tomorrow"，一周内是星期几（"Thursday"），再往后 "Oct 20"，不是今年的带年份（"Jan 5, 2027"），过去的日期也是这种写法；有时间的后面加时间（"Today 15:00"）。过期的是白色，从不用 agent 的颜色；只有日期的那天结束才算过期。日期不参与排序，仍然是优先级、再最老的在前。标签由 `TodoList.dueLabel` 算（可注入 now 和日历）。
 - ✎ 一直显示：点了用 Reminders 的链接 `x-apple-reminderkit://REMCDReminder/<本机标识符>`（EventKit 的 `calendarItemIdentifier`）打开那条提醒，Reminders 切到它所在的列表（macOS 15 实测，见 #50），刘海收起；找不到那条提醒时只打开 Reminders。备注、子任务、旗标、提醒等 Perch 不编辑的东西都在那里改。
 - 列表超过面板最大高度时滚动；底部固定一行 "+ Add a todo"。
@@ -324,6 +328,7 @@ v0.2 时 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task�
 | ✎ | 在 Reminders 里打开那条提醒，刘海收起 |
 | 右键 → Edit… | 打开大编辑器（#53），预填 |
 | 右键 → Priority ▸ | High / Normal / Low，当前的打勾；改完在本列表里移到新位置 |
+| ▶（悬停时出现；Doing 的行一直在） | 标成 Doing，移到本列表最前；再点清掉（#71）。不经 bridge，不碰 Reminders |
 | 右键 → Delete | 立刻删掉那条提醒，不确认；它进 Reminders 的"最近删除" |
 | "+ Add a todo" | 打开弹窗（添加），面板保持展开，弹窗在面板正下方 |
 | ⌥⇧Space（任何地方） | 打开弹窗（添加），在刘海正下方，刘海保持收起；再按一次关掉。`defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` 可改，重启生效 |
@@ -338,7 +343,9 @@ v0.2 时 todo 相关交互（点标题完成、⌥ 点推迟、notice 转 task�
 - Esc 或点别处关闭。从面板打开时，面板在弹窗关闭前一直展开，关掉后恢复正常的悬停收起。
 - 弹窗的状态（添加 / 编辑、标题、优先级、备注、日期、时间、URL、能不能提交）在刘海的数据模型里（`TodoEditor`），弹窗只负责画和转发按键。不是 bridge 的 App 编辑时经 perchd 交给 bridge（`update` 的 patch 多了 `notes` / `link` / `clear_link`）。
 
-**CLI 和文件**：`perch add|update --priority high|normal|low`（`-p`），不给就是 Normal，值不对是用法错误（exit 64）。`perch ls` 和 `todo.md` 的 "To do" 按列表分组（#69，勾选顺序），组内按优先级（High、Normal、Low）、再按创建时间（到期日期不排序），标出 High 和 Low；`perch ls` 每组前一行 `[列表名]`，`--json` 的每条 todo 带 `list`（列表名），回答里带 `todo_lists`（勾选列表的 id、名字、是否 iCloud，按顺序）；`todo.md` 每个勾选列表一个 `###` 小标题，空的写 "All clear"。没有 bridge 时照样按缓存分组。`inbox.md` 没有优先级语法，进来的都是 Normal。HTTP 客户端不带 `priority` 照常工作。#51 起 todo 来自 Reminders：`perch ls`、`todo.md` 照常显示（每条都有短 id，手机上加的也有）。
+**CLI 和文件**：`perch add|update --priority high|normal|low`（`-p`），不给就是 Normal，值不对是用法错误（exit 64）。`perch ls` 和 `todo.md` 的 "To do" 按列表分组（#69，勾选顺序），组内按优先级（High、Normal、Low）、再按创建时间（到期日期不排序），标出 High 和 Low；`perch ls` 每组前一行 `[列表名]`，`--json` 的每条 todo 带 `list`（列表名），回答里带 `todo_lists`（勾选列表的 id、名字、是否 iCloud，按顺序）；`todo.md` 每个勾选列表一个 `###` 小标题，空的写 "All clear"。没有 bridge 时照样按缓存分组。`inbox.md` 没有优先级语法，进来的都是 Normal。HTTP 客户端不带 `priority` 照常工作。
+
+**Doing 的 CLI（#71）**：`perch update <id> --doing` / `--no-doing` 直接在 perchd 里设和清（`update` 的 patch 里的 `doing`），不经 bridge，所以 Perch.app 没连着也能用；只对 open 的 todo 有效（做完的、等待中的 task、notice、request 一律报错，exit 非 0），而且要单独一次 `update`（和别的字段一起给就报错：别的字段写 Reminders，Doing 只在 Perch）。已经是那个值时什么都不变、照样成功。`perch ls` 和 `todo.md` 把 Doing 的排在自己列表的最前，标 `doing`（`perch ls` 是 `· doing`，`todo.md` 是详情里第一项）；`--json` 每条 todo 带 `doing`。#51 起 todo 来自 Reminders：`perch ls`、`todo.md` 照常显示（每条都有短 id，手机上加的也有）。
 
 **CLI 写 todo（#52）**：`perch add`（open / done 的 task，任何 `--source`）、`done`、`update`、`rm`、`update --status dismissed` 对 todo 的写都经 perchd 交给 bridge：perchd 在 bridge 的 watch 连接上推一个带一次性 id 的 `todo_op`，bridge 写进 Reminders、回 `todo_ack`（id + 提醒的外部标识符）、再发快照，perchd 收到这份快照才回答 CLI，所以 `perch add` 之后马上 `perch ls` 一定看得到。
 - 没有 bridge，或 2 秒内没等到：一行人类可读的错误、exit 1、`--json` 打印 `{"ok":false,"error":…}`，**不排队**。没有 bridge 时是 "Todo needs Perch.app running with Reminders access"；列表被删了是 "Perch list not found"；超时说明改动可能还会生效，先 `perch ls` 再重试。

@@ -191,4 +191,16 @@
 - [ ] 人工验收（真 Mac，有 Reminders 权限）：右键 → Lists… 不抢终端焦点；拖动（包括 "Perch"）和勾选立刻改 Todo tab；"Perch" 的勾选框点不动；添加弹窗的选择器每次在 "Perch"、选了别的列表能加进去；编辑器换列表能挪、不动就不挪
 
 **#71 优先级胶囊、Doing**
-- [ ] 未开始
+- [x] 每行 `○ 标题 … 日期 ▶ 胶囊 ✎`：胶囊写 High / Normal / Low，High 橙、Normal 灰（最淡）、Low 绿，点了什么都不做（改优先级仍是 Priority ▸ 和编辑器）
+- [x] schema v7：`todo_refs` 加 `doing`（默认 false），v6 的库干净地迁移
+- [x] `perch update <id> --doing` / `--no-doing` 直接在 perchd 里设和清，不经 bridge，Perch.app 没连着也能用；不是 open 的 todo 报错；要单独一次 update
+- [x] `status` 仍是 `open`；JSON 每条 todo 带 `doing`；`perch ls` 和 `todo.md` 把 Doing 排在自己列表最前、标 doing
+- [x] Todo tab 的 ▶ 设和清 Doing（不是 Doing 的行悬停时灰色出现，Doing 的行一直白色实心）；右键菜单和编辑器里没有
+- [x] `TodoList` 每组按 Doing、优先级、创建时间、id 排
+- [x] 可以同时任意多条 Doing
+- [x] 快照里完成了（包括在 tab 里完成）、或列表还勾着却不在了（删了、在 Reminders 里挪到没勾的列表）就清掉；重新打开不回来
+- [x] 挪到另一个勾选列表、取消勾选再勾上，Doing 还在
+- [x] Doing 算未完成（摘要、tab 栏、收起态的数），摘要不提 Doing，收起态不变
+- [x] 测试：假 Reminders + 真 perchd + `QueueModel` + 真 `perch`（`TodoDoingTests` / `TodoDoingCLITests`：有 / 没有 bridge、`ls` / `--json` / `todo.md` 的顺序、完成和删除时清掉、挪列表和取消 / 重新勾选时留着、不是 open 的拒绝、`QueueModel.toggleDoing`）、纯 `TodoList`（`TodoListTests.doingFirstThenPriorityThenAgeThenIdInEachList`）、v6 → v7 迁移（`StartupTests.migratingToV7AddsDoingToTodoReferences`）、线上格式（`ModelsTests.aTodoCarriesDoingOnTheWire`）
+- [x] `swift build` / `swift test` 通过，`CONFIG=debug scripts/bundle-app.sh` 能编；PRD、CLAUDE.md、`project.md` 更新
+- [ ] 人工验收（真 Mac，有 Reminders 权限）：胶囊的颜色和大小；悬停时 ▶ 出现（刘海面板不是 key 也能）、离开就消失、点了变白色实心并移到列表最前、再点清掉；点胶囊什么都不做；Doing 的待办完成后再打开不是 Doing
