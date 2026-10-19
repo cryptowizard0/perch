@@ -356,6 +356,11 @@ public final class QueueModel: ObservableObject {
         }
     }
 
+    /// A row's ▶ (#71): marks the todo as Doing, or clears it. Perch's own, so it goes to perchd, bridge or not.
+    public func toggleDoing(_ item: Item) {
+        send(Request(op: .update, id: item.id, patch: Request.Patch(doing: !item.doing)))
+    }
+
     /// ⌥⇧Space (`fromPanel` false) or "+ Add a todo": the popup, empty, on Normal and on "Perch".
     public func openAdd(fromPanel: Bool) {
         editor = .add(fromPanel: fromPanel)

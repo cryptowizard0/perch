@@ -42,6 +42,21 @@ import Testing
         #expect(list == #"{"icloud":false,"id":"w","title":"Work"}"#)
     }
 
+    /// #71: every todo carries `doing`, true or false; nothing else does.
+    @Test func aTodoCarriesDoingOnTheWire() throws {
+        var todo = Item(id: "t7k2", title: "send the invoice", source: "reminders", meta: [Item.reminderMetaKey: "r1"],
+                        createdAt: Date(timeIntervalSince1970: 1_700_000_000), updatedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        func json(_ item: Item) throws -> String { String(decoding: try PerchJSON.encoder.encode(item), as: UTF8.self) }
+        #expect(try json(todo).contains(#""doing":false"#))
+        todo.doing = true
+        #expect(try json(todo).contains(#""doing":true"#))
+        #expect(try PerchJSON.decoder.decode(Item.self, from: Data(try json(todo).utf8)) == todo)
+        #expect(try !json(Item(title: "x", status: .waiting)).contains(#""doing""#))
+        // A patch carries it, and only it makes the patch non-empty.
+        #expect(!Request.Patch(doing: false).isEmpty)
+        #expect(try String(decoding: PerchJSON.encoder.encode(Request.Patch(doing: true)), as: UTF8.self) == #"{"doing":true}"#)
+    }
+
     @Test func expiryIsRoundedUpOnTheWire() throws {
         // The wire carries whole-second ISO-8601; truncating would shorten the window an agent asked for.
         let asked = Item(title: "r", kind: .request, expiresAt: Date(timeIntervalSince1970: 1_800_000_000.2))

@@ -256,7 +256,7 @@ struct UpdateCLITests {
         let id = try cli.run("add", "t", "--status", "waiting").stdout
         let nothing = try cli.run("update", id)
         #expect(nothing.status == 64)
-        #expect(nothing.stderr == "perch: give at least one of --title, --kind, --status, --priority, --due, --no-due, --list")
+        #expect(nothing.stderr == "perch: give at least one of --title, --kind, --status, --priority, --due, --no-due, --list, --doing, --no-doing")
         #expect(try cli.run("update", id, "--due", "+1h", "--no-due", "--json").json.error
                 == "--due and --no-due cannot be combined")
         #expect(try cli.run("update", id, "--kind", "bogus").stderr == "perch: --kind must be task or notice")

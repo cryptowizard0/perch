@@ -128,10 +128,12 @@ public struct Request: Codable, Sendable {
         public var clearLink: Bool?
         /// Moves a todo to the checked Reminders list with this exact name (#70); its short id stays.
         public var list: String?
+        /// Marks an open todo as Doing, or clears it (#71). perchd's own, so it goes on its own: no bridge needed.
+        public var doing: Bool?
 
         public init(title: String? = nil, kind: ItemKind? = nil, status: ItemStatus? = nil, priority: ItemPriority? = nil,
                     dueAt: Date? = nil, dueDateOnly: Bool? = nil, clearDue: Bool? = nil, notes: String? = nil,
-                    link: String? = nil, clearLink: Bool? = nil, list: String? = nil) {
+                    link: String? = nil, clearLink: Bool? = nil, list: String? = nil, doing: Bool? = nil) {
             self.title = title
             self.kind = kind
             self.status = status
@@ -143,10 +145,11 @@ public struct Request: Codable, Sendable {
             self.link = link
             self.clearLink = clearLink
             self.list = list
+            self.doing = doing
         }
 
         enum CodingKeys: String, CodingKey {
-            case title, kind, status, priority, notes, link, list
+            case title, kind, status, priority, notes, link, list, doing
             case dueAt = "due_at"
             case dueDateOnly = "due_date_only"
             case clearDue = "clear_due"
@@ -155,7 +158,7 @@ public struct Request: Codable, Sendable {
 
         public var isEmpty: Bool {
             title == nil && kind == nil && status == nil && priority == nil && dueAt == nil && clearDue != true
-                && notes == nil && link == nil && clearLink != true && list == nil
+                && notes == nil && link == nil && clearLink != true && list == nil && doing == nil
         }
 
         /// What turns `old` into `new`: title, priority, due date, notes, link and list (by name, #70), only where they

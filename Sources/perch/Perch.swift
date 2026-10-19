@@ -234,7 +234,7 @@ struct Done: ParsableCommand {
 
 struct Update: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Change an item's title, kind, status, priority, due time or list.",
+        abstract: "Change an item's title, kind, status, priority, due time or list, or mark a todo Doing.",
         discussion: """
         Snooze: perch update <id> --due +30m. Keep a notice as a task: perch update <id> --kind task \
         (it stops expiring). Requests keep their kind.
@@ -242,6 +242,10 @@ struct Update: ParsableCommand {
         Open and done tasks are todos in Reminders ("Perch" or another checked list; changes stay in the todo's own \
         list), changed through Perch.app: --status open reopens a done one, --status dismissed deletes it, --list moves \
         it to another checked list (same id), and a waiting task set to open moves into the "Perch" list (or --list's).
+
+        --doing / --no-doing mark an open todo as the one you're working on, or clear it. Doing is Perch's own (not in \
+        Reminders, not on the phone), so it works without Perch.app and goes on its own, without other changes. It \
+        clears when the todo is completed or deleted; any number of todos can be Doing; `perch ls` lists them first.
         """
     )
     @Argument var id: String
@@ -252,11 +256,12 @@ struct Update: ParsableCommand {
     @Option(help: "Due: @15:00, +30m / +2h / +1d, a day (2026-10-20), or ISO-8601.") var due: String?
     @Flag(help: "Remove the due time.") var noDue = false
     @Option(help: "Todos: move it to this Reminders list, by exact name; it must be checked in Perch.app.") var list: String?
+    @Flag(inversion: .prefixedNo, help: "Open todos: mark it Doing (working on it now), or clear that.") var doing: Bool?
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
-        if title == nil && kind == nil && status == nil && priority == nil && due == nil && !noDue && list == nil {
-            throw CLIError("give at least one of --title, --kind, --status, --priority, --due, --no-due, --list", code: 64)
+        if title == nil && kind == nil && status == nil && priority == nil && due == nil && !noDue && list == nil && doing == nil {
+            throw CLIError("give at least one of --title, --kind, --status, --priority, --due, --no-due, --list, --doing, --no-doing", code: 64)
         }
         if due != nil && noDue { throw CLIError("--due and --no-due cannot be combined", code: 64) }
         let newKind = try kind.map { raw -> ItemKind in
@@ -276,7 +281,8 @@ struct Update: ParsableCommand {
             dueAt: parsedDue?.date,
             dueDateOnly: parsedDue?.dateOnly,
             clearDue: noDue ? true : nil,
-            list: list
+            list: list,
+            doing: doing
         )
         let response = try call(Request(op: .update, id: id, patch: patch))
         if json { return printJSON(response) }

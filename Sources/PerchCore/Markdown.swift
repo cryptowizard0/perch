@@ -47,6 +47,7 @@ public enum MirrorRenderer {
     static func line(_ item: Item, checkbox: Bool, calendar: Calendar) -> String {
         var details: [String] = []
         if item.kind == .request { details.append("request") }
+        if item.doing { details.append("doing") }
         if let marker = item.priority.marker { details.append(marker) }
         if let due = item.dueAt { details.append("due \(item.dueDateOnly ? day(due, calendar: calendar) : format(due, calendar: calendar))") }
         details.append(item.source)

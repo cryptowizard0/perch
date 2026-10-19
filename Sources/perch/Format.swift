@@ -5,6 +5,7 @@ import PerchCore
 enum Format {
     static func row(_ item: Item, sourceWidth: Int, now: Date = Date()) -> String {
         var line = "\(item.id)  \(pad(state(item), 9))  \(pad(item.source, sourceWidth))  \(oneLine(item.title))"
+        if item.doing { line += "  · doing" }
         if let marker = item.priority.marker { line += "  · \(marker)" }
         if let due = item.dueAt {
             let overdue = item.isOverdue(now: now) && (item.status == .open || item.status == .waiting)

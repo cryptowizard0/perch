@@ -42,6 +42,25 @@ import Testing
         #expect(reranked.items.map(\.id) == ["a", "mid", "b"])
     }
 
+    /// #71: Doing first in its own list (ahead of High), then priority, age and id as usual; any number of them; counted
+    /// as open, and the summary doesn't mention them.
+    @Test func doingFirstThenPriorityThenAgeThenIdInEachList() {
+        func doing(_ item: Item) -> Item {
+            var item = item
+            item.doing = true
+            return item
+        }
+        let items = [todo("high", .high, age: 900, in: perch), doing(todo("low", .low, in: perch)),
+                     doing(todo("normal-new", in: perch)), doing(todo("normal-old-b", age: 60, in: perch)),
+                     doing(todo("normal-old-a", age: 60, in: perch)), todo("w-high", .high, in: work), doing(todo("w-low", .low, in: work))]
+        let list = TodoList(items: items, lists: [perch, work])
+        #expect(list.groups.map { $0.items.map(\.id) } == [
+            ["normal-old-a", "normal-old-b", "normal-new", "low", "high"],
+            ["w-low", "w-high"],
+        ])
+        #expect(list.openCount == 7 && list.summary == "7 open · 2 high")
+    }
+
     @Test func dueDatesNeverReorder() {
         let items = [todo("later", age: 60, in: work, due: t0.addingTimeInterval(86_400 * 7)),
                      todo("soon", age: 10, in: work, due: t0.addingTimeInterval(60)),
