@@ -201,9 +201,11 @@ struct AddTodoRow: View {
     }
 }
 
-/// One todo: `○ title … date ✎` (#53). Clicking the circle or the title crosses it out with an Undo for a few seconds
-/// (clicking again undoes); double-clicking does nothing more. The date is gray, white once overdue; hovering the row
-/// shows the full title and date. ✎ opens the reminder in Reminders. Right-click: Edit… · Priority ▸ · Delete.
+/// One todo: `○ title … date ▶ capsule ✎` (#53, #71). Clicking the circle or the title crosses it out with an Undo for a
+/// few seconds (clicking again undoes); double-clicking does nothing more. The date is gray, white once overdue; hovering
+/// the row shows the full title and date. ▶ toggles Doing: gray and only while the pointer is on the row, or white and
+/// filled (the marker) on a Doing row. The capsule is the priority, display-only. ✎ opens the reminder in Reminders.
+/// Right-click: Edit… · Priority ▸ · Delete.
 /// A todo just added while the panel is open is lit for a second.
 struct TodoRowView: View {
     var item: Item
@@ -211,6 +213,7 @@ struct TodoRowView: View {
     var highlighted = false
     var due: TodoList.DueLabel?
     var queue: QueueModel
+    @State private var hovering = false
 
     var body: some View {
         let title = item.title.replacingOccurrences(of: "\n", with: " ")
@@ -246,6 +249,19 @@ struct TodoRowView: View {
                     .fixedSize()
                     .help(tooltip)
             }
+            let showsDoing = !completing && (item.doing || hovering)
+            Button { queue.toggleDoing(item) } label: {
+                Image(systemName: item.doing ? "play.fill" : "play")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(.white.opacity(item.doing ? 0.95 : 0.45))
+                    .frame(width: 14, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .opacity(showsDoing ? 1 : 0)
+            .allowsHitTesting(showsDoing)
+            .help(item.doing ? "Doing — click to clear" : "Mark as Doing")
+            PriorityCapsule(priority: item.priority)
             Button { queue.openInReminders(item) } label: {
                 Image(systemName: "pencil")
                     .font(.system(size: 11.5, weight: .semibold))
@@ -263,6 +279,7 @@ struct TodoRowView: View {
                 .animation(.easeOut(duration: 0.4), value: highlighted)
         )
         .contentShape(Rectangle())
+        .background(HoverTracker { hovering = $0 })
         .contextMenu {
             Button("Edit…") { queue.openEdit(item) }
             Menu("Priority") {
@@ -276,5 +293,63 @@ struct TodoRowView: View {
             Divider()
             Button("Delete") { queue.delete(item) }
         }
+    }
+}
+
+/// A todo's priority (#71): its name on a translucent capsule of the same colour. High orange, Normal gray (the faintest,
+/// so the many Normal rows recede), Low green. Display-only: Priority ▸ and the editor change it.
+struct PriorityCapsule: View {
+    var priority: ItemPriority
+
+    var body: some View {
+        Text(priority.label)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(color.opacity(priority == .normal ? 0.5 : 0.95))
+            .padding(.horizontal, 6)
+            .frame(height: 15)
+            .background(Capsule().fill(color.opacity(priority == .normal ? 0.1 : 0.2)))
+            .fixedSize()
+    }
+
+    /// Needs you's orange and Running's green: accepted (#66) because capsules only appear in the Todo tab.
+    private var color: Color {
+        switch priority {
+        case .high: return SessionStatus.color(.waiting)
+        case .normal: return .white
+        case .low: return SessionStatus.color(.running)
+        }
+    }
+}
+
+/// Reports the pointer entering and leaving its frame even though the notch panel is never key (SwiftUI's own hover
+/// follows the key window), like `NotchHostingView` does for the whole panel. Never takes a click.
+struct HoverTracker: NSViewRepresentable {
+    var changed: (Bool) -> Void
+
+    func makeNSView(context: Context) -> TrackingView {
+        TrackingView()
+    }
+
+    func updateNSView(_ view: TrackingView, context: Context) {
+        view.changed = changed
+    }
+
+    final class TrackingView: NSView {
+        var changed: ((Bool) -> Void)?
+        private var tracking: NSTrackingArea?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let tracking { removeTrackingArea(tracking) }
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                      owner: self, userInfo: nil)
+            addTrackingArea(area)
+            tracking = area
+        }
+
+        override func mouseEntered(with event: NSEvent) { changed?(true) }
+        override func mouseExited(with event: NSEvent) { changed?(false) }
     }
 }
