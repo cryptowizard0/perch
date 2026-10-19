@@ -17,6 +17,8 @@ struct MascotView: View {
     var pulseStatus: SessionStatus?
     /// A bow or scratch after an answer, while the model says it plays (#62).
     var answer: AnswerReaction?
+    /// The pointer nearby (#63); a change redraws once, even when the mood stands still.
+    var gaze: Gaze?
     @State private var reaction: (status: SessionStatus, start: Date)?
     @State private var quirk: (quirk: Mascot.Quirk, start: Date)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -36,7 +38,7 @@ struct MascotView: View {
                 let quirking = quirk.map { Mascot.QuirkPlay($0.quirk, age: timeline.date.timeIntervalSince($0.start)) }
                 let answering = answer.map { Mascot.AnswerPlay($0.answer, age: timeline.date.timeIntervalSince($0.start)) }
                 let cells = reduceMotion ? Mascot.still(mood) : Mascot.frame(
-                    mood, time: timeline.date.timeIntervalSinceReferenceDate, since: since?.timeIntervalSinceReferenceDate,
+                    mood, time: timeline.date.timeIntervalSinceReferenceDate, since: since?.timeIntervalSinceReferenceDate, gaze: gaze,
                     reaction: playing?.reaction, answer: answering, quirk: quirking
                 )
                 for ink in Mascot.Ink.allCases {

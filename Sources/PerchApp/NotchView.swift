@@ -13,6 +13,7 @@ struct NotchView: View {
     @ObservedObject var notch: NotchModel
     @ObservedObject var queue: QueueModel
     @ObservedObject var setup: SetupModel
+    var gaze: GazeTracker
     var menu: NotchMenu
 
     var body: some View {
@@ -28,7 +29,7 @@ struct NotchView: View {
                     if notch.expanded {
                         TabStrip(queue: queue)
                     } else {
-                        CollapsedBar(queue: queue, notchWidth: notchWidth, leftWing: notch.leftWing, rightWing: notch.rightWing)
+                        CollapsedBar(queue: queue, gaze: gaze, notchWidth: notchWidth, leftWing: notch.leftWing, rightWing: notch.rightWing)
                     }
                 }
                 .frame(height: notch.geometry?.bandHeight ?? NotchGeometry.capsuleHeight)
@@ -101,6 +102,8 @@ extension NotchView {
 /// (#56; the icon alone, dimmed, at 0), or the event banner instead while one shows.
 struct CollapsedBar: View {
     @ObservedObject var queue: QueueModel
+    /// Where the mascot looks: the pointer nearby (#63).
+    @ObservedObject var gaze: GazeTracker
     var notchWidth: CGFloat
     var leftWing: CGFloat
     var rightWing: CGFloat
@@ -110,7 +113,7 @@ struct CollapsedBar: View {
         HStack(spacing: 0) {
             HStack(spacing: NotchGeometry.collapsedGap) {
                 MascotView(signal: panel.signal, since: panel.signalSince, online: queue.online, pulse: queue.pulse,
-                           pulseStatus: queue.pulseStatus, answer: queue.answerReaction)
+                           pulseStatus: queue.pulseStatus, answer: queue.answerReaction, gaze: gaze.gaze)
                 Group {
                     if !queue.online {
                         Image(systemName: "bolt.horizontal.circle").help(queue.offlineReason ?? "perchd is not running")

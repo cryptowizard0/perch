@@ -687,3 +687,105 @@ extension MascotTests {
         #expect(Mascot.frame(.running, time: 0, reaction: reaction, answer: .init(.bow, age: 0.5)) == Mascot.frame(.running, time: 0, reaction: reaction))
     }
 }
+
+/// The eye follows the pointer (#63).
+extension MascotTests {
+    /// The 5 × 5 eye of a frame that hasn't moved the sprite.
+    func eye(_ cells: [Mascot.Cell]) -> [String] { art(cells, x: 5..<10, y: 7..<12) }
+
+    /// A time in each mood's loop with the sprite at rest and the eye not blinking (Running's 0.5 is between hops).
+    func restTime(_ mood: Mascot.Mood) -> Double { mood == .running ? 0.5 : 0.1 }
+
+    @Test func everyMoodWithEveryGaze() {
+        let looking: [Gaze: [String]] = [
+            .left: ["#www#", "wwwww", "wowww", "wwwww", "#www#"],
+            .downLeft: ["#www#", "wwwww", "wwwww", "wowww", "#www#"],
+            .down: ["#www#", "wwwww", "wwwww", "wwoww", "#www#"],
+            .downRight: ["#www#", "wwwww", "wwwww", "wwwow", "#www#"],
+            .right: ["#www#", "wwwww", "wwwow", "wwwww", "#www#"],
+        ]
+        let peeking: [Gaze: [String]] = [
+            .left: ["#####", "#####", "ooooo", "wowww", "#www#"],
+            .downLeft: ["#####", "#####", "ooooo", "wwwww", "#oww#"],
+            .down: ["#####", "#####", "ooooo", "wwwww", "#wow#"],
+            .downRight: ["#####", "#####", "ooooo", "wwwww", "#wwo#"],
+            .right: ["#####", "#####", "ooooo", "wwwow", "#www#"],
+        ]
+        for mood in Mascot.Mood.allCases {
+            let time = restTime(mood)
+            let plain = Mascot.frame(mood, time: time)
+            for gaze in Gaze.allCases {
+                let looked = Mascot.frame(mood, time: time, gaze: gaze)
+                switch mood {
+                case .failed: #expect(looked == plain, "\(gaze)")
+                case .idle, .asleep: #expect(eye(looked) == peeking[gaze], "\(mood) \(gaze)")
+                case .running, .waiting, .done: #expect(eye(looked) == looking[gaze], "\(mood) \(gaze)")
+                }
+                // Only the eye moves: the body, antenna, arms, mouth, "z" stay, and so does the colour.
+                let outside = { (cells: [Mascot.Cell]) in cells.filter { !(5..<10).contains($0.x) || !(7..<12).contains($0.y) } }
+                #expect(outside(looked) == outside(plain), "\(mood) \(gaze)")
+            }
+        }
+        // Done keeps its smile with its eye open.
+        #expect(art(Mascot.frame(.done, time: 0, gaze: .downRight)) == [
+            "......#......",
+            "......#......",
+            "...#######...",
+            "..#########..",
+            ".####www####.",
+            ".###wwwww###.",
+            ".###wwwww###.",
+            ".###wwwow###.",
+            "#####www#####",
+            "#############",
+            "..##o###o##..",
+            "..###ooo###..",
+            "...##...##...",
+        ])
+        // Asleep peeks; the "z" and drooping antenna stay.
+        #expect(art(Mascot.frame(.asleep, time: 0, gaze: .left)) == [
+            ".......#.....",
+            "......#......",
+            "...#######...",
+            "..#########..",
+            ".###########.",
+            ".###########.",
+            ".###ooooo###.",
+            ".###wowww###.",
+            "#####www#####",
+            "#############",
+            "..####o####..",
+            "..#########..",
+            "...##...##...",
+        ])
+    }
+
+    /// The loop keeps going under the gaze: Running trots and blinks, Needs you waves and knocks with its own stare.
+    @Test func theLoopKeepsGoingUnderTheGaze() {
+        let hop = Mascot.frame(.running, time: 0.3, gaze: .down), rest = Mascot.frame(.running, time: 0.5, gaze: .down)
+        #expect(hop.map(\.y).min()! < rest.map(\.y).min()!)
+        #expect(Mascot.frame(.running, time: 3.65, gaze: .down) == Mascot.frame(.running, time: 3.65))
+        // The pupil no longer glances left and right.
+        #expect(Set([0.5, 1.3, 2.1, 2.9].map { eye(Mascot.frame(.running, time: $0, gaze: .right)) }).count == 1)
+        #expect(Mascot.frame(.waiting, time: 300.3, since: 0, gaze: .left) == Mascot.frame(.waiting, time: 300.3, since: 0))
+        let waving = { (gaze: Gaze?) in Mascot.frame(.waiting, time: 62.6, since: 0, gaze: gaze).filter { $0.x == 1 || $0.x == 13 } }
+        #expect(waving(.down) == waving(nil))
+        #expect(Mascot.frame(.running, time: 600.5, since: 0, gaze: .down).contains { $0.x == 13 && $0.y == 5 && $0.ink == .white })
+    }
+
+    /// Reactions, bows and quirks use their own eyes; the gaze comes back when they end.
+    @Test func reactionsAndQuirksOverrideTheGaze() {
+        let reaction = Mascot.Reaction(mood: .done, age: 0.3)
+        #expect(Mascot.frame(.running, time: 0, gaze: .down, reaction: reaction) == Mascot.frame(.running, time: 0, reaction: reaction))
+        let bow = Mascot.AnswerPlay(.scratch, age: 0.5)
+        #expect(Mascot.frame(.running, time: 0, gaze: .left, answer: bow) == Mascot.frame(.running, time: 0, answer: bow))
+        let yawn = Mascot.QuirkPlay(.yawn, age: 1)
+        #expect(Mascot.frame(.asleep, time: 0, gaze: .down, quirk: yawn) == Mascot.frame(.asleep, time: 0, quirk: yawn))
+        let sway = Mascot.QuirkPlay(.sway, age: 0.5)
+        #expect(Mascot.frame(.done, time: 0, gaze: .down, quirk: sway) == Mascot.frame(.done, time: 0, quirk: sway))
+        // Over: the gaze is back.
+        let over = Mascot.QuirkPlay(.yawn, age: Mascot.Quirk.yawn.duration)
+        #expect(Mascot.frame(.asleep, time: 0, gaze: .down, quirk: over) == Mascot.frame(.asleep, time: 0, gaze: .down))
+        #expect(Mascot.frame(.asleep, time: 0, gaze: .down) != Mascot.frame(.asleep, time: 0))
+    }
+}

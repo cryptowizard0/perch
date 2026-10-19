@@ -10,7 +10,8 @@ import PerchCore
 /// or done, it now and then plays a quirk from its mood's set (a yawn, a look around, a snot bubble; a sigh, rubbing
 /// its head; a sway, a hum). Failed keeps its X eye and Done its happy eye through theirs (#59). It also feels the
 /// time: a turn running over 10 minutes makes it sweat (#60); Needs you insists after a minute and knocks on the glass
-/// from five (#61). After you answer it, it bows (Allow) or scratches its head (Deny) (#62).
+/// from five (#61). After you answer it, it bows (Allow) or scratches its head (Deny) (#62). With the pointer near the
+/// notch its eye follows it; asleep, it peeks with its eye half open (#63).
 public enum Mascot {
     /// The canvas, in points: the 13 × 13 sprite at `origin`, with room above for the hop and beside for the
     /// shake and the sparkles. Idle's "z" drifts past the right edge, up to `overflowWidth`.
@@ -125,9 +126,10 @@ public enum Mascot {
     /// from `sweatAfter`), the longest wait's start (Needs you insists from `insistAfter`, knocks from `knockAfter`).
     /// Nil leaves time out of it.
     ///
-    /// Precedence, highest first: the entry reaction, an answer's bow or scratch, a quirk, the mood's own loop.
-    public static func frame(_ mood: Mood, time: TimeInterval, since: TimeInterval? = nil, reaction: Reaction? = nil,
-                             answer: AnswerPlay? = nil, quirk: QuirkPlay? = nil) -> [Cell] {
+    /// Precedence, highest first: the entry reaction, an answer's bow or scratch, a quirk, the mood's own loop. `gaze`
+    /// (the pointer nearby, #63) turns the loop's eye towards it; reactions, quirks, blinks and the knock keep their own.
+    public static func frame(_ mood: Mood, time: TimeInterval, since: TimeInterval? = nil, gaze: Gaze? = nil,
+                             reaction: Reaction? = nil, answer: AnswerPlay? = nil, quirk: QuirkPlay? = nil) -> [Cell] {
         if let reaction, !reaction.isOver {
             return draw(look(reaction.mood, time: time, reaction: reaction.age))
         }
@@ -137,7 +139,9 @@ public enum Mascot {
         if let quirk, mood.quirks.contains(quirk.quirk), !quirk.isOver {
             return draw(look(quirk.quirk, age: quirk.age, mood: mood))
         }
-        return draw(look(mood, time: time, reaction: nil, waited: since.map { time - $0 }))
+        var look = look(mood, time: time, reaction: nil, waited: since.map { time - $0 })
+        if let gaze { look.eye = look.eye.turned(to: gaze, mood: mood) }
+        return draw(look)
     }
 
     // MARK: - Answers
@@ -524,6 +528,19 @@ public enum Mascot {
         case wide
         /// Looking down (a bow).
         case down
+        /// Looking at the pointer (#63): the pupil off-centre that way. `.left`, `.right` and `.down` are three of them.
+        case looking(Gaze)
+        /// Asleep or idle, peeking at the pointer: half open, the pupil that way.
+        case peeking(Gaze)
+
+        /// The loop's eye with the pointer nearby. Failed keeps its X; a blink, the knock's stare and the like stay.
+        func turned(to gaze: Gaze, mood: Mood) -> Eye {
+            switch (mood, self) {
+            case (.failed, _), (_, .blink), (_, .wide): return self
+            case (.idle, _), (.asleep, _): return .peeking(gaze)
+            case (.running, _), (.waiting, _), (.done, _): return .looking(gaze)
+            }
+        }
         /// Done's blink: the happy arc squeezed flatter, still a "^".
         case happyBlink
 
@@ -541,7 +558,16 @@ public enum Mascot {
             case .squeezed: return [".....", "o...o", ".o.o.", "..o..", "....."]
             case .happyBlink: return [".....", ".....", ".ooo.", "o...o", "....."]
             case .wide: return ["wwwww", "wwwww", "wwoww", "wwwww", "wwwww"]
-            case .down: return [".www.", "wwwww", "wwwww", "wwoww", ".www."]
+            case .down, .looking(.down): return [".www.", "wwwww", "wwwww", "wwoww", ".www."]
+            case .looking(.left): return Eye.left.rows
+            case .looking(.right): return Eye.right.rows
+            case .looking(.downLeft): return [".www.", "wwwww", "wwwww", "wowww", ".www."]
+            case .looking(.downRight): return [".www.", "wwwww", "wwwww", "wwwow", ".www."]
+            case .peeking(.left): return [".....", ".....", "ooooo", "wowww", ".www."]
+            case .peeking(.right): return [".....", ".....", "ooooo", "wwwow", ".www."]
+            case .peeking(.down): return [".....", ".....", "ooooo", "wwwww", ".wow."]
+            case .peeking(.downLeft): return [".....", ".....", "ooooo", "wwwww", ".oww."]
+            case .peeking(.downRight): return [".....", ".....", "ooooo", "wwwww", ".wwo."]
             }
         }
     }
