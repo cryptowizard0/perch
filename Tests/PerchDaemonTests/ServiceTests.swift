@@ -169,6 +169,92 @@ import Testing
         #expect(events.first { $0.type == .added }?.item.id == milk.id)
     }
 
+    /// Each cached todo knows its list (#69), and `list` groups by the snapshot's lists in their order. A list no longer
+    /// checked leaves the cache; checked again, its todos keep their short ids.
+    /// #71: a todo missing from a snapshot loses Doing only when its list is among the snapshot's checked lists (or the
+    /// bridge predates lists, when "Perch" was the only one). A snapshot listing no lists at all (EventKit listing
+    /// nothing for a moment, "Perch" gone with nothing else checked) proves nothing was deleted, so Doing stays.
+    @Test func doingClearsOnlyForATodoGoneFromACheckedList() throws {
+        let perch = ReminderList(id: "p", title: "Perch", isICloud: true)
+        let flights = Reminder(externalID: "r1", list: "p", title: "book flights")
+        _ = try service.applySnapshot([flights], lists: [perch])
+        let id = try #require(call(Request(op: .list)).0.items?.first?.id)
+        #expect(call(Request(op: .update, id: id, patch: .init(doing: true))).0.item?.doing == true)
+
+        _ = try service.applySnapshot([], lists: [])
+        #expect(call(Request(op: .list)).0.items?.isEmpty == true)
+        _ = try service.applySnapshot([flights], lists: [perch])
+        #expect(call(Request(op: .get, id: id)).0.item?.doing == true)
+
+        // From a bridge older than lists: everything was in "Perch", so missing means deleted.
+        _ = try service.applySnapshot([], lists: nil)
+        _ = try service.applySnapshot([flights], lists: [perch])
+        #expect(call(Request(op: .get, id: id)).0.item?.doing == false)
+    }
+
+    @Test func snapshotsCarryTheirLists() throws {
+        let perch = ReminderList(id: "p", title: "Perch", isICloud: true)
+        let work = ReminderList(id: "w", title: "Work", isICloud: false)
+        let created = Date(timeIntervalSince1970: 1_700_000_000)
+        let invoice = Reminder(externalID: "r1", list: "w", title: "send the invoice", createdAt: created)
+        let flights = Reminder(externalID: "r2", list: "p", title: "book flights", createdAt: created)
+        _ = try service.applySnapshot([flights, invoice], lists: [work, perch])
+        let listed = call(Request(op: .list)).0
+        #expect(listed.todoLists == [work, perch])
+        #expect(listed.items?.map(\.title) == ["send the invoice", "book flights"])
+        #expect(listed.items?.map(\.listName) == ["Work", "Perch"] && listed.items?.map(\.listID) == ["w", "p"])
+        let ids = listed.items?.map(\.id) ?? []
+
+        // Renamed: the todos follow.
+        let office = ReminderList(id: "w", title: "Office", isICloud: false)
+        let renamed = try service.applySnapshot([flights, invoice], lists: [office, perch])
+        #expect(renamed.map(\.type) == [.updated] && renamed.first?.item.listName == "Office")
+        // Unchecked, then checked again.
+        _ = try service.applySnapshot([flights], lists: [perch])
+        #expect(call(Request(op: .list)).0.items?.map(\.title) == ["book flights"])
+        _ = try service.applySnapshot([flights, invoice], lists: [perch, office])
+        #expect(call(Request(op: .list)).0.items?.map(\.id) == [ids[1], ids[0]])
+        // perchd keeps them for when no bridge is connected.
+        #expect(service.todoLists() == [perch, office])
+        // Writes say which list the reminder was last seen in.
+        guard case .bridge(let write) = service.planTodoWrite(Request(op: .done, id: ids[0])) else { Issue.record("not a bridge write"); return }
+        #expect(write.operation.seenInList == "w" && write.operation.externalID == "r1")
+        let wire = String(decoding: try PerchJSON.encoder.encode(write.operation), as: UTF8.self)
+        #expect(wire.contains(#""seen_in_list":"w""#) && !wire.contains(#""list""#))
+    }
+
+    /// `--list` (#70): the target goes to the bridge as `change.list`, a list id, apart from the `seen_in_list` hint. The
+    /// writer hears an error when the snapshot shows the todo elsewhere (a Perch.app older than #70 ignores the field).
+    @Test func movesNameTheirTargetAndCheckTheResult() throws {
+        let perch = ReminderList(id: "p", title: "Perch", isICloud: true)
+        let work = ReminderList(id: "w", title: "Work", isICloud: true)
+        let flights = Reminder(externalID: "r1", list: "p", title: "book flights")
+        _ = try service.applySnapshot([flights], lists: [perch, work])
+        let id = try #require(call(Request(op: .list)).0.items?.first?.id)
+        guard case .bridge(let write) = service.planTodoWrite(Request(op: .update, id: id, patch: Request.Patch(list: "Work")))
+        else { Issue.record("not a bridge write"); return }
+        #expect(write.operation.change == ReminderChange(list: "w") && write.operation.seenInList == "p")
+        let wire = String(decoding: try PerchJSON.encoder.encode(write.operation), as: UTF8.self)
+        #expect(wire.contains(#""change":{"list":"w"}"#) && wire.contains(#""seen_in_list":"p""#))
+
+        // An old bridge left it where it was.
+        let unmoved = service.todoWriteAnswer(write, externalID: "r1")
+        #expect(unmoved.ok == false && unmoved.error?.contains("is in 'Perch', not the list asked for") == true)
+        // A bridge that knows the field moved it.
+        _ = try service.applySnapshot([Reminder(externalID: "r1", list: "w", title: "book flights")], lists: [perch, work])
+        let moved = service.todoWriteAnswer(write, externalID: "r1")
+        #expect(moved.ok && moved.item?.id == id && moved.item?.listName == "Work")
+
+        // Already there: nothing to do.
+        guard case .answer(let same) = service.planTodoWrite(Request(op: .update, id: id, patch: Request.Patch(list: "Work")))
+        else { Issue.record("expected an answer"); return }
+        #expect(same.ok && same.item?.id == id)
+        // A list on a notice is wrong whatever it is called.
+        guard case .answer(let notice) = service.planTodoWrite(Request(op: .add, item: Item(title: "fyi", kind: .notice), list: "Nope"))
+        else { Issue.record("expected an answer"); return }
+        #expect(notice.error == "a list only applies to todos (open or done tasks)")
+    }
+
     @Test func pingReportsVersion() {
         #expect(call(Request(op: .ping)).0.version == PerchVersion.string)
     }

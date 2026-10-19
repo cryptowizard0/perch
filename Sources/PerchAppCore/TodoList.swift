@@ -1,32 +1,37 @@
 import Foundation
 import PerchCore
 
-/// The Todo tab (#41): the open todos (the "Perch" Reminders list, #51), grouped High / Normal / Low, oldest first in
-/// each group. Notices, requests, waiting and closed items stay out. Due dates are shown (`dueLabel`, #53) but never
-/// reorder: priority is the only order besides age.
+/// The Todo tab (#41): the open todos of the checked Reminders lists (#51, #69), one group per list in the order the
+/// selection gives (empty ones too: "All clear"); in each, High → Normal → Low, then oldest first, then by id.
+/// Notices, requests, waiting and closed items stay out. Due dates are shown (`dueLabel`, #53) but never reorder.
 public struct TodoList: Equatable, Sendable {
     public struct Group: Equatable, Sendable, Identifiable {
-        public var priority: ItemPriority
+        /// The list's identifier (empty for the one group of a cache from before #69).
+        public var id: String
+        /// The list's name.
+        public var title: String
         public var items: [Item]
-        public var id: String { priority.rawValue }
-        public var title: String { priority.label }
+        /// The list isn't in iCloud: it works, but only on this Mac.
+        public var notSyncing: Bool
+        public var openCount: Int { items.count }
     }
 
-    /// Non-empty groups, High first.
+    /// One per checked list, in order.
     public let groups: [Group]
+    /// Across every checked list: the summary line, the tab strip and the folded notch (#56) count these.
     public let openCount: Int
     public let highCount: Int
 
-    /// `items`: any items (only open tasks are kept).
-    public init(items: some Sequence<Item>) {
-        let open = items.filter { $0.kind == .task && $0.status == .open }
-        groups = ItemPriority.allCases.compactMap { priority in
-            let members = open.filter { $0.priority == priority }
-                .sorted { $0.createdAt != $1.createdAt ? $0.createdAt < $1.createdAt : $0.id < $1.id }
-            return members.isEmpty ? nil : Group(priority: priority, items: members)
+    /// `items`: any items (only open tasks are kept). `lists`: the checked lists in order. A todo whose list isn't
+    /// among them is left out: perchd sends the lists ahead of the snapshot's todos, so that is a list just unchecked.
+    /// Without any lists (a cache from before #69) every todo is in one group named `unlisted`.
+    public init(items: some Sequence<Item>, lists: [ReminderList] = [], unlisted: String = "Perch") {
+        groups = items.todoGroups(lists: lists, includingUnknown: false).map {
+            Group(id: $0.list?.id ?? "", title: $0.list?.title ?? unlisted, items: $0.items,
+                  notSyncing: $0.list.map { !$0.isICloud } ?? false)
         }
-        openCount = open.count
-        highCount = open.filter { $0.priority == .high }.count
+        openCount = groups.reduce(0) { $0 + $1.items.count }
+        highCount = groups.reduce(0) { $0 + $1.items.filter { $0.priority == .high }.count }
     }
 
     /// The gray line under the title: "6 open · 2 high", "6 open", or "All clear".

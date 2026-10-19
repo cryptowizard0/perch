@@ -142,7 +142,7 @@ struct CLITests {
         let cli = CLI(home: URL(fileURLWithPath: "/tmp/perch-test-help"))
         let add = try cli.run(["add", "--help"], env: ["COLUMNS": "300"]).stdout
         #expect(add.contains("\nWith --kind request --wait, blocks until someone responds and prints the answer (exit 0). If the request"))
-        #expect(add.contains("\nOpen and done tasks are todos: they live in the \"Perch\" list in Apple Reminders, so adding one needs Perch.app"))
+        #expect(add.contains("\nOpen and done tasks are todos: they live in Apple Reminders (in the \"Perch\" list, or the list checked in Perch.app that --list names; `perch ls` shows every checked list)"))
         let update = try cli.run(["update", "--help"], env: ["COLUMNS": "300"]).stdout
         #expect(update.contains("\nSnooze: perch update <id> --due +30m. Keep a notice as a task: perch update <id> --kind task (it stops"))
         #expect(update.contains("changed through Perch.app: --status open reopens a done one"))
@@ -256,7 +256,7 @@ struct UpdateCLITests {
         let id = try cli.run("add", "t", "--status", "waiting").stdout
         let nothing = try cli.run("update", id)
         #expect(nothing.status == 64)
-        #expect(nothing.stderr == "perch: give at least one of --title, --kind, --status, --priority, --due, --no-due")
+        #expect(nothing.stderr == "perch: give at least one of --title, --kind, --status, --priority, --due, --no-due, --list, --doing, --no-doing")
         #expect(try cli.run("update", id, "--due", "+1h", "--no-due", "--json").json.error
                 == "--due and --no-due cannot be combined")
         #expect(try cli.run("update", id, "--kind", "bogus").stderr == "perch: --kind must be task or notice")

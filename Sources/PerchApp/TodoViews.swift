@@ -77,8 +77,9 @@ struct MascotIcon: View {
     }
 }
 
-/// The Todo tab: a big title over the summary line, then the open todos grouped High / Normal / Low, one line each.
-/// They are the "Perch" Reminders list (#51); without it, the tab is a line and one button.
+/// The Todo tab: a big title over the summary line, then the open todos grouped by Reminders list (#69), one line each:
+/// "Perch" and the other checked lists, in the selection's order, empty ones with a gray "All clear". Without the
+/// "Perch" list (#51), the tab is a line and one button.
 struct TodoTab: View {
     @ObservedObject var queue: QueueModel
 
@@ -88,11 +89,8 @@ struct TodoTab: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Todo").font(.system(size: 20, weight: .bold)).foregroundStyle(.white)
-                HStack(spacing: 6) {
-                    Text(queue.online && reminders.isReady ? todos.summary : " ")
-                    if let note = reminders.note { Text("· \(note)") }
-                }
-                .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                Text(queue.online && reminders.isReady ? todos.summary : " ")
+                    .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
             }
             .padding(.leading, 2)
             .frame(maxWidth: .infinity, minHeight: PanelLayout.titleHeight, alignment: .bottomLeading)
@@ -108,6 +106,12 @@ struct TodoTab: View {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(todos.groups) { group in
                             TodoGroupHeader(group: group)
+                            if group.items.isEmpty {
+                                Text("All clear")
+                                    .font(.system(size: 13)).foregroundStyle(.white.opacity(0.4))
+                                    .frame(height: PanelLayout.todoRowHeight)
+                                    .padding(.leading, 2)
+                            }
                             ForEach(group.items) { item in
                                 TodoRowView(item: item, completing: queue.completing.contains(item.id),
                                             highlighted: queue.highlighted.contains(item.id),
@@ -159,17 +163,19 @@ struct RemindersPrompt: View {
     }
 }
 
-/// Like the Agents group header; High is white, the rest gray (priority never uses colour).
+/// Like the Agents group header, all gray: the list's name and open count, never the list's colour (#69). A list that
+/// isn't in iCloud says "Not syncing".
 struct TodoGroupHeader: View {
     var group: TodoList.Group
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(group.title)
-            Text("\(group.items.count)").monospacedDigit()
+            Text(group.title).lineLimit(1)
+            Text("\(group.openCount)").monospacedDigit()
+            if group.notSyncing { Text("· Not syncing").fontWeight(.regular) }
         }
         .font(.system(size: 11, weight: .semibold))
-        .foregroundStyle(.white.opacity(group.priority == .high ? 0.95 : 0.5))
+        .foregroundStyle(.white.opacity(0.5))
         .frame(height: PanelLayout.headerHeight, alignment: .bottom)
         .padding(.leading, 2)
     }
@@ -195,9 +201,12 @@ struct AddTodoRow: View {
     }
 }
 
-/// One todo: `○ title … date ✎` (#53). Clicking the circle or the title crosses it out with an Undo for a few seconds
-/// (clicking again undoes); double-clicking does nothing more. The date is gray, white once overdue; hovering the row
-/// shows the full title and date. ✎ opens the reminder in Reminders. Right-click: Edit… · Priority ▸ · Delete.
+/// One todo: `○ title … date ▶ capsule ✎` (#53, #71). Clicking the circle or the title crosses it out with an Undo for a
+/// few seconds (clicking again undoes); double-clicking does nothing more. The date is gray, white once overdue; hovering
+/// the row shows the full title and date. ▶ toggles Doing: gray and only while the pointer is on the row, or white and
+/// filled on a Doing row, which also gets a light background and a bold title so it stands out. The capsule is the
+/// priority, display-only. ✎ opens the reminder in Reminders.
+/// Right-click: Edit… · Priority ▸ · Delete.
 /// A todo just added while the panel is open is lit for a second.
 struct TodoRowView: View {
     var item: Item
@@ -205,8 +214,10 @@ struct TodoRowView: View {
     var highlighted = false
     var due: TodoList.DueLabel?
     var queue: QueueModel
+    @State private var hovering = false
 
     var body: some View {
+        let doing = item.doing && !completing
         let title = item.title.replacingOccurrences(of: "\n", with: " ")
         let tooltip = due.map { "\(title)\n\($0.full)" } ?? title
         HStack(spacing: 8) {
@@ -216,7 +227,7 @@ struct TodoRowView: View {
                         .font(.system(size: 14))
                         .foregroundStyle(.white.opacity(completing ? 0.6 : 0.55))
                     Text(title)
-                        .font(.system(size: 13))
+                        .font(.system(size: 13, weight: doing ? .semibold : .regular))
                         .strikethrough(completing)
                         .foregroundStyle(.white.opacity(completing ? 0.4 : 0.95))
                         .lineLimit(1)
@@ -240,6 +251,19 @@ struct TodoRowView: View {
                     .fixedSize()
                     .help(tooltip)
             }
+            let showsDoing = !completing && (item.doing || hovering)
+            Button { queue.toggleDoing(item) } label: {
+                Image(systemName: item.doing ? "play.fill" : "play")
+                    .font(.system(size: doing ? 11 : 9.5, weight: .semibold))
+                    .foregroundStyle(.white.opacity(item.doing ? 0.95 : 0.45))
+                    .frame(width: 14, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .opacity(showsDoing ? 1 : 0)
+            .allowsHitTesting(showsDoing)
+            .help(item.doing ? "Doing — click to clear" : "Mark as Doing")
+            PriorityCapsule(priority: item.priority)
             Button { queue.openInReminders(item) } label: {
                 Image(systemName: "pencil")
                     .font(.system(size: 11.5, weight: .semibold))
@@ -253,10 +277,11 @@ struct TodoRowView: View {
         .frame(height: PanelLayout.todoRowHeight)
         .padding(.leading, 1)
         .background(
-            RoundedRectangle(cornerRadius: 6).fill(.white.opacity(highlighted ? 0.14 : 0)).padding(.horizontal, -4)
+            RoundedRectangle(cornerRadius: 6).fill(.white.opacity(highlighted ? 0.14 : doing ? 0.08 : 0)).padding(.horizontal, -4)
                 .animation(.easeOut(duration: 0.4), value: highlighted)
         )
         .contentShape(Rectangle())
+        .background(HoverTracker { hovering = $0 })
         .contextMenu {
             Button("Edit…") { queue.openEdit(item) }
             Menu("Priority") {
@@ -270,5 +295,69 @@ struct TodoRowView: View {
             Divider()
             Button("Delete") { queue.delete(item) }
         }
+    }
+}
+
+/// A todo's priority (#71): its name on a translucent capsule of the same colour. High orange, Normal gray (the faintest,
+/// so the many Normal rows recede), Low green. Display-only: Priority ▸ and the editor change it.
+struct PriorityCapsule: View {
+    var priority: ItemPriority
+
+    var body: some View {
+        Text(priority.label)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(color.opacity(priority == .normal ? 0.5 : 0.95))
+            .padding(.horizontal, 6)
+            .frame(height: 15)
+            .background(Capsule().fill(color.opacity(priority == .normal ? 0.1 : 0.2)))
+            .fixedSize()
+    }
+
+    /// Needs you's orange and Running's green: accepted (#66) because capsules only appear in the Todo tab.
+    private var color: Color {
+        switch priority {
+        case .high: return SessionStatus.color(.waiting)
+        case .normal: return .white
+        case .low: return SessionStatus.color(.running)
+        }
+    }
+}
+
+/// Reports the pointer entering and leaving its frame even though the notch panel is never key (SwiftUI's own hover
+/// follows the key window), like `NotchHostingView` does for the whole panel. A row that appears (or moves) under the
+/// pointer gets no entered event, so it also looks where the pointer is whenever its area is set up. Never takes a click.
+struct HoverTracker: NSViewRepresentable {
+    var changed: (Bool) -> Void
+
+    func makeNSView(context: Context) -> TrackingView {
+        TrackingView()
+    }
+
+    func updateNSView(_ view: TrackingView, context: Context) {
+        view.changed = changed
+    }
+
+    final class TrackingView: NSView {
+        var changed: ((Bool) -> Void)?
+        private var tracking: NSTrackingArea?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let tracking { removeTrackingArea(tracking) }
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                      owner: self, userInfo: nil)
+            addTrackingArea(area)
+            tracking = area
+            // After this layout pass: SwiftUI state mustn't change while it updates views.
+            if let window {
+                let inside = bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+                DispatchQueue.main.async { [weak self] in self?.changed?(inside) }
+            }
+        }
+
+        override func mouseEntered(with event: NSEvent) { changed?(true) }
+        override func mouseExited(with event: NSEvent) { changed?(false) }
     }
 }

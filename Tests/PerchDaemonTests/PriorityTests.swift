@@ -61,6 +61,7 @@ struct PriorityCLITests {
         return (bridge, Dictionary(uniqueKeysWithValues: items.map { ($0.reminderID!, $0.id) }))
     }
 
+    /// Priority, then age: due dates don't reorder (#69).
     @Test func lsListsOpenTasksByPriorityAndMarksHighAndLow() throws {
         let d = try TestDaemon()
         let cli = CLI(home: d.home)
@@ -68,12 +69,12 @@ struct PriorityCLITests {
         defer { bridge.close() }
         let (low, normal, high, overdueLow) = (ids["low"]!, ids["normal"]!, ids["high"]!, ids["overdueLow"]!)
         let request = try cli.run("add", "npm test", "--kind", "request").stdout
-        #expect(try cli.run("ls", "--json").json.items?.map(\.id) == [request, high, normal, overdueLow, low])
+        #expect(try cli.run("ls", "--json").json.items?.map(\.id) == [request, high, normal, low, overdueLow])
         let lines = try cli.run("ls").stdout.split(separator: "\n").map(String.init)
         #expect(lines.count == 5)
         #expect(lines[1].hasPrefix(high) && lines[1].contains("renew the domain  · high priority"))
         #expect(lines[2].hasPrefix(normal) && !lines[2].contains("priority"))
-        #expect(lines[4].hasPrefix(low) && lines[4].hasSuffix("read the doc  · low priority"))
+        #expect(lines[3].hasPrefix(low) && lines[3].hasSuffix("read the doc  · low priority"))
     }
 
     @Test func theMirrorListsToDoByPriority() throws {
@@ -86,8 +87,8 @@ struct PriorityCLITests {
 
         - [ ] renew the domain — high priority · reminders · `\(ids["high"]!)`
         - [ ] reply to Sam — reminders · `\(ids["normal"]!)`
-        - [ ] old low — low priority · due \(local(1_800_000_000)) · reminders · `\(ids["overdueLow"]!)`
         - [ ] read the doc — low priority · reminders · `\(ids["low"]!)`
+        - [ ] old low — low priority · due \(local(1_800_000_000)) · reminders · `\(ids["overdueLow"]!)`
 
         """))
     }

@@ -42,7 +42,7 @@ import Testing
         #expect(try store.sessions().map(\.id) == ["s1"])
         var version = 0
         try store.db.run("PRAGMA user_version") { version = $0.int(0) }
-        #expect(version == Store.schemaVersion && version == 6)
+        #expect(version == Store.schemaVersion && version == 7)
     }
 
     /// A v3 database (before todo priority, #41) gains the priority column; every existing item is Normal.
@@ -74,7 +74,7 @@ import Testing
         #expect(items.allSatisfy { $0.priority == .normal })
         var version = 0
         try store.db.run("PRAGMA user_version") { version = $0.int(0) }
-        #expect(version == 6)
+        #expect(version == Store.schemaVersion)
         var high = try #require(try store.get(id: "t7k2"))
         high.priority = .high
         try store.update(high)
@@ -142,6 +142,42 @@ import Testing
         let asOf = Date(timeIntervalSince1970: 1_800_000_000)
         try store.setTodosAsOf(asOf)
         #expect(try Store(path: path).todosAsOf() == asOf)
+    }
+
+    /// v7 (#71): todo references gain `doing` (false for every one already there); short ids and keys stay.
+    @Test func migratingToV7AddsDoingToTodoReferences() throws {
+        let path = "/tmp/perch-test-v6-\(UUID().uuidString.prefix(8)).db"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            let v6 = try SQLiteDatabase(path: path)
+            try v6.execute("""
+            CREATE TABLE items (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL,
+                source TEXT NOT NULL, due_at TEXT, link TEXT, meta TEXT, key TEXT UNIQUE, options TEXT, response TEXT,
+                expires_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'normal',
+                due_date_only INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT NOT NULL, title TEXT NOT NULL, cwd TEXT, link TEXT,
+                status TEXT NOT NULL, prompt TEXT, last_message TEXT, detail TEXT, error TEXT, pid INTEGER, pid_started_at TEXT,
+                started_at TEXT NOT NULL, turn_started_at TEXT NOT NULL, status_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                transcript_path TEXT);
+            CREATE TABLE todo_refs (id TEXT PRIMARY KEY, external_id TEXT NOT NULL UNIQUE, key TEXT UNIQUE);
+            CREATE TABLE daemon_state (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO todo_refs VALUES ('t7k2', 'R-1', 'k1');
+            INSERT INTO items (id, title, kind, status, source, meta, key, created_at, updated_at) VALUES
+                ('t7k2', 'buy milk', 'task', 'open', 'reminders', '{"reminder":"R-1"}', 'k1', '2027-01-15T08:00:00Z',
+                 '2027-01-15T08:00:00Z');
+            PRAGMA user_version = 6;
+            """)
+        }
+        let store = try Store(path: path)
+        #expect(try store.todoRefs() == [TodoRef(id: "t7k2", externalID: "R-1", key: "k1", doing: false)])
+        #expect(try store.get(id: "t7k2")?.doing == false)
+        try store.setDoing(true, forRef: "t7k2")
+        let reopened = try Store(path: path)
+        #expect(try reopened.todoRef(externalID: "R-1")?.doing == true)
+        #expect(try reopened.get(id: "t7k2")?.doing == true)
+        var version = 0
+        try reopened.db.run("PRAGMA user_version") { version = $0.int(0) }
+        #expect(version == 7)
     }
 
     @Test func pingOverUnixSocket() throws {

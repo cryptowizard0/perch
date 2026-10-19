@@ -88,7 +88,7 @@ import Testing
 
     @Test func rejectsEmptyPatchesAndBadInput() throws {
         let item = try add(Item(title: "t", status: .waiting))
-        let empty = "update needs at least one of: title, kind, status, priority, due_at, clear_due"
+        let empty = "update needs at least one of: title, kind, status, priority, due_at, clear_due, doing"
         #expect(update(item.id, nil).0.error == empty)
         #expect(update(item.id, .init()).0.error == empty)
         #expect(update(item.id, .init(clearDue: false)).0.error == empty)

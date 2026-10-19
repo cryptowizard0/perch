@@ -25,9 +25,11 @@ public final class Service {
             case .ping:
                 return (Response(ok: true, version: PerchVersion.string), [])
             case .add:
-                return try add(request.item)
+                return try add(request.item, list: request.list)
             case .list:
-                return (Response(ok: true, items: try store.list(request.filter).queueOrdered(now: now())), [])
+                let lists = try store.todoLists()
+                let items = try store.list(request.filter).queueOrdered(now: now(), lists: lists.map(\.id))
+                return (Response(ok: true, items: items, todoLists: lists.isEmpty ? nil : lists), [])
             case .get:
                 return (Response(ok: true, item: try existing(request.id)), [])
             case .done:
@@ -67,13 +69,15 @@ public final class Service {
         // Round up so storing whole seconds never shortens the window an agent asked for.
         item.expiresAt = item.expiresAt.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.up)) }
         item.response = nil
+        item.doing = false
         return item
     }
 
-    private func add(_ incoming: Item?) throws -> (Response, [Event]) {
+    private func add(_ incoming: Item?, list: String?) throws -> (Response, [Event]) {
         var item = try normalized(incoming)
         let t = timestamp()
         if Self.isTodoShaped(item) { throw ServiceError(Self.todoWriteRefused) }
+        if list != nil { throw ServiceError(Self.listOnlyForTodos) }
         if item.kind == .request {
             if (item.options ?? []).isEmpty { item.options = ["allow", "deny"] }
         } else {
@@ -152,10 +156,19 @@ public final class Service {
 
     private func update(_ id: String?, _ patch: Request.Patch?) throws -> (Response, [Event]) {
         let original = try existing(id)
+        if let patch, let doing = patch.doing {
+            var rest = patch
+            rest.doing = nil
+            guard rest.isEmpty else {
+                throw ServiceError("doing (--doing / --no-doing) goes on its own: it stays in Perch while the rest goes to Reminders; make two updates")
+            }
+            return try setDoing(original, doing)
+        }
         try refuseTodo(original)
         let item = try patched(original, patch)
         // A notice kept as a task would be a todo, and todos live in Reminders: only the bridge can make it one.
         if Self.isTodoShaped(item) && !Self.isTodoShaped(original) { throw ServiceError(Self.todoWriteRefused) }
+        if patch?.list != nil { throw ServiceError(Self.listOnlyForTodos) }
         guard item != original else { return (Response(ok: true, item: original), []) }
         return try save(item)
     }
@@ -163,7 +176,7 @@ public final class Service {
     /// `item` with `patch` applied, or why it can't be.
     private func patched(_ original: Item, _ patch: Request.Patch?) throws -> Item {
         guard let patch, !patch.isEmpty else {
-            throw ServiceError("update needs at least one of: title, kind, status, priority, due_at, clear_due")
+            throw ServiceError("update needs at least one of: title, kind, status, priority, due_at, clear_due, doing")
         }
         if patch.dueAt != nil && patch.clearDue == true {
             throw ServiceError("update takes either due_at or clear_due, not both")
@@ -270,9 +283,12 @@ public final class Service {
 
     // MARK: - Todos (#51)
 
-    /// Todos live in the "Perch" Reminders list; only the bridge app writes them. `Daemon` hands todo writes to it
-    /// (`planTodoWrite`, #52); with no bridge connected they are refused, never queued.
+    /// Todos live in the checked Reminders lists ("Perch" and any others, #69); only the bridge app writes them.
+    /// `Daemon` hands todo writes to it (`planTodoWrite`, #52); with no bridge connected they are refused, never queued.
     static let todoWriteRefused = "Todo needs Perch.app running with Reminders access"
+
+    /// A list (#70) is where a todo lives in Reminders; nothing else has one.
+    static let listOnlyForTodos = "a list only applies to todos (open or done tasks)"
 
     /// What todos are cached as. Every other item (waiting tasks, notices, requests) stays perchd's own.
     static func isTodoShaped(_ item: Item) -> Bool {
@@ -283,13 +299,37 @@ public final class Service {
         if try store.isTodo(id: item.id) { throw ServiceError(Self.todoWriteRefused) }
     }
 
+    /// Marks the open todo `item` as Doing, or clears it (#71). Kept on its reference, so it follows the short id; nothing
+    /// is written to the reminder, so it works with no bridge. Alone in its update: the rest of a todo goes to Reminders.
+    /// Only the reference changes; the cached todo stays as the last snapshot wrote it.
+    private func setDoing(_ item: Item, _ doing: Bool) throws -> (Response, [Event]) {
+        guard try store.isTodo(id: item.id) else {
+            throw ServiceError("\(item.id) is a \(item.status.rawValue) \(item.kind.rawValue); Doing only applies to todos (open tasks in Reminders)")
+        }
+        guard item.status == .open else {
+            throw ServiceError("\(item.id) isn't open (it's \(item.status.rawValue)); only open todos can be Doing")
+        }
+        guard item.doing != doing else { return (Response(ok: true, item: item), []) }
+        try store.setDoing(doing, forRef: item.id)
+        let changed = try existing(item.id)
+        return (Response(ok: true, item: changed), [Event(type: .updated, item: changed, at: timestamp())])
+    }
+
     /// The source cached todos carry: they come from Reminders, whoever wrote them there.
     public static let remindersSource = "reminders"
 
-    /// Replaces the todo cache with the bridge's full read of the list: new reminders get a short id, changed ones are
-    /// updated, and cached todos missing from it are removed. Only what changed emits an event.
-    public func applySnapshot(_ reminders: [Reminder]) throws -> [Event] {
-        try store.transaction {
+    /// Replaces the todo cache with the bridge's full read of the checked lists: new reminders get a short id, changed
+    /// ones are updated, and cached todos missing from it are removed (deleted, or in a list no longer checked: their
+    /// references stay, so they keep their short ids if they come back, #69). Only what changed emits an event.
+    /// `lists`: the checked lists in order, kept for grouping (nil from a bridge older than #69).
+    /// Doing (#71) comes from the reference. It clears when the reminder shows up completed, or is missing while its list
+    /// is still checked (deleted, or moved in Reminders to a list that isn't); a todo whose list was unchecked keeps it,
+    /// and so does every todo when the snapshot lists no lists at all (nothing to say it was deleted).
+    public func applySnapshot(_ reminders: [Reminder], lists snapshotLists: [ReminderList]? = nil) throws -> [Event] {
+        let lists = snapshotLists ?? []
+        return try store.transaction {
+            try store.setTodoLists(lists)
+            let names = Dictionary(lists.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
             var refs = Dictionary(try store.todoRefs().map { ($0.externalID, $0) }, uniquingKeysWith: { a, _ in a })
             let cached = Dictionary(try store.todos().map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             let t = timestamp()
@@ -305,16 +345,18 @@ public final class Service {
                     refs[reminder.externalID] = ref
                 }
                 guard present.insert(ref.id).inserted else { continue }
+                if reminder.completed && ref.doing { try store.setDoing(false, forRef: ref.id) }
                 let old = cached[ref.id]
                 var item = Item(
                     id: ref.id, title: reminder.title, kind: .task, status: reminder.completed ? .done : .open,
                     priority: ItemPriority(reminderPriority: reminder.priority), source: Self.remindersSource,
                     dueAt: reminder.dueAt.map(Self.wholeSeconds), dueDateOnly: reminder.dueAt != nil && reminder.dueDateOnly,
                     link: reminder.url,
-                    meta: Self.meta(of: reminder), key: ref.key,
+                    meta: Self.meta(of: reminder, listName: reminder.list.flatMap { names[$0] }), key: ref.key,
                     createdAt: reminder.createdAt.map(Self.wholeSeconds) ?? old?.createdAt ?? t,
                     updatedAt: old?.updatedAt ?? t
                 )
+                item.doing = ref.doing && !reminder.completed
                 if let old {
                     guard item != old else { continue }
                     item.updatedAt = t
@@ -325,7 +367,12 @@ public final class Service {
                     events.append(Event(type: .added, item: item, at: t))
                 }
             }
+            let checked = Set(lists.map(\.id))
             for (id, gone) in cached.sorted(by: { $0.key < $1.key }) where !present.contains(id) {
+                // A bridge older than #69 only ever had "Perch", which is checked.
+                if gone.doing && (snapshotLists == nil || gone.listID.map(checked.contains) ?? false) {
+                    try store.setDoing(false, forRef: id)
+                }
                 try store.delete(id: id)
                 events.append(Event(type: .removed, item: gone, at: t))
             }
@@ -334,11 +381,18 @@ public final class Service {
         }
     }
 
-    /// What a cached todo keeps in `meta`: the reminder's identifier, and its notes when it has any.
-    static func meta(of reminder: Reminder) -> [String: String] {
+    /// What a cached todo keeps in `meta`: the reminder's identifier, its list (#69) and its notes when it has any.
+    static func meta(of reminder: Reminder, listName: String? = nil) -> [String: String] {
         var item = Item(title: "", meta: [Item.reminderMetaKey: reminder.externalID])
+        item.meta?[Item.listIDMetaKey] = reminder.list
+        item.meta?[Item.listNameMetaKey] = listName
         item.notes = reminder.notes
         return item.meta ?? [:]
+    }
+
+    /// The checked lists of the latest snapshot, in order.
+    public func todoLists() -> [ReminderList] {
+        (try? store.todoLists()) ?? []
     }
 
     /// When the todo cache was last known to match Reminders (shown while no bridge is connected). A cache from before
@@ -379,7 +433,7 @@ public final class Service {
     public func planTodoWrite(_ request: Request) -> TodoPlan {
         do {
             switch request.op {
-            case .add: return try planAdd(request.item)
+            case .add: return try planAdd(request.item, list: request.list)
             case .done: return try planDone(request.id, key: request.key)
             case .update: return try planUpdate(request.id, request.patch)
             case .remove:
@@ -395,15 +449,18 @@ public final class Service {
         }
     }
 
-    private func planAdd(_ incoming: Item?) throws -> TodoPlan {
+    private func planAdd(_ incoming: Item?, list: String?) throws -> TodoPlan {
         let item = try normalized(incoming)
+        // Before the name: a list on a notice is wrong whatever it is called.
+        if list != nil && !Self.isTodoShaped(item) { throw ServiceError(Self.listOnlyForTodos) }
+        let target = try list.map(checkedList(named:))
         let existing = try item.key.flatMap(store.find(key:))
         if let existing, try store.isTodo(id: existing.id) {
-            // `add --key` again: the same reminder takes the new fields.
+            // `add --key` again: the same reminder takes the new fields (and moves, given a list).
             guard Self.isTodoShaped(item) else {
                 throw ServiceError("key '\(existing.key ?? "")' is todo \(existing.id), which lives in Reminders; it can't become a \(item.status.rawValue) \(item.kind.rawValue)")
             }
-            return try planChange(existing, to: item)
+            return try planChange(existing, to: item, list: target)
         }
         guard Self.isTodoShaped(item) else { return .local }
         if existing == nil, let key = item.key, let ref = try store.todoRef(key: key) {
@@ -412,10 +469,13 @@ public final class Service {
             if item.dueAt == nil { change.clearDue = true }
             if item.link == nil { change.clearURL = true }
             if item.status == .open { change.completed = false }
+            change.list = target?.id
             return .bridge(TodoWrite(operation: TodoOperation(action: .upsert, externalID: ref.externalID, change: change), key: key))
         }
         // New, or re-adding the key of a waiting task as an open one: it moves into Reminders.
-        let operation = TodoOperation(action: .create, change: Self.fields(of: item))
+        var change = Self.fields(of: item)
+        change.list = target?.id
+        let operation = TodoOperation(action: .create, change: change)
         return .bridge(TodoWrite(operation: operation, key: item.key, promoted: existing?.id))
     }
 
@@ -436,12 +496,20 @@ public final class Service {
 
     private func planUpdate(_ id: String?, _ patch: Request.Patch?) throws -> TodoPlan {
         let original = try existing(id)
+        // Doing is perchd's own (#71): `update` sets it here, never through the bridge.
+        if patch?.doing != nil { return .local }
         guard try store.isTodo(id: original.id) else {
             let item = try patched(original, patch)
-            guard Self.isTodoShaped(item) else { return .local }
-            let operation = TodoOperation(action: .create, change: Self.fields(of: item))
+            guard Self.isTodoShaped(item) else {
+                if patch?.list != nil { throw ServiceError(Self.listOnlyForTodos) }
+                return .local
+            }
+            var change = Self.fields(of: item)
+            change.list = try patch?.list.map(checkedList(named:))?.id
+            let operation = TodoOperation(action: .create, change: change)
             return .bridge(TodoWrite(operation: operation, key: item.key, promoted: original.id))
         }
+        let target = try patch?.list.map(checkedList(named:))
         if patch?.kind == .notice { throw ServiceError("\(original.id) is a todo in Reminders; it stays a task") }
         if patch?.status == .waiting { throw ServiceError("\(original.id) is a todo in Reminders; it can't be waiting") }
         if patch?.status == .dismissed {
@@ -449,21 +517,40 @@ public final class Service {
             removed.status = .dismissed
             return try planDelete(removed)
         }
-        return try planChange(original, to: try patched(original, patch))
+        return try planChange(original, to: try patched(original, patch), list: target)
     }
 
     /// Deleting the cached todo `item` (answered with `item` itself).
     private func planDelete(_ item: Item) throws -> TodoPlan {
         guard let reminder = item.reminderID else { throw ServiceError("\(item.id) is not a reminder") }
-        return .bridge(TodoWrite(operation: TodoOperation(action: .delete, externalID: reminder), removed: item))
+        let operation = TodoOperation(action: .delete, externalID: reminder, seenInList: item.listID)
+        return .bridge(TodoWrite(operation: operation, removed: item))
     }
 
-    /// An update to the cached todo `old` so it reads like `new`; nothing to do when they already agree.
-    private func planChange(_ old: Item, to new: Item) throws -> TodoPlan {
+    /// An update to the cached todo `old` so it reads like `new`, in the checked list `list` when given (a move, #70);
+    /// nothing to do when they already agree.
+    private func planChange(_ old: Item, to new: Item, list: ReminderList? = nil) throws -> TodoPlan {
         guard let reminder = old.reminderID else { throw ServiceError("\(old.id) is not a reminder") }
-        let change = ReminderChange(from: old, to: new)
+        var change = ReminderChange(from: old, to: new)
+        if let list, list.id != old.listID {
+            if let from = todoLists().first(where: { $0.id == old.listID }), let refusal = from.moveRefusal(to: list) {
+                throw ServiceError(refusal)
+            }
+            change.list = list.id
+        }
         guard !change.isEmpty else { return .answer(Response(ok: true, item: old)) }
-        return .bridge(TodoWrite(operation: TodoOperation(action: .update, externalID: reminder, change: change)))
+        let operation = TodoOperation(action: .update, externalID: reminder, seenInList: old.listID, change: change)
+        return .bridge(TodoWrite(operation: operation))
+    }
+
+    /// The checked list (as of the latest snapshot) called exactly `name`, or why there's none (#70). The bridge checks
+    /// again when it writes.
+    private func checkedList(named name: String) throws -> ReminderList {
+        do {
+            return try ReminderList.checked(named: name, in: try store.todoLists())
+        } catch let error as RemindersListError {
+            throw ServiceError(error.description)
+        }
     }
 
     /// A new reminder's fields. `source`, `meta` and `expires_at` are not stored for todos.
@@ -508,12 +595,16 @@ public final class Service {
     }
 
     /// What the writer gets once the bridge's snapshot shows the change: the todo as cached now (as it was, for a
-    /// delete).
+    /// delete), or an error when it isn't in the list the write asked for.
     public func todoWriteAnswer(_ write: TodoWrite, externalID: String?) -> Response {
         if let removed = write.removed { return Response(ok: true, item: removed) }
         guard let reminder = externalID ?? write.operation.externalID,
               let ref = try? store.todoRef(externalID: reminder), let item = try? store.get(id: ref.id) else {
             return .failure("Perch.app made the change, but the todo isn't in its list now; check with `perch ls`")
+        }
+        // A Perch.app older than #70 doesn't know the target list and writes into "Perch" (or doesn't move): say so.
+        if let target = write.operation.change.list, item.listID != target {
+            return .failure("\(item.id) is in '\(item.listTitle)', not the list asked for: Perch.app is older than perch; update it")
         }
         return Response(ok: true, item: item)
     }

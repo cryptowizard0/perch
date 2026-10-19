@@ -372,7 +372,7 @@ struct TodoWritesTests {
         // todo.md is read later, so it carries the day too.
         hhmm.dateFormat = "yyyy-MM-dd HH:mm"
         let mirror = read(d.daemon.config.mirrorPath)
-        #expect(mirror.contains("## To do\n\n_As of \(hhmm.string(from: asOf)) — Perch.app isn't connected_\n\n- [ ] Buy milk"))
+        #expect(mirror.contains("## To do\n\n_As of \(hhmm.string(from: asOf)) — Perch.app isn't connected_\n\n### Perch\n\n- [ ] Buy milk"))
         // Lists without todos stay quiet.
         let requests = try await perch(d, "ls", "--kind", "request")
         #expect(requests.stderr == "nothing here")

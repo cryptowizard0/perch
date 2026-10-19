@@ -44,8 +44,9 @@ import Testing
     @Test func staleTodosSayAsOf() {
         let asOf = now.addingTimeInterval(-3600)
         let items = [
-            Item(id: "task", title: "reply to X", dueAt: now.addingTimeInterval(7 * 3600)),
-            Item(id: "day1", title: "dentist", dueAt: Date(timeIntervalSince1970: 1_800_057_600), dueDateOnly: true),
+            Item(id: "task", title: "reply to X", dueAt: now.addingTimeInterval(7 * 3600), createdAt: now.addingTimeInterval(-2)),
+            Item(id: "day1", title: "dentist", dueAt: Date(timeIntervalSince1970: 1_800_057_600), dueDateOnly: true,
+                 createdAt: now.addingTimeInterval(-1)),
         ]
         let text = MirrorRenderer.render(items, todosAsOf: asOf, now: now, calendar: calendar)
         #expect(text.contains("""
@@ -63,6 +64,38 @@ import Testing
 
     @Test func emptyQueue() {
         #expect(MirrorRenderer.render([], now: now).hasSuffix("# Perch\n\nNothing waiting.\n"))
+    }
+
+    /// One subheading per checked Reminders list, in order, "All clear" under an empty one (#69).
+    @Test func toDoHasASubheadingPerList() {
+        let perch = ReminderList(id: "p", title: "Perch", isICloud: true)
+        let work = ReminderList(id: "w", title: "Work", isICloud: true)
+        let home = ReminderList(id: "h", title: "Home", isICloud: false)
+        func todo(_ id: String, _ list: ReminderList, _ priority: ItemPriority = .normal, age: TimeInterval) -> Item {
+            Item(id: id, title: id, priority: priority, source: "reminders",
+                 meta: [Item.listIDMetaKey: list.id, Item.listNameMetaKey: list.title], createdAt: now.addingTimeInterval(-age))
+        }
+        let items = [todo("old", work, age: 60), todo("new", work, .high, age: 1), todo("mine", perch, age: 5)]
+        let text = MirrorRenderer.render(items, lists: [work, home, perch], now: now, calendar: calendar)
+        #expect(text.hasSuffix("""
+        ## To do
+
+        ### Work
+
+        - [ ] new — high priority · reminders · `new`
+        - [ ] old — reminders · `old`
+
+        ### Home
+
+        All clear
+
+        ### Perch
+
+        - [ ] mine — reminders · `mine`
+
+        """))
+        #expect(!MirrorRenderer.render([], lists: [perch], now: now).contains("Nothing waiting."))
+        #expect(MirrorRenderer.render([], lists: [perch], now: now).contains("### Perch\n\nAll clear\n"))
     }
 }
 

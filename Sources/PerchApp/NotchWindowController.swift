@@ -134,6 +134,19 @@ final class NotchWindowController {
         }.store(in: &cancellables)
     }
 
+    /// Where a popup of `size` goes (the todo popup, the Lists… window): just below the expanded panel when
+    /// `belowPanel`, else just below the folded notch. Nil before the notch has a place.
+    func popupFrame(size: CGSize, belowPanel: Bool, gap: CGFloat) -> CGRect? {
+        if belowPanel {
+            let notch = panel.frame
+            return CGRect(x: notch.midX - size.width / 2, y: notch.minY - gap - size.height, width: size.width, height: size.height).integral
+        }
+        guard let geometry = notch.geometry else { return nil }
+        var frame = geometry.expandedFrame(size: size)
+        frame.origin.y -= geometry.bandHeight + gap
+        return frame.integral
+    }
+
     func show() {
         layout()
         panel.orderFrontRegardless()

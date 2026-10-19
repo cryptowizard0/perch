@@ -157,3 +157,50 @@
 - [x] 设时间同时加 alarm（刘海和 CLI 都是），时间改了跟着走，别的 alarm 不动
 - [x] 添加弹窗不变；`swift build` / `swift test` 通过；PRD、CLAUDE.md 更新
 - [x] 人工验收（真 Mac，有 Reminders 权限，2026-10-16 维护者验收通过）：行的样子、✎ 跳过去、大编辑器（日期 / 时间选择器、Return / Esc / Tab）、在刘海里设的时间到点会提醒、iCloud 列表上 ✎ 也能找到那条
+
+## M14 — 更多 Reminders 列表，按列表分组（#66：#69 / #70 / #71）
+
+设计见 #66（父 issue）和 `docs/PRD.md` 的"Todo tab"、Reminders 一节。
+
+**#69 数据通路、列表选择、Todo tab 和 CLI 按列表分组**
+- [x] 列表选择存在 App 的 defaults（`RemindersOrder.<名字>` / `RemindersChecked.<名字>`，按 `calendarIdentifier`）："Perch" 永远勾选、位置可变；新列表排到最后不勾；不存在的默默不显示（选择里不删，回来照样勾着、位置不变）；改名的照样勾着、位置不变；隔离运行自己一套、只勾 "Perch Dev"；升级的用户只勾 "Perch"
+- [x] "Perch" 的特殊处理不变（记下的 id → 名字、第一次自动建、从不自动重建、Connect / Open System Settings / Create Perch list）；别的勾选列表被删了就消失
+- [x] 快照覆盖所有勾选列表（未完成 + 7 天内完成），每条带列表，加按顺序的列表描述（id、名字、iCloud）
+- [x] perchd 把 todo 的列表记在 `meta`，列表描述存在 `daemon_state`（不改 schema），没有 bridge、重启后照样分组；`todo_refs` 从不删
+- [x] Todo tab：每个勾选列表一组（按选择顺序、空的灰色 "All clear"）；组标题灰色列表名 + 数、不用列表颜色；不在 iCloud 的写 "Not syncing"；组内 High → Normal → Low、再创建时间、再 id
+- [x] 摘要、tab 栏的数、收起态右翼的数（#56）都算所有勾选列表
+- [x] 完成（带 Undo）、Edit…、Priority ▸、Delete、✎ 对任何勾选列表的 todo 都能用，只写它自己的列表，Perch 不管的字段不动；添加进 "Perch"
+- [x] `perch ls` 按列表分组（再优先级、再创建时间；标出 High / Low），`--json` 带 `list`；`todo.md` 每个勾选列表一个小标题、空的 "All clear"；没有 bridge 时照样（"Todos as of HH:MM"）
+- [x] `done` / `update` / `rm` / 重新打开 / `ls --status done` 对任何勾选列表都能用；`inbox.md` 和 `perch add` 进 "Perch"
+- [x] 取消勾选只把那个列表的 todo 从 tab、`perch ls`、`todo.md` 拿掉，Reminders 不动；重新勾上短 id 不变；在 Reminders 里挪到没勾的列表就消失
+- [x] 测试：假 Reminders + 真 perchd + `QueueModel`（`TodoListsTests` / `TodoListsCLITests`）、纯 `TodoList`（`TodoListTests`）、注入 `UserDefaults` 的选择（`ListSelectionTests`）
+- [x] `swift build` / `swift test` 通过；PRD、CLAUDE.md、`project.md` 更新
+- [ ] 人工验收（真 Mac，有 Reminders 权限）：`defaults write` 勾上别的列表后展开面板，分组、"All clear"、"Not syncing"、在别的列表里完成 / 编辑 / 改优先级 / 删除 / ✎ 都对；取消勾选再勾上短 id 不变
+
+**#70 Lists… 窗口、添加弹窗和编辑器的列表选择、`--list`**
+- [x] 先核实 EventKit：改提醒的 calendar 在同一个账户里外部标识符不变（macOS 15.6.1、iCloud 实测，记在 #70）；跨账户没法验证，Perch 拒绝跨账户挪
+- [x] 右键刘海 → Lists…（只在有 Reminders 权限时）：不激活 App 的面板，每个列表一行（把手、勾选框、名字），按选择顺序；新列表在最下面不勾，删了的消失
+- [x] 拖动改 Todo tab、`perch ls`、`todo.md` 的分组顺序；勾选 / 取消立刻生效；"Perch" 不能取消勾选但能拖
+- [x] `perch add --list <名字>` 建在那个勾选列表里，不给是 "Perch"；`perch update <id> --list <名字>` 挪过去，短 id 不变
+- [x] 没勾的、不存在的、重名的（精确、区分大小写）：一行错误列出勾选的列表、exit 非 0、`--json` 是 `{"ok":false,…}`、什么都不写；perchd 先拒绝，bridge 写的时候再查
+- [x] `inbox.md` 照样进 "Perch"
+- [x] 添加弹窗的列表选择器只列勾选的列表，每次打开都在 "Perch"
+- [x] 大编辑器的 List 选择器挪 todo，不动它就不写列表（`TodoEditor.edited` / `ReminderChange(from:to:)`）
+- [x] 测试：CLI `--list`（成功、每种拒绝、出错什么都不写）、bridge 再查、跨账户、假 Reminders 里挪列表、Lists… 的模型（`TodoListFlagTests` / `ListPickerTests`）、编辑器的列表 diff（`TodoEditorTests`）、选择的拖动和勾选持久化（`ListSelectionTests`）、按名字找列表（`ListNameTests`）
+- [x] `swift build` / `swift test` 通过，`CONFIG=debug scripts/bundle-app.sh` 能编；PRD、CLAUDE.md、`project.md` 更新
+- [ ] 人工验收（真 Mac，有 Reminders 权限）：右键 → Lists… 不抢终端焦点；拖动（包括 "Perch"）和勾选立刻改 Todo tab；"Perch" 的勾选框点不动；添加弹窗的选择器每次在 "Perch"、选了别的列表能加进去；编辑器换列表能挪、不动就不挪
+
+**#71 优先级胶囊、Doing**
+- [x] 每行 `○ 标题 … 日期 ▶ 胶囊 ✎`：胶囊写 High / Normal / Low，High 橙、Normal 灰（最淡）、Low 绿，点了什么都不做（改优先级仍是 Priority ▸ 和编辑器）
+- [x] schema v7：`todo_refs` 加 `doing`（默认 false），v6 的库干净地迁移
+- [x] `perch update <id> --doing` / `--no-doing` 直接在 perchd 里设和清，不经 bridge，Perch.app 没连着也能用；不是 open 的 todo 报错；要单独一次 update
+- [x] `status` 仍是 `open`；JSON 每条 todo 带 `doing`；`perch ls` 和 `todo.md` 把 Doing 排在自己列表最前、标 doing
+- [x] Todo tab 的 ▶ 设和清 Doing（不是 Doing 的行悬停时灰色出现，Doing 的行一直白色实心，整行浅底、标题加粗）；右键菜单和编辑器里没有
+- [x] `TodoList` 每组按 Doing、优先级、创建时间、id 排
+- [x] 可以同时任意多条 Doing
+- [x] 快照里完成了（包括在 tab 里完成）、或列表还勾着却不在了（删了、在 Reminders 里挪到没勾的列表）就清掉；重新打开不回来
+- [x] 挪到另一个勾选列表、取消勾选再勾上，Doing 还在
+- [x] Doing 算未完成（摘要、tab 栏、收起态的数），摘要不提 Doing，收起态不变
+- [x] 测试：假 Reminders + 真 perchd + `QueueModel` + 真 `perch`（`TodoDoingTests` / `TodoDoingCLITests`：有 / 没有 bridge、`ls` / `--json` / `todo.md` 的顺序、完成和删除时清掉、挪列表和取消 / 重新勾选时留着、不是 open 的拒绝、`QueueModel.toggleDoing`）、纯 `TodoList`（`TodoListTests.doingFirstThenPriorityThenAgeThenIdInEachList`）、v6 → v7 迁移（`StartupTests.migratingToV7AddsDoingToTodoReferences`）、线上格式（`ModelsTests.aTodoCarriesDoingOnTheWire`）
+- [x] `swift build` / `swift test` 通过，`CONFIG=debug scripts/bundle-app.sh` 能编；PRD、CLAUDE.md、`project.md` 更新
+- [ ] 人工验收（真 Mac，有 Reminders 权限）：胶囊的颜色和大小；悬停时 ▶ 出现（刘海面板不是 key 也能）、离开就消失、点了变白色实心、整行浅底加粗并移到列表最前、再点清掉；点胶囊什么都不做；Doing 的待办完成后再打开不是 Doing

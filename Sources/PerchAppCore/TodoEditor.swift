@@ -1,7 +1,7 @@
 import Foundation
 import PerchCore
 
-/// The todo popup's state (#43): adding or editing, the title as typed, the chosen priority. `QueueModel` holds it;
+/// The todo popup's state (#43): adding or editing, the title as typed, the chosen priority and list. `QueueModel` holds it;
 /// the popup only draws it and forwards keys. No parsing: the trimmed text is the title exactly. Editing (#53) is the
 /// larger editor, modeled on Reminders' detail view: also notes, a date with an optional time, and a URL.
 public struct TodoEditor: Equatable, Sendable {
@@ -16,6 +16,9 @@ public struct TodoEditor: Equatable, Sendable {
     /// Opened from the expanded panel ("+ Add a todo", Edit…), which stays open meanwhile and has the
     /// popup just below it; otherwise (⌥⇧Space) the popup sits just below the folded notch.
     public var fromPanel: Bool
+    /// The checked list it goes in (#70). Adding: nil is "Perch", where every popup starts. Editing: the todo's list
+    /// (nil if it isn't a checked one); another one moves it.
+    public var list: ReminderList?
     /// The larger editor's fields (unused while adding).
     public var notes = ""
     public var hasDate = false
@@ -40,9 +43,10 @@ public struct TodoEditor: Equatable, Sendable {
         TodoEditor(mode: .add, title: "", priority: .normal, fromPanel: fromPanel)
     }
 
-    /// An existing todo, prefilled; always from the panel.
-    public static func edit(_ item: Item, now: Date = Date(), calendar: Calendar = .current) -> TodoEditor {
+    /// An existing todo, prefilled; always from the panel. `lists`: the checked lists, to find the todo's own.
+    public static func edit(_ item: Item, lists: [ReminderList] = [], now: Date = Date(), calendar: Calendar = .current) -> TodoEditor {
         var editor = TodoEditor(mode: .edit(id: item.id), title: item.title, priority: item.priority, fromPanel: true)
+        editor.list = lists.first { $0.id == item.listID }
         editor.notes = item.notes ?? ""
         editor.url = item.link ?? ""
         editor.hasDate = item.dueAt != nil
@@ -76,8 +80,8 @@ public struct TodoEditor: Equatable, Sendable {
         hasTime = on
     }
 
-    /// `item` as saving would leave it: title, priority, notes, due date and URL from the editor, everything else as
-    /// it was. Nil while the title is blank.
+    /// `item` as saving would leave it: title, priority, notes, due date, URL and list from the editor, everything else
+    /// as it was. Nil while the title is blank.
     public func edited(_ item: Item, calendar: Calendar = .current) -> Item? {
         guard let title = submittedTitle else { return nil }
         var edited = item
@@ -88,6 +92,9 @@ public struct TodoEditor: Equatable, Sendable {
         edited.dueDateOnly = hasDate && !hasTime
         let link = url.trimmingCharacters(in: .whitespacesAndNewlines)
         edited.link = link.isEmpty ? nil : link
+        if let list, list.id != item.listID {
+            edited.meta = (edited.meta ?? [:]).merging([Item.listIDMetaKey: list.id, Item.listNameMetaKey: list.title]) { $1 }
+        }
         return edited
     }
 

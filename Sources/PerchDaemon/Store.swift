@@ -4,7 +4,7 @@ import PerchCore
 /// The `items`, `sessions` and `todo_refs` tables. Columns map 1:1 to `Item` / `Session`; dates are ISO-8601 UTC text,
 /// `meta` / `options` are JSON text. Only perchd opens this database.
 public final class Store {
-    public static let schemaVersion = 6
+    public static let schemaVersion = 7
 
     let db: SQLiteDatabase
 
@@ -93,9 +93,12 @@ public final class Store {
         return n
     }
 
+    /// Every item column (0–15), then whether it is Doing (#71, column 16, read by `item(from:)`): that lives on the
+    /// todo's reference, so it follows the short id.
     private func select(_ tail: String, _ args: [SQLValue]) throws -> [Item] {
         var items: [Item] = []
-        try db.run("SELECT \(Self.columns) FROM items \(tail) ORDER BY created_at, id", args) { row in
+        let doing = "COALESCE((SELECT doing FROM todo_refs WHERE todo_refs.id = items.id), 0)"
+        try db.run("SELECT \(Self.columns), \(doing) FROM items \(tail) ORDER BY created_at, id", args) { row in
             items.append(try Self.item(from: row))
         }
         return items
@@ -125,7 +128,7 @@ public final class Store {
         guard let kind = ItemKind(rawValue: try required(2)), let status = ItemStatus(rawValue: try required(3)) else {
             throw SQLiteError(description: "bad kind/status in row \(row.text(0) ?? "?")")
         }
-        return Item(
+        var item = Item(
             id: try required(0), title: try required(1), kind: kind, status: status,
             priority: row.text(14).flatMap(ItemPriority.init(rawValue:)) ?? .normal, source: try required(4),
             dueAt: try date(5), dueDateOnly: row.int(15) != 0, link: row.text(6),
@@ -135,6 +138,8 @@ public final class Store {
             response: row.text(10), expiresAt: try date(11),
             createdAt: try date(12)!, updatedAt: try date(13)!
         )
+        item.doing = row.int(16) != 0
+        return item
     }
 
     static let dateFormatter = ISO8601DateFormatter()
@@ -238,6 +243,13 @@ public final class Store {
             PRAGMA user_version = 6;
             """)
         }
+        if version < 7 {
+            // Doing (#71): Perch's own "working on it now", on the todo's reference so it follows the short id.
+            try db.execute("""
+            ALTER TABLE todo_refs ADD COLUMN doing INTEGER NOT NULL DEFAULT 0;
+            PRAGMA user_version = 7;
+            """)
+        }
     }
 }
 
@@ -331,19 +343,23 @@ public struct TodoRef: Equatable, Sendable {
     public var id: String
     public var externalID: String
     public var key: String?
+    /// Doing (#71): Perch's own, never written to the reminder. Kept while the todo is out of the snapshot because its
+    /// list was unchecked; cleared when it is completed or gone from a checked list.
+    public var doing: Bool = false
 }
 
 extension Store {
     public func todoRefs() throws -> [TodoRef] {
-        var refs: [TodoRef] = []
-        try db.run("SELECT id, external_id, key FROM todo_refs") { row in
-            if let id = row.text(0), let external = row.text(1) { refs.append(TodoRef(id: id, externalID: external, key: row.text(2))) }
-        }
-        return refs
+        try todoRefs(where: "1", nil)
     }
 
     public func insert(_ ref: TodoRef) throws {
-        try db.run("INSERT INTO todo_refs (id, external_id, key) VALUES (?, ?, ?)", [.text(ref.id), .text(ref.externalID), SQLValue(ref.key)])
+        try db.run("INSERT INTO todo_refs (id, external_id, key, doing) VALUES (?, ?, ?, ?)",
+                   [.text(ref.id), .text(ref.externalID), SQLValue(ref.key), .int(ref.doing ? 1 : 0)])
+    }
+
+    public func setDoing(_ doing: Bool, forRef id: String) throws {
+        try db.run("UPDATE todo_refs SET doing = ? WHERE id = ?", [.int(doing ? 1 : 0), .text(id)])
     }
 
     public func todoRef(externalID: String) throws -> TodoRef? {
@@ -362,10 +378,12 @@ extension Store {
         try db.run("UPDATE todo_refs SET key = ? WHERE id = ?", [.text(key), .text(id)])
     }
 
-    private func todoRefs(where clause: String, _ arg: SQLValue) throws -> [TodoRef] {
+    private func todoRefs(where clause: String, _ arg: SQLValue?) throws -> [TodoRef] {
         var refs: [TodoRef] = []
-        try db.run("SELECT id, external_id, key FROM todo_refs WHERE \(clause)", [arg]) { row in
-            if let id = row.text(0), let external = row.text(1) { refs.append(TodoRef(id: id, externalID: external, key: row.text(2))) }
+        try db.run("SELECT id, external_id, key, doing FROM todo_refs WHERE \(clause)", arg.map { [$0] } ?? []) { row in
+            if let id = row.text(0), let external = row.text(1) {
+                refs.append(TodoRef(id: id, externalID: external, key: row.text(2), doing: row.int(3) != 0))
+            }
         }
         return refs
     }
@@ -391,5 +409,18 @@ extension Store {
 
     public func setTodosAsOf(_ date: Date) throws {
         try db.run("INSERT OR REPLACE INTO daemon_state (name, value) VALUES ('todos_as_of', ?)", [.text(Self.formatDate(date))])
+    }
+
+    /// The checked Reminders lists of the latest snapshot, in order (#69): todos are grouped by them with no bridge
+    /// connected and across restarts. Kept as JSON in `daemon_state`, so no schema change; empty before any snapshot
+    /// that had them.
+    public func todoLists() throws -> [ReminderList] {
+        var value: String?
+        try db.run("SELECT value FROM daemon_state WHERE name = 'todo_lists'") { value = $0.text(0) }
+        return value.flatMap { try? JSONDecoder().decode([ReminderList].self, from: Data($0.utf8)) } ?? []
+    }
+
+    public func setTodoLists(_ lists: [ReminderList]) throws {
+        try db.run("INSERT OR REPLACE INTO daemon_state (name, value) VALUES ('todo_lists', ?)", [SQLValue(Self.json(lists))])
     }
 }

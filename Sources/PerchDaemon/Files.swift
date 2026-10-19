@@ -11,8 +11,8 @@ final class MirrorWriter {
         self.path = path
     }
 
-    func write(_ items: [Item], todosAsOf: Date? = nil) {
-        let text = MirrorRenderer.render(items, todosAsOf: todosAsOf)
+    func write(_ items: [Item], lists: [ReminderList] = [], todosAsOf: Date? = nil) {
+        let text = MirrorRenderer.render(items, lists: lists, todosAsOf: todosAsOf)
         guard text != last else { return }
         let url = URL(fileURLWithPath: path)
         // perchd's home is gone (a test tearing down while an app hangs up): nothing to mirror into.

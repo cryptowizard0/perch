@@ -18,7 +18,8 @@ public enum ItemStatus: String, Codable, CaseIterable, Sendable {
     case dismissed
 }
 
-/// How much a todo matters (#41). Shown by grouping, never by colour: orange and red belong to agents.
+/// How much a todo matters (#41). Orders todos inside their list (#69, after Doing, #71); the Todo tab shows it as a
+/// capsule on each row (#71): High orange, Normal gray, Low green.
 public enum ItemPriority: String, Codable, CaseIterable, Sendable {
     case high, normal, low
 
@@ -66,6 +67,9 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
     public var expiresAt: Date?
     public var createdAt: Date
     public var updatedAt: Date
+    /// A todo someone is working on now (#71): Perch's own, kept by perchd on the todo's reference, never in Reminders.
+    /// `status` stays open. On the wire for every todo (`meta.reminder`), true or false; never for anything else.
+    public var doing: Bool = false
 
     public init(
         id: String = Item.newID(),
@@ -105,6 +109,9 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, title, kind, status, priority, source, link, meta, key, options, response
+        /// Out only: a todo's list name (#69, from `meta`), for `perch ls --json`.
+        case list
+        case doing
         case dueAt = "due_at"
         case dueDateOnly = "due_date_only"
         case expiresAt = "expires_at"
@@ -133,6 +140,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? now
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+        doing = try c.decodeIfPresent(Bool.self, forKey: .doing) ?? false
     }
 
     /// Dates go out as whole-second ISO-8601, which truncates. `expires_at` is rounded up instead,
@@ -149,12 +157,14 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
         if dueDateOnly { try c.encode(true, forKey: .dueDateOnly) }
         try c.encodeIfPresent(link, forKey: .link)
         try c.encodeIfPresent(meta, forKey: .meta)
+        try c.encodeIfPresent(listName, forKey: .list)
         try c.encodeIfPresent(key, forKey: .key)
         try c.encodeIfPresent(options, forKey: .options)
         try c.encodeIfPresent(response, forKey: .response)
         try c.encodeIfPresent(expiresAt.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.up)) }, forKey: .expiresAt)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(updatedAt, forKey: .updatedAt)
+        if doing || reminderID != nil { try c.encode(doing, forKey: .doing) }
     }
 
     /// Short, typeable ids like `t7k2`: 4 chars from an alphabet without look-alikes.
@@ -175,7 +185,7 @@ public struct Item: Codable, Equatable, Identifiable, Sendable {
 extension Item {
     /// Position in the queue; lower comes first. `perch ls` and `todo.md` share this order:
     /// request → waiting → overdue → due today → other open → notice → done → dismissed.
-    /// Open tasks (overdue, due today, other) are sorted by `priority` before this rank (see `queueOrdered`).
+    /// Open tasks (overdue, due today, other) share one place, by list and priority (see `queueOrdered`).
     public func queueRank(now: Date, calendar: Calendar = .current) -> Int {
         switch status {
         case .done: return 6
@@ -200,17 +210,25 @@ extension Item {
 }
 
 extension Array where Element == Item {
-    /// Sorted by `queueRank`, except that open tasks go High, then Normal, then Low, each in rank order; within a
-    /// rank by due date, then oldest first. Closed items: most recently updated first.
-    public func queueOrdered(now: Date = Date(), calendar: Calendar = .current) -> [Item] {
-        /// Open tasks share one slot (ranks 2…4), split by priority.
+    /// Sorted by `queueRank`, except that open tasks (todos) share one slot: by list in `lists`' order (#69, a list not
+    /// among them after those), then High → Normal → Low, then oldest first; due dates don't reorder them. Everything
+    /// else: within a rank by due date, then oldest first. Closed items: most recently updated first.
+    public func queueOrdered(now: Date = Date(), calendar: Calendar = .current, lists: [String] = []) -> [Item] {
+        let position = ReminderList.positions(lists)
+        /// Open tasks share one slot (ranks 2…4), split by list.
         func slot(_ item: Item, _ rank: Int) -> (Int, Int) {
-            (2...4).contains(rank) ? (2, item.priority.rank) : (rank, 0)
+            (2...4).contains(rank) ? (2, item.listID.flatMap { position[$0] } ?? lists.count) : (rank, 0)
         }
         return map { ($0, $0.queueRank(now: now, calendar: calendar)) }
             .sorted { a, b in
                 let sa = slot(a.0, a.1), sb = slot(b.0, b.1)
                 if sa != sb { return sa < sb }
+                if sa.0 == 2 {
+                    // Same slot but different lists only happens for lists not in `lists` (they share the last
+                    // position): keep each such list's todos together.
+                    if a.0.listID != b.0.listID { return (a.0.listID ?? "") < (b.0.listID ?? "") }
+                    return Item.todoOrder(a.0, b.0)
+                }
                 if a.1 != b.1 { return a.1 < b.1 }
                 if a.1 >= 6 { return a.0.updatedAt > b.0.updatedAt }
                 let da = a.0.dueAt ?? .distantFuture, db = b.0.dueAt ?? .distantFuture

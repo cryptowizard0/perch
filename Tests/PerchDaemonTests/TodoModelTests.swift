@@ -35,12 +35,15 @@ import Testing
         #expect(r.ok)
     }
 
-    @Test func openTodosAreGroupedByPriorityOldestFirst() async throws {
+    @Test func openTodosAreSortedByPriorityThenOldestFirst() async throws {
         let d = try TestDaemon()
         let store = FakeRemindersStore()
         let model = try await connected(d, store)
         defer { model.disconnect() }
-        #expect(model.todos.summary == "All clear" && model.todos.groups.isEmpty)
+        #expect(model.todos.summary == "All clear")
+        // "Perch" is there before it holds anything (#69).
+        try await until { model.todos.groups.map(\.title) == ["Perch"] }
+        #expect(model.todos.groups.map(\.openCount) == [0])
 
         let low = try await add(model, store, "read the doc", .low)
         let first = try await add(model, store, "reply to Sam")
@@ -51,7 +54,8 @@ import Testing
         _ = try d.client.send(Request(op: .add, item: Item(title: "npm test", kind: .request)))
         _ = try d.client.send(Request(op: .add, item: Item(title: "approve in Telegram", status: .waiting, source: "hermes")))
         try await until { model.state.items.count == 7 }
-        #expect(model.todos.groups.map(\.title) == ["High", "Normal", "Low"])
+        // One group per list: no High / Normal / Low headers any more.
+        #expect(model.todos.groups.map(\.title) == ["Perch"])
         #expect(model.todos.items.map(\.id) == [high.id, first.id, second.id, low.id])
         #expect(model.todos.summary == "4 open · 1 high")
 
@@ -60,25 +64,24 @@ import Testing
         #expect(model.todos.summary == "All clear")
     }
 
-    @Test func reRankingMovesATodoToItsNewGroup() async throws {
+    @Test func reRankingMovesATodoWithinItsList() async throws {
         let d = try TestDaemon()
         let store = FakeRemindersStore()
         let model = try await connected(d, store)
         defer { model.disconnect() }
         let older = try await add(model, store, "older")
         let item = try await add(model, store, "x")
-        try await add(model, store, "newest", .high)
+        let newest = try await add(model, store, "newest", .high)
 
         // From the phone.
         store.phoneEdit(try #require(item.reminderID)) { $0.reminder.priority = 9 }
-        try await until { model.todos.groups.last?.priority == .low }
-        #expect(model.todos.groups.last?.items.map(\.id) == [item.id])
+        try await until { model.todos.items.last?.id == item.id }
+        #expect(model.todos.items.map(\.id) == [newest.id, older.id, item.id])
 
         // From the right-click menu: back to High, before the newer High todo (it is older).
         model.setPriority(try #require(model.state.items[item.id]), .high)
-        try await until { model.todos.groups.first?.items.count == 2 }
-        #expect(model.todos.groups.first?.items.first?.id == item.id)
-        #expect(model.todos.groups.map(\.items).last?.map(\.id) == [older.id])
+        try await until { model.todos.items.first?.id == item.id }
+        #expect(model.todos.items.map(\.id) == [item.id, newest.id, older.id])
         #expect(store.entry(try #require(item.reminderID))?.reminder.priority == 1)
     }
 

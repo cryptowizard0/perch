@@ -50,8 +50,10 @@ final class EventKitRemindersStore: RemindersStore {
         return Self.list(calendar)
     }
 
-    func reminders(inList list: String, completedSince: Date) async throws -> [Reminder] {
-        let calendars = [try calendar(list)]
+    func reminders(inLists lists: [String], completedSince: Date) async throws -> [Reminder] {
+        // No calendars would mean every calendar to EventKit.
+        let calendars = lists.compactMap { store.calendar(withIdentifier: $0) }
+        guard !calendars.isEmpty else { return [] }
         let open = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: calendars)
         let done = store.predicateForCompletedReminders(withCompletionDateStarting: completedSince, ending: nil, calendars: calendars)
         return await fetch(open) + fetch(done)
@@ -75,6 +77,7 @@ final class EventKitRemindersStore: RemindersStore {
 
     func updateReminder(_ externalID: String, inList list: String, _ change: ReminderChange) throws {
         let reminder = try self.reminder(externalID, inList: list)
+        if let target = change.list, target != list { reminder.calendar = try calendar(target) }
         Self.apply(change, to: reminder)
         try store.save(reminder, commit: true)
     }
@@ -160,6 +163,7 @@ final class EventKitRemindersStore: RemindersStore {
     private nonisolated static func reminder(_ r: EKReminder) -> Reminder {
         Reminder(
             externalID: r.calendarItemExternalIdentifier ?? r.calendarItemIdentifier,
+            list: r.calendar?.calendarIdentifier,
             title: r.title ?? "",
             priority: r.priority,
             completed: r.isCompleted,
@@ -172,7 +176,8 @@ final class EventKitRemindersStore: RemindersStore {
     }
 
     private static func list(_ calendar: EKCalendar) -> ReminderList {
-        ReminderList(id: calendar.calendarIdentifier, title: calendar.title, isICloud: isICloud(calendar.source))
+        ReminderList(id: calendar.calendarIdentifier, title: calendar.title, isICloud: isICloud(calendar.source),
+                     account: calendar.source?.sourceIdentifier)
     }
 
     private static func isICloud(_ source: EKSource?) -> Bool {
