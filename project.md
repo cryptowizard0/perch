@@ -36,7 +36,7 @@
 | M12 | Todo tab（#41：#42 / #43） | 🚧 待验收 | #42 已合并（PR #46）；#43 代码和文档完成，等维护者用一天后验收（见"Todo tab（M12）"） |
 | M13 | Todo 搬进 Apple Reminders（#50：#51 / #52 / #53） | ✅ 完成 | #51 bridge、#52 CLI / inbox 经 bridge 写、#53 日期 / ✎ / 大编辑器，2026-10-16 维护者验收通过（见"Todo 搬进 Reminders（M13）"）；App 写入 → `EKEventStoreChanged` 和 iCloud 手机 → Mac 的延迟还没记到 #50 |
 | M14 | 更多 Reminders 列表，按列表分组（#66：#69 / #70 / #71） | ✅ 完成 | 605 个测试；2026-10-19 维护者验收通过，PR #72 squash 合并为 `4e4131c`，#66 / #69 / #70 / #71 已关（见"更多 Reminders 列表（M14）"） |
-| M15 | dsh（DeepSeek Harness，#73：#74 / #75 / #76，v0.5 第二个新 agent） | 🚧 待验收 | #74（PR #77）、#75（PR #78）已合并并端到端跑通；#76 安装做完，等维护者用真模型验收（见"M15 进度"） |
+| M15 | dsh（DeepSeek Harness，#73：#74 / #75 / #76，v0.5 第二个新 agent） | 🚧 待合并 | #74（PR #77）、#75（PR #78）已合并；#76 在 PR #79，2026-10-19 真模型验收通过（见"M15 进度"），等合并 |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -647,6 +647,7 @@ v0.5 接更多 agent（#24）的第二个。dsh 是 DeepSeek 的 Node agent 框�
 - **探针**（#73）：`dsh <profile> --patch overlay.yml` 挂一个只记录的插件（插件名可以是绝对路径），`DEEPSEEK_BASE_URL` 指向本地脚本化的假模型（Anthropic Messages + SSE；关键词选场景：要审批的 bash、ask_user、400、慢速流），所以每种情形都能稳定复现、不花额度。探针和假模型的源码在 #75 里。引导页的连通性检查不走 base URL，按 Esc 跳过。临时 `DSH_HOME`（把 profile 链接进去）完全隔离，不碰真的 `~/.dsh`。
 - **#74 / #75**：分两个 session 并行做，PR #77 / #78 squash 合并（`36d20d3` / `e68848f`）。合并前把两个分支合在一起跑了一遍端到端：隔离的 perchd（`PERCH_HOME`、`--no-http`）+ dsh-tui + 假模型，每种情形的会话状态都对；关终端 25 秒内靠 pid 存活检测清掉。
 - **#76 安装**：home patch 层 `$DSH_HOME/cordis.patch.yml` 对所有 profile 生效（实测：`--dump-config` 里有那一行、注释保留、绝对路径变成 `file://`）；`name` 指向不存在的文件时 dsh 照样启动（实测），所以插件没了不会弄坏 dsh。插件不再从 App bundle 拷（CLI 在 `~/.perch/bin` 或 `.build/debug` 时旁边没有它），而是嵌进 PerchSetup（`scripts/dsh/embed-plugin.sh` 生成 `DshPluginSource.swift`，测试保证和 `packaging/dsh/perch.mjs` 一字不差），作为 hook 的附带文件写在 perch 旁边；#78 加的 bundle 拷贝去掉了。
+- **真模型验收**（2026-10-19，维护者本机，dsh 0.2.1-rc.2 + dsh-tui 0.16.1）：在 Ghostty 里用 AppleScript 驱动（`new window` + `initial input` 起 dsh-tui，`input text` / `send key` 打字；方向键要用 `perform action "text:\\x1b[B"`，`send key` 不认 `down` / `arrow_down` / `ArrowDown`）。API key 在维护者登录 shell 的环境里，Claude 的工具 shell 读不到，所以真模型只能在 Ghostty 里跑；`~/.dsh/.credentials.yaml` 里只有 `dsh web` 的浏览器会话。逐项结果在 MILESTONES 的 M15。修了两处：dsh 的 cwd 是 realpath，Ghostty 是 `/tmp/…`，聚焦的 terminal 对不上，链接没有 id（`TerminalLink.sameTree` 解析符号链接）；dsh-tui 0.16.1 让模型每条回复先写 `⏵` 旁白，Done 那行显示的是旁白（`HookAdapter.dshReply` 跳过）。关窗口后约 56 秒才清掉（tmux 里 25 秒），原因没查清。dsh-tui 0.14.0 不认 dsh 0.2.1-rc.2（profile 里的 dsh-tui 要单独升：`dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui@0.16.1`）。
 - 坑：dsh 会把上一轮没回答的 prompt 和下一条拼在一起发给模型（失败的一轮之后），假模型要只看最后一行；dsh-tui 的启动器（`dsh-tui` / `dst`）最后总是 spawn `dsh --profile dsh-tui`，所以跑插件的进程永远是 `node …/bin/dsh`。
 
 ## 未决问题
