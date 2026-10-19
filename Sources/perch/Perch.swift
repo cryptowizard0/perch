@@ -76,9 +76,9 @@ struct Add: ParsableCommand {
         With --kind request --wait, blocks until someone responds and prints the answer (exit 0). \
         If the request expires (--expires), is closed or removed first, exits 3 with no answer.
 
-        Open and done tasks are todos: they live in Apple Reminders (new ones in the "Perch" list; `perch ls` also \
-        shows the other lists checked in Perch.app), so adding one needs Perch.app running (it fails otherwise, and \
-        nothing is queued). --source, --meta and --expires are not stored for them.
+        Open and done tasks are todos: they live in Apple Reminders (in the "Perch" list, or the list checked in \
+        Perch.app that --list names; `perch ls` shows every checked list), so adding one needs Perch.app running \
+        (it fails otherwise, and nothing is queued). --source, --meta and --expires are not stored for them.
         """
     )
 
@@ -90,6 +90,7 @@ struct Add: ParsableCommand {
     @Option(help: "Due: @15:00 (next time the clock shows it), +30m / +2h / +1d, a day (2026-10-20), or ISO-8601.") var due: String?
     @Option(help: "URL, file path or terminal session ref to jump back to.") var link: String?
     @Option(help: "Idempotency key; re-adding the same key updates instead of duplicating.") var key: String?
+    @Option(help: "Todos: the Reminders list to add it to, by exact name; it must be checked in Perch.app (default: Perch).") var list: String?
     @Option(help: "Extra data as key=value; repeatable (e.g. --meta cwd=$PWD --meta tool=Bash).") var meta: [String] = []
     @Option(help: "request only: comma-separated options (default: allow,deny).") var options: String?
     @Option(help: "Seconds until the item expires and is dismissed (notices, requests).") var expires: Int?
@@ -104,6 +105,9 @@ struct Add: ParsableCommand {
             return s
         } ?? (kind == .request ? .waiting : .open)
         if wait && kind != .request { throw CLIError("--wait only works with --kind request") }
+        if list != nil && (kind != .task || status == .waiting || status == .dismissed) {
+            throw CLIError("a list only applies to todos (open or done tasks)")
+        }
         if let expires, expires <= 0 { throw CLIError("--expires must be a positive number of seconds") }
         var metaDict: [String: String] = [:]
         for pair in meta {
@@ -129,7 +133,7 @@ struct Add: ParsableCommand {
             expiresAt: expires.map { now.addingTimeInterval(TimeInterval($0)) }
         )
         if wait { return try addAndWait(item) }
-        let response = try call(Request(op: .add, item: item))
+        let response = try call(Request(op: .add, item: item, list: list))
         json ? printJSON(response) : print(response.item?.id ?? "")
     }
 
@@ -230,14 +234,14 @@ struct Done: ParsableCommand {
 
 struct Update: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Change an item's title, kind, status, priority or due time.",
+        abstract: "Change an item's title, kind, status, priority, due time or list.",
         discussion: """
         Snooze: perch update <id> --due +30m. Keep a notice as a task: perch update <id> --kind task \
         (it stops expiring). Requests keep their kind.
 
         Open and done tasks are todos in Reminders ("Perch" or another checked list; changes stay in the todo's own \
-        list), changed through Perch.app: --status open reopens a done one, --status dismissed deletes it, and a \
-        waiting task set to open moves into the "Perch" list.
+        list), changed through Perch.app: --status open reopens a done one, --status dismissed deletes it, --list moves \
+        it to another checked list (same id), and a waiting task set to open moves into the "Perch" list (or --list's).
         """
     )
     @Argument var id: String
@@ -247,11 +251,12 @@ struct Update: ParsableCommand {
     @Option(name: [.short, .long], help: "high | normal | low") var priority: String?
     @Option(help: "Due: @15:00, +30m / +2h / +1d, a day (2026-10-20), or ISO-8601.") var due: String?
     @Flag(help: "Remove the due time.") var noDue = false
+    @Option(help: "Todos: move it to this Reminders list, by exact name; it must be checked in Perch.app.") var list: String?
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
-        if title == nil && kind == nil && status == nil && priority == nil && due == nil && !noDue {
-            throw CLIError("give at least one of --title, --kind, --status, --priority, --due, --no-due", code: 64)
+        if title == nil && kind == nil && status == nil && priority == nil && due == nil && !noDue && list == nil {
+            throw CLIError("give at least one of --title, --kind, --status, --priority, --due, --no-due, --list", code: 64)
         }
         if due != nil && noDue { throw CLIError("--due and --no-due cannot be combined", code: 64) }
         let newKind = try kind.map { raw -> ItemKind in
@@ -270,7 +275,8 @@ struct Update: ParsableCommand {
             priority: try priority.map(parsePriority),
             dueAt: parsedDue?.date,
             dueDateOnly: parsedDue?.dateOnly,
-            clearDue: noDue ? true : nil
+            clearDue: noDue ? true : nil,
+            list: list
         )
         let response = try call(Request(op: .update, id: id, patch: patch))
         if json { return printJSON(response) }

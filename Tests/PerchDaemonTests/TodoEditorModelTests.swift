@@ -94,7 +94,7 @@ import Testing
         defer { model.disconnect() }
         let item = try await phoneAdd(model, store, "Call Lin", priority: 9)
         model.openEdit(item)
-        #expect(model.editor == .edit(item))
+        #expect(model.editor == .edit(item, lists: model.todoLists) && model.editor?.list?.title == "Perch")
         model.editor?.title = " Call Lin back "
         model.cycleEditorPriority(forward: true)  // Low → High
         #expect(model.submitEditor())
@@ -133,7 +133,8 @@ import Testing
         let store = FakeRemindersStore()
         let model = try await connected(d, store)
         defer { model.disconnect() }
-        model.highlightDuration = 0.3
+        // Long enough that a busy test run (other suites start `perch` processes) can't outlast it between checks.
+        model.highlightDuration = 2
         // Collapsed: no highlight.
         let quiet = try await phoneAdd(model, store, "quiet")
         #expect(model.highlighted.isEmpty)
@@ -150,6 +151,6 @@ import Testing
         _ = try d.client.send(Request(op: .add, item: Item(title: "fyi", kind: .notice)))
         try await until { model.todos.items.first?.priority == .high && model.state.items.count == 3 }
         #expect(model.highlighted == [new.id])
-        try await until { model.highlighted.isEmpty }
+        try await until(timeout: 10) { model.highlighted.isEmpty }
     }
 }

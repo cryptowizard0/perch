@@ -9,7 +9,8 @@ import Foundation
 /// Ops and their fields:
 /// - `ping` → `version`
 /// - `add` + `item` → `item`. perchd assigns `id`, `created_at`, `updated_at`; with `item.key` set, an existing
-///   item with that key is updated instead (see `Service`). Only `title` is required in the JSON.
+///   item with that key is updated instead (see `Service`). Only `title` is required in the JSON. A todo goes in the
+///   checked Reminders list `list` (exact name, #70), "Perch" without one
 /// - `list` + optional `filter` → `items`, in queue order (see `Item.queueOrder`; todos by list, #69). While no Reminders
 ///   bridge is connected and the list holds cached todos, also `todos_as_of`: when that cache was last known current
 ///   (#52). `todo_lists`: the checked Reminders lists in order, as of the latest snapshot (when perchd knows any)
@@ -68,10 +69,13 @@ public struct Request: Codable, Sendable {
     public var lists: [ReminderList]?
     /// `todo_ack`: how a `todo_op` went.
     public var ack: TodoAck?
+    /// `add` of a todo (#70): the checked Reminders list it goes in, by exact name; "Perch" when absent.
+    public var list: String?
 
     public init(op: Op, item: Item? = nil, id: String? = nil, value: String? = nil, filter: Filter? = nil,
                 patch: Patch? = nil, session: Session? = nil, report: SessionReport? = nil, key: String? = nil, at: Date? = nil,
-                watcher: String? = nil, reminders: [Reminder]? = nil, lists: [ReminderList]? = nil, ack: TodoAck? = nil) {
+                watcher: String? = nil, reminders: [Reminder]? = nil, lists: [ReminderList]? = nil, ack: TodoAck? = nil,
+                list: String? = nil) {
         self.op = op
         self.item = item
         self.id = id
@@ -86,6 +90,7 @@ public struct Request: Codable, Sendable {
         self.reminders = reminders
         self.lists = lists
         self.ack = ack
+        self.list = list
     }
 
     /// For `list`. Without `status`, only active items (open, waiting) are returned unless `all` is true.
@@ -121,10 +126,12 @@ public struct Request: Codable, Sendable {
         public var link: String?
         /// Removes `link`. Cannot be combined with `link`.
         public var clearLink: Bool?
+        /// Moves a todo to the checked Reminders list with this exact name (#70); its short id stays.
+        public var list: String?
 
         public init(title: String? = nil, kind: ItemKind? = nil, status: ItemStatus? = nil, priority: ItemPriority? = nil,
                     dueAt: Date? = nil, dueDateOnly: Bool? = nil, clearDue: Bool? = nil, notes: String? = nil,
-                    link: String? = nil, clearLink: Bool? = nil) {
+                    link: String? = nil, clearLink: Bool? = nil, list: String? = nil) {
             self.title = title
             self.kind = kind
             self.status = status
@@ -135,10 +142,11 @@ public struct Request: Codable, Sendable {
             self.notes = notes
             self.link = link
             self.clearLink = clearLink
+            self.list = list
         }
 
         enum CodingKeys: String, CodingKey {
-            case title, kind, status, priority, notes, link
+            case title, kind, status, priority, notes, link, list
             case dueAt = "due_at"
             case dueDateOnly = "due_date_only"
             case clearDue = "clear_due"
@@ -147,10 +155,11 @@ public struct Request: Codable, Sendable {
 
         public var isEmpty: Bool {
             title == nil && kind == nil && status == nil && priority == nil && dueAt == nil && clearDue != true
-                && notes == nil && link == nil && clearLink != true
+                && notes == nil && link == nil && clearLink != true && list == nil
         }
 
-        /// What turns `old` into `new`: title, priority, due date, notes and link, only where they differ.
+        /// What turns `old` into `new`: title, priority, due date, notes, link and list (by name, #70), only where they
+        /// differ.
         public init(from old: Item, to new: Item) {
             self.init()
             if new.title != old.title { title = new.title }
@@ -167,6 +176,7 @@ public struct Request: Codable, Sendable {
             if new.link != old.link {
                 if let link = new.link { self.link = link } else { clearLink = true }
             }
+            if new.listID != nil, new.listID != old.listID { list = new.listName }
         }
     }
 }

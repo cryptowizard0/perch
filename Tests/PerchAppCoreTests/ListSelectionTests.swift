@@ -103,4 +103,40 @@ import Testing
         selection.checked = ["p", "w"]
         #expect(selection.resolve(lists: [work], perch: nil) == [work])
     }
+
+    @Test func draggingReordersAndIsKept() {
+        let store = defaults()
+        let selection = ListSelection(defaults: store, listName: "Perch")
+        selection.resolve(lists: [perch, work, home], perch: perch)
+        selection.setChecked("w", true)
+        // The Lists… window shows every list in the stored order, then hands back its rows in their new order.
+        #expect(selection.ordered([home, work, perch]) == [perch, work, home])
+        selection.reorder(["h", "p", "w"])
+        let later = ListSelection(defaults: store, listName: "Perch")
+        #expect(later.resolve(lists: [perch, work, home], perch: perch) == [perch, work])
+        #expect(later.ordered([perch, work, home]) == [home, perch, work])
+        #expect(store.stringArray(forKey: "RemindersOrder.Perch") == ["h", "p", "w"])
+    }
+
+    @Test func draggingLeavesListsNotShownInTheirPlaces() {
+        let selection = ListSelection(defaults: defaults(), listName: "Perch")
+        // "x" is missing for now (EventKit didn't list it); the window shows only the other three.
+        selection.order = ["p", "x", "w", "h"]
+        selection.reorder(["h", "w", "p"])
+        #expect(selection.order == ["h", "x", "w", "p"])
+        // A list the order doesn't know yet takes a place among the shown ones, or the last.
+        selection.reorder(["w", "n", "h", "p"])
+        #expect(selection.order == ["w", "x", "n", "h", "p"])
+    }
+
+    @Test func checkingAndUncheckingIsKept() {
+        let store = defaults()
+        let selection = ListSelection(defaults: store, listName: "Perch")
+        selection.resolve(lists: [perch, work, home], perch: perch)
+        selection.setChecked("h", true)
+        selection.setChecked("w", true)
+        selection.setChecked("w", false)
+        #expect(ListSelection(defaults: store, listName: "Perch").resolve(lists: [perch, work, home], perch: perch) == [perch, home])
+        #expect(ListSelection(defaults: store, listName: "Perch Dev").checked.isEmpty)
+    }
 }

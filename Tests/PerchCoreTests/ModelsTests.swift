@@ -165,6 +165,40 @@ import Testing
     }
 }
 
+/// Picking a checked list by name (#70): exact, case-sensitive, and an error that names the checked lists.
+@Suite struct ListNameTests {
+    let lists = [
+        ReminderList(id: "p", title: "Perch", isICloud: true, account: "icloud"),
+        ReminderList(id: "w", title: "Work", isICloud: true, account: "icloud"),
+        ReminderList(id: "e1", title: "Errands", isICloud: true, account: "icloud"),
+        ReminderList(id: "e2", title: "Errands", isICloud: false, account: "local"),
+    ]
+
+    func refusal(_ name: String) -> String? {
+        do {
+            _ = try ReminderList.checked(named: name, in: lists)
+            return nil
+        } catch {
+            return String(describing: error)
+        }
+    }
+
+    @Test func exactNamesOnly() throws {
+        #expect(try ReminderList.checked(named: "Work", in: lists).id == "w")
+        #expect(refusal("work") == "no checked Reminders list is called 'work' (names match exactly); checked lists: Perch, Work, Errands, Errands")
+        #expect(refusal(" Work")?.hasPrefix("no checked Reminders list is called ' Work'") == true)
+        #expect(refusal("Errands") == "2 checked Reminders lists are called 'Errands' (rename one in Reminders); checked lists: Perch, Work, Errands, Errands")
+        #expect(throws: RemindersListError.self) { try ReminderList.checked(named: "Perch", in: []) }
+    }
+
+    @Test func movesStayWithinAnAccount() {
+        #expect(lists[0].moveRefusal(to: lists[1]) == nil)
+        #expect(lists[0].moveRefusal(to: lists[3])?.contains("different Reminders accounts") == true)
+        // A bridge older than #70 doesn't say: no refusal.
+        #expect(ReminderList(id: "x", title: "X", isICloud: true).moveRefusal(to: lists[3]) == nil)
+    }
+}
+
 /// What Perch changes on a reminder (#52 / #53): the diff from one todo to another, and the alarm a time brings.
 @Suite struct ReminderChangeTests {
     let t = Date(timeIntervalSince1970: 1_900_000_000)

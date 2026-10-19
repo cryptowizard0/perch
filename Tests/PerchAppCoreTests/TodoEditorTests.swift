@@ -111,4 +111,30 @@ import Testing
         clearing.title = " "
         #expect(clearing.edited(edited, calendar: calendar) == nil)
     }
+
+    @Test func theListPickerMovesOnlyWhenChanged() {
+        let perch = ReminderList(id: "p", title: "Perch", isICloud: true)
+        let work = ReminderList(id: "w", title: "Work", isICloud: true)
+        let item = Item(id: "t7k2", title: "Call Lin", meta: [Item.listIDMetaKey: "p", Item.listNameMetaKey: "Perch"])
+        // Adding starts on "Perch" (nil); editing on the todo's own list.
+        #expect(TodoEditor.add(fromPanel: true).list == nil)
+        var editor = TodoEditor.edit(item, lists: [perch, work])
+        #expect(editor.list == perch)
+
+        // Left alone: saving writes no list change.
+        let same = try! #require(editor.edited(item))
+        #expect(same == item && ReminderChange(from: item, to: same).isEmpty && Request.Patch(from: item, to: same).isEmpty)
+
+        // Another list: the change is the move alone, by id for Reminders and by name for perchd.
+        editor.list = work
+        let moved = try! #require(editor.edited(item))
+        #expect(moved.listID == "w" && moved.listName == "Work" && moved.title == item.title)
+        #expect(ReminderChange(from: item, to: moved) == ReminderChange(list: "w"))
+        #expect(Request.Patch(from: item, to: moved) == Request.Patch(list: "Work"))
+
+        // A todo whose list isn't checked has no list in the picker; saving leaves it where it is.
+        let elsewhere = TodoEditor.edit(item, lists: [work])
+        #expect(elsewhere.list == nil && elsewhere.edited(item) == item)
+    }
 }
+

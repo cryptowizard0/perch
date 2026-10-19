@@ -202,6 +202,38 @@ import Testing
         #expect(wire.contains(#""seen_in_list":"w""#) && !wire.contains(#""list""#))
     }
 
+    /// `--list` (#70): the target goes to the bridge as `change.list`, a list id, apart from the `seen_in_list` hint. The
+    /// writer hears an error when the snapshot shows the todo elsewhere (a Perch.app older than #70 ignores the field).
+    @Test func movesNameTheirTargetAndCheckTheResult() throws {
+        let perch = ReminderList(id: "p", title: "Perch", isICloud: true)
+        let work = ReminderList(id: "w", title: "Work", isICloud: true)
+        let flights = Reminder(externalID: "r1", list: "p", title: "book flights")
+        _ = try service.applySnapshot([flights], lists: [perch, work])
+        let id = try #require(call(Request(op: .list)).0.items?.first?.id)
+        guard case .bridge(let write) = service.planTodoWrite(Request(op: .update, id: id, patch: Request.Patch(list: "Work")))
+        else { Issue.record("not a bridge write"); return }
+        #expect(write.operation.change == ReminderChange(list: "w") && write.operation.seenInList == "p")
+        let wire = String(decoding: try PerchJSON.encoder.encode(write.operation), as: UTF8.self)
+        #expect(wire.contains(#""change":{"list":"w"}"#) && wire.contains(#""seen_in_list":"p""#))
+
+        // An old bridge left it where it was.
+        let unmoved = service.todoWriteAnswer(write, externalID: "r1")
+        #expect(unmoved.ok == false && unmoved.error?.contains("is in 'Perch', not the list asked for") == true)
+        // A bridge that knows the field moved it.
+        _ = try service.applySnapshot([Reminder(externalID: "r1", list: "w", title: "book flights")], lists: [perch, work])
+        let moved = service.todoWriteAnswer(write, externalID: "r1")
+        #expect(moved.ok && moved.item?.id == id && moved.item?.listName == "Work")
+
+        // Already there: nothing to do.
+        guard case .answer(let same) = service.planTodoWrite(Request(op: .update, id: id, patch: Request.Patch(list: "Work")))
+        else { Issue.record("expected an answer"); return }
+        #expect(same.ok && same.item?.id == id)
+        // A list on a notice is wrong whatever it is called.
+        guard case .answer(let notice) = service.planTodoWrite(Request(op: .add, item: Item(title: "fyi", kind: .notice), list: "Nope"))
+        else { Issue.record("expected an answer"); return }
+        #expect(notice.error == "a list only applies to todos (open or done tasks)")
+    }
+
     @Test func pingReportsVersion() {
         #expect(call(Request(op: .ping)).0.version == PerchVersion.string)
     }

@@ -77,6 +77,7 @@ final class EventKitRemindersStore: RemindersStore {
 
     func updateReminder(_ externalID: String, inList list: String, _ change: ReminderChange) throws {
         let reminder = try self.reminder(externalID, inList: list)
+        if let target = change.list, target != list { reminder.calendar = try calendar(target) }
         Self.apply(change, to: reminder)
         try store.save(reminder, commit: true)
     }
@@ -175,7 +176,8 @@ final class EventKitRemindersStore: RemindersStore {
     }
 
     private static func list(_ calendar: EKCalendar) -> ReminderList {
-        ReminderList(id: calendar.calendarIdentifier, title: calendar.title, isICloud: isICloud(calendar.source))
+        ReminderList(id: calendar.calendarIdentifier, title: calendar.title, isICloud: isICloud(calendar.source),
+                     account: calendar.source?.sourceIdentifier)
     }
 
     private static func isICloud(_ source: EKSource?) -> Bool {

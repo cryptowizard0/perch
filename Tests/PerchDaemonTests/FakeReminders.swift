@@ -36,10 +36,14 @@ final class FakeRemindersStore: RemindersStore {
     private var observers: [@MainActor () -> Void] = []
     private var serial = 0
 
+    /// The accounts lists are in: iCloud, and On My Mac.
+    static let iCloud = "icloud-account"
+    static let onMyMac = "local-account"
+
     /// `lists`: names of lists that already exist (in iCloud), in this order.
     init(authorization: RemindersAuthorization = .fullAccess, lists: [String] = ["Perch"]) {
         self.authorization = authorization
-        for name in lists { allLists.append(ReminderList(id: nextID("list"), title: name, isICloud: true)) }
+        for name in lists { allLists.append(ReminderList(id: nextID("list"), title: name, isICloud: true, account: Self.iCloud)) }
     }
 
     // MARK: RemindersStore
@@ -54,7 +58,8 @@ final class FakeRemindersStore: RemindersStore {
     }
 
     func createList(named name: String) throws -> ReminderList {
-        let list = ReminderList(id: nextID("list"), title: name, isICloud: defaultSourceIsICloud)
+        let list = ReminderList(id: nextID("list"), title: name, isICloud: defaultSourceIsICloud,
+                                account: defaultSourceIsICloud ? Self.iCloud : Self.onMyMac)
         allLists.append(list)
         ownWrite()
         return list
@@ -91,6 +96,10 @@ final class FakeRemindersStore: RemindersStore {
         try readable(list)
         guard let i = entries.firstIndex(where: { $0.reminder.externalID == externalID && $0.list == list }) else {
             throw RemindersError("no reminder \(externalID)")
+        }
+        if let target = change.list, target != list {
+            try readable(target)
+            entries[i].list = target
         }
         apply(change, to: i)
         ownWrite()
@@ -168,10 +177,10 @@ final class FakeRemindersStore: RemindersStore {
         phoneEdit(id) { $0.list = self.allLists.first { $0.title == name }!.id }
     }
 
-    /// A list made on the phone (or in the Reminders app). `iCloud` false: on this Mac only.
+    /// A list made on the phone (or in the Reminders app). `iCloud` false: on this Mac only (the On My Mac account).
     @discardableResult
     func phoneCreateList(_ name: String, iCloud: Bool = true) -> ReminderList {
-        let list = ReminderList(id: nextID("list"), title: name, isICloud: iCloud)
+        let list = ReminderList(id: nextID("list"), title: name, isICloud: iCloud, account: iCloud ? Self.iCloud : Self.onMyMac)
         allLists.append(list)
         changed()
         return list

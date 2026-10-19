@@ -62,8 +62,12 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var reminders: RemindersState?
     /// Whether perchd took this app as the Reminders bridge.
     @Published public private(set) var isBridge = false
-    /// The checked Reminders lists in order, as perchd last heard from the bridge (#69): the Todo tab's groups.
+    /// The checked Reminders lists in order, as perchd last heard from the bridge (#69): the Todo tab's groups, and the
+    /// lists the add popup and the editor offer (#70).
     @Published public private(set) var todoLists: [ReminderList] = []
+    /// The Lists… window's rows (#70): every Reminders list in the selection's order, from this app's own access; empty
+    /// without it.
+    @Published public private(set) var listChoices: [ListChoice] = []
     /// Todos added while the panel was open, marked new for `highlightDuration`.
     @Published public private(set) var highlighted: Set<String> = []
     public var highlightDuration: TimeInterval = 1
@@ -165,6 +169,29 @@ public final class QueueModel: ObservableObject {
     /// The Reminders list's name, for the Todo tab's messages.
     public var remindersListName: String { bridge?.listName ?? "Perch" }
 
+    /// Whether the right-click menu offers Lists… (#70): this app has Reminders access.
+    public var choosesLists: Bool { reminders == .createList || reminders?.isReady == true }
+
+    /// "Perch" among the checked lists: where the add popup starts.
+    public var perchList: ReminderList? {
+        todoLists.first { $0.id == bridge?.list?.id } ?? todoLists.first { $0.title == remindersListName }
+    }
+
+    /// The list the popup's picker shows, and where adding puts the todo: the editor's choice, else "Perch", else (adding
+    /// while "Perch" is gone) the first checked list, so what the picker shows is where it goes.
+    public var editorList: ReminderList? {
+        guard let editor else { return nil }
+        return editor.list ?? perchList ?? (editor.mode == .add ? todoLists.first : nil)
+    }
+
+    /// The lists the popup's picker offers (#70): the checked ones; for a todo being edited, only those in its own
+    /// Reminders account (Perch doesn't move todos between accounts).
+    public var editorLists: [ReminderList] {
+        guard case .edit(let id)? = editor?.mode, let item = state.items[id],
+              let from = todoLists.first(where: { $0.id == item.listID }) else { return todoLists }
+        return todoLists.filter { from.moveRefusal(to: $0) == nil }
+    }
+
     /// `reminders`: this app's access to the "Perch" list; nil to only show what perchd caches.
     public func connect(client: PerchClient = PerchClient(), reminders: RemindersBridge? = nil) {
         self.client = client
@@ -172,6 +199,7 @@ public final class QueueModel: ObservableObject {
             bridge = reminders
             self.reminders = reminders.state
             reminders.store.observeChanges { [weak self] in self?.remindersChanged() }
+            listChoices = reminders.choices
         }
         let connection = QueueConnection(client: client) { [weak self] update in
             MainActor.assumeIsolated { self?.handle(update) }
@@ -328,14 +356,14 @@ public final class QueueModel: ObservableObject {
         }
     }
 
-    /// ⌥⇧Space (`fromPanel` false) or "+ Add a todo": the popup, empty and on Normal.
+    /// ⌥⇧Space (`fromPanel` false) or "+ Add a todo": the popup, empty, on Normal and on "Perch".
     public func openAdd(fromPanel: Bool) {
         editor = .add(fromPanel: fromPanel)
     }
 
     /// Edit…: the larger editor, prefilled.
     public func openEdit(_ item: Item) {
-        editor = .edit(item)
+        editor = .edit(item, lists: todoLists)
     }
 
     /// ✎: this todo in the Reminders app, for everything Perch doesn't edit (subtasks, flags, alarms, …).
@@ -353,18 +381,23 @@ public final class QueueModel: ObservableObject {
         if editor != nil { editor = nil }
     }
 
-    /// Return. Adding: `add` (source human, the chosen priority); the popup stays open, empty and back on Normal for
-    /// the next one. Editing: what changed of the title, notes, due date, priority and URL, then the editor closes.
-    /// False (and nothing sent) while the title is blank.
+    /// Return. Adding: `add` (source human, the chosen priority, into the chosen list); the popup stays open for the
+    /// next one, empty and back on Normal, in the same list. Editing: what changed of the title, notes, due date,
+    /// priority, URL and list, then the editor closes. False (and nothing sent) while the title is blank.
     @discardableResult
     public func submitEditor() -> Bool {
         guard let editor, let title = editor.submittedTitle else { return false }
         switch editor.mode {
         case .add:
-            write(Request(op: .add, item: Item(title: title, kind: .task, priority: editor.priority, source: "human"))) {
-                try $0.add(title: title, priority: editor.priority)
+            // "Perch" goes as no list at all, as from the CLI.
+            let list = editorList.flatMap { $0.id == perchList?.id ? nil : $0 }
+            write(Request(op: .add, item: Item(title: title, kind: .task, priority: editor.priority, source: "human"),
+                          list: list?.title)) {
+                try $0.add(title: title, priority: editor.priority, list: list?.id)
             }
-            self.editor = .add(fromPanel: editor.fromPanel)
+            var next = TodoEditor.add(fromPanel: editor.fromPanel)
+            next.list = editor.list
+            self.editor = next
         case .edit(let id):
             self.editor = nil
             guard let item = state.items[id] else {
@@ -386,6 +419,28 @@ public final class QueueModel: ObservableObject {
     }
 
     // MARK: - Reminders (#51)
+
+    /// The Lists… window's checkbox (#70): takes effect at once (the bridge sends a snapshot). "Perch" stays checked.
+    public func setListChecked(_ id: String, _ isChecked: Bool) {
+        changeSelection { $0.setChecked(id, isChecked) }
+    }
+
+    /// The Lists… window's drag (#70): `ids` are its rows in their new order. The Todo tab, `perch ls` and todo.md
+    /// follow at once.
+    public func reorderLists(_ ids: [String]) {
+        changeSelection { $0.reorder(ids) }
+    }
+
+    /// Opening the Lists… window: look at the lists again (one made in Reminders meanwhile shows at the bottom).
+    public func refreshLists() {
+        remindersChanged(listChanged: false)
+    }
+
+    private func changeSelection(_ change: (ListSelection) -> Void) {
+        guard let bridge, choosesLists else { return }
+        change(bridge.selection)
+        remindersChanged(listChanged: false)
+    }
 
     /// "Connect Reminders": the system prompt, then the list; then this app offers to be the bridge.
     public func connectReminders() async {
@@ -414,6 +469,7 @@ public final class QueueModel: ObservableObject {
         bridge.refresh()
         let moved = reminders != bridge.state || checked != bridge.checkedLists
         if reminders != bridge.state { reminders = bridge.state }
+        if listChoices != bridge.choices { listChoices = bridge.choices }
         guard listChanged || moved else { return }
         isBridge ? sendSnapshot() : registerBridge()
     }

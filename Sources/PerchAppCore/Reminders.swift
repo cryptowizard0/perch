@@ -29,15 +29,16 @@ public protocol RemindersStore: AnyObject {
     /// The incomplete reminders of these lists, plus those completed since `completedSince`, each with its `list`
     /// (#69). A list that is gone meanwhile is skipped; no lists, no reminders.
     func reminders(inLists lists: [String], completedSince: Date) async throws -> [Reminder]
-    /// A new reminder with `fields` (`title` is set; unset ones stay EventKit's defaults); returns its external
-    /// identifier.
+    /// A new reminder in `list` with `fields` (`title` is set; unset ones stay EventKit's defaults; `fields.list` is
+    /// ignored); returns its external identifier.
     func createReminder(inList list: String, _ fields: ReminderChange) throws -> String
     /// Whether the reminder is still in the list.
     func containsReminder(_ externalID: String, inList list: String) -> Bool
     /// The reminder's identifier on this Mac (EventKit's `calendarItemIdentifier`), which the Reminders app's links
     /// use; nil when it isn't in the list.
     func localIdentifier(of externalID: String, inList list: String) -> String?
-    /// Completing a repeating reminder does whatever EventKit does with it.
+    /// Completing a repeating reminder does whatever EventKit does with it. `change.list`, when it is another list,
+    /// moves the reminder there (#70); within one account its external identifier stays (checked on macOS 15).
     func updateReminder(_ externalID: String, inList list: String, _ change: ReminderChange) throws
     func deleteReminder(_ externalID: String, inList list: String) throws
     /// `handler` runs whenever the Reminders database changes, here or on another device.
@@ -91,8 +92,8 @@ public enum RemindersState: Equatable, Sendable {
 ///
 /// "Perch" is always checked, wherever it is in the order. Lists not known yet go at the end, unchecked. Lists that
 /// don't exist now are left out but never forgotten: EventKit can miss a list for a moment (an iCloud blip, sources
-/// still loading at launch), and one that comes back is checked again, in its old place. Until the Lists… window
-/// (#70), only `defaults write dev.perch.app …` changes it.
+/// still loading at launch), and one that comes back is checked again, in its old place. The Lists… window (#70)
+/// changes it (`setChecked`, `reorder`); nothing in perchd or the CLI can.
 @MainActor
 public struct ListSelection {
     public let defaults: UserDefaults
@@ -119,12 +120,36 @@ public struct ListSelection {
         nonmutating set { defaults.set(newValue, forKey: Self.checkedKey(listName: listName)) }
     }
 
-    /// Checks or unchecks a list (the Lists… window will call this). Unchecking "Perch" has no effect: `resolve`
-    /// checks it again.
+    /// Checks or unchecks a list (the Lists… window). Unchecking "Perch" has no effect: `resolve` checks it again.
     public func setChecked(_ id: String, _ isChecked: Bool) {
         var ids = checked.filter { $0 != id }
         if isChecked { ids.append(id) }
         checked = ids
+    }
+
+    /// The Lists… window's drag (#70): `ids`, the lists it shows in their new order, take the places those lists had;
+    /// lists it doesn't show (missing for now) keep theirs. Ones the order doesn't know yet go at the end.
+    public func reorder(_ ids: [String]) {
+        let shown = Set(ids)
+        var next = ids[...]
+        var newOrder: [String] = []
+        for id in order {
+            if !shown.contains(id) {
+                newOrder.append(id)
+            } else if let moved = next.popFirst() {
+                newOrder.append(moved)
+            }
+        }
+        newOrder += next
+        if newOrder != order { order = newOrder }
+    }
+
+    /// `lists` in the stored order, any it doesn't know yet after them: the Lists… window's rows.
+    public func ordered(_ lists: [ReminderList]) -> [ReminderList] {
+        let position = ReminderList.positions(order)
+        return lists.enumerated()
+            .sorted { (position[$0.element.id] ?? .max, $0.offset) < (position[$1.element.id] ?? .max, $1.offset) }
+            .map(\.element)
     }
 
     /// Adds the lists in `lists` (every list there is now) that the stored selection doesn't know yet, checks "Perch"
@@ -145,6 +170,20 @@ public struct ListSelection {
     }
 }
 
+/// A row of the Lists… window (#70): a Reminders list, whether it is checked, and whether its checkbox is locked on
+/// ("Perch" is always checked).
+public struct ListChoice: Equatable, Sendable {
+    public var list: ReminderList
+    public var isChecked: Bool
+    public var isLocked: Bool
+
+    public init(list: ReminderList, isChecked: Bool, isLocked: Bool) {
+        self.list = list
+        self.isChecked = isChecked
+        self.isLocked = isLocked
+    }
+}
+
 /// The bridge app's hold on Reminders: authorization, finding the "Perch" list, the other checked lists (#69), and
 /// every write Perch makes to them. `QueueModel` owns it and tells perchd what the checked lists hold.
 @MainActor
@@ -157,6 +196,14 @@ public final class RemindersBridge {
     public private(set) var list: ReminderList?
     /// The checked lists that exist, in order ("Perch" among them while it exists); empty without access.
     public private(set) var checkedLists: [ReminderList] = []
+    /// Every list that exists, in the selection's order: the Lists… window's rows (#70); empty without access.
+    public private(set) var allLists: [ReminderList] = []
+
+    /// `allLists` as the Lists… window shows them.
+    public var choices: [ListChoice] {
+        let checked = Set(checkedLists.map(\.id))
+        return allLists.map { ListChoice(list: $0, isChecked: checked.contains($0.id), isLocked: $0.id == list?.id) }
+    }
     public let selection: ListSelection
     private let defaults: UserDefaults
 
@@ -229,21 +276,24 @@ public final class RemindersBridge {
         return (lists, try await store.reminders(inLists: lists.map(\.id), completedSince: since))
     }
 
-    /// A new todo from the add popup: it goes to "Perch".
-    public func add(title: String, priority: ItemPriority) throws {
-        _ = try store.createReminder(inList: try readyList().id, ReminderChange(title: title, priority: priority.reminderPriority))
+    /// A new todo from the add popup: it goes to "Perch", or the checked list `list` (#70).
+    public func add(title: String, priority: ItemPriority, list: String? = nil) throws {
+        let into = try list.map(checkedList) ?? readyList()
+        _ = try store.createReminder(inList: into.id, ReminderChange(title: title, priority: priority.reminderPriority))
     }
 
-    /// A todo write perchd handed over (from the CLI, inbox.md or another app, #52). New reminders go to "Perch";
-    /// changes go to the list the reminder is in (#69). Returns the reminder it made or changed.
+    /// A todo write perchd handed over (from the CLI, inbox.md or another app, #52). New reminders go to "Perch", or to
+    /// `change.list` (#70); changes go to the list the reminder is in (#69), and `change.list` moves it. perchd checked
+    /// the list, but the selection may have changed since. Returns the reminder it made or changed.
     public func apply(_ operation: TodoOperation) throws -> String {
         switch operation.action {
         case .create:
             guard operation.change.title?.isEmpty == false else { throw RemindersError("a new todo needs a title") }
-            return try store.createReminder(inList: try readyList().id, operation.change)
+            let into = try operation.change.list.map(checkedList) ?? readyList()
+            return try store.createReminder(inList: into.id, operation.change)
         case .upsert:
             if let reminder = operation.externalID, let list = try? listOf(reminder, hint: operation.seenInList) {
-                try store.updateReminder(reminder, inList: list.id, operation.change)
+                try store.updateReminder(reminder, inList: list.id, try moving(operation.change, from: list))
                 return reminder
             }
             return try apply(TodoOperation(id: operation.id, action: .create, change: operation.change))
@@ -253,7 +303,7 @@ public final class RemindersBridge {
             if operation.action == .delete {
                 try store.deleteReminder(reminder, inList: list.id)
             } else {
-                try store.updateReminder(reminder, inList: list.id, operation.change)
+                try store.updateReminder(reminder, inList: list.id, try moving(operation.change, from: list))
             }
             return reminder
         }
@@ -264,11 +314,12 @@ public final class RemindersBridge {
         try update(item, ReminderChange(title: title, priority: priority?.reminderPriority, completed: completed))
     }
 
-    /// The larger editor's save (#53): exactly `change`, nothing else, in the todo's own list.
+    /// The larger editor's save (#53): exactly `change`, nothing else, in the todo's own list; `change.list` moves it
+    /// to that checked list (#70).
     public func update(_ item: Item, _ change: ReminderChange) throws {
         guard !change.isEmpty else { return }
         let (reminder, list) = try locate(item)
-        try store.updateReminder(reminder, inList: list.id, change)
+        try store.updateReminder(reminder, inList: list.id, try moving(change, from: list))
     }
 
     /// ✎ (#53): the Reminders app's link to this reminder, which opens Reminders on its list (checked on macOS 15, see
@@ -293,6 +344,29 @@ public final class RemindersBridge {
         try requireAccess()
         guard state.isReady, let list else { throw RemindersError("\(listName) list not found") }
         return list
+    }
+
+    /// The checked list `id`, where a todo is added or moved to (#70).
+    private func checkedList(_ id: String) throws -> ReminderList {
+        try requireAccess()
+        guard let list = checkedLists.first(where: { $0.id == id }) else {
+            let names = checkedLists.map(\.title).joined(separator: ", ")
+            throw RemindersError("that Reminders list isn't checked in Perch; checked lists: \(names)")
+        }
+        return list
+    }
+
+    /// `change` for a reminder in `list`: a move to another checked list in the same account, or no move at all.
+    private func moving(_ change: ReminderChange, from list: ReminderList) throws -> ReminderChange {
+        guard let id = change.list else { return change }
+        var change = change
+        guard id != list.id else {
+            change.list = nil
+            return change
+        }
+        let target = try checkedList(id)
+        if let refusal = list.moveRefusal(to: target) { throw RemindersError(refusal) }
+        return change
     }
 
     /// The todo's reminder, and the checked list it is in now.
@@ -322,6 +396,7 @@ public final class RemindersBridge {
         list = found
         state = .ready(iCloud: found.isICloud)
         checkedLists = selection.resolve(lists: lists, perch: found)
+        allLists = selection.ordered(lists)
     }
 
     /// `lists`: with access but without "Perch", the other checked lists still count.
@@ -329,5 +404,6 @@ public final class RemindersBridge {
         list = nil
         state = new
         checkedLists = new == .createList ? selection.resolve(lists: lists, perch: nil) : []
+        allLists = new == .createList ? selection.ordered(lists) : []
     }
 }

@@ -8,15 +8,19 @@ public struct ReminderList: Codable, Equatable, Sendable {
     public var title: String
     /// In the iCloud account, so it reaches the phone.
     public var isICloud: Bool
+    /// The Reminders account it is in (EventKit's `sourceIdentifier`, #70); nil from a bridge older than that. Perch
+    /// only moves todos between lists of one account.
+    public var account: String?
 
-    public init(id: String, title: String, isICloud: Bool) {
+    public init(id: String, title: String, isICloud: Bool, account: String? = nil) {
         self.id = id
         self.title = title
         self.isICloud = isICloud
+        self.account = account
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title
+        case id, title, account
         case isICloud = "icloud"
     }
 
@@ -27,6 +31,33 @@ public struct ReminderList: Codable, Equatable, Sendable {
     public static func positions(_ ids: some Sequence<String>) -> [String: Int] {
         Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
     }
+
+    /// The checked list called exactly `name` (case matters, #70): where `perch add --list` and `perch update --list`
+    /// put a todo. Unknown, unchecked and ambiguous names are refused with the checked lists' names, so an agent can
+    /// correct itself. perchd checks against its latest snapshot's lists, the bridge again when it writes.
+    public static func checked(named name: String, in checked: [ReminderList]) throws -> ReminderList {
+        let matches = checked.filter { $0.title == name }
+        let names = checked.isEmpty ? "none yet (is Perch.app running?)" : checked.map(\.title).joined(separator: ", ")
+        switch matches.count {
+        case 1: return matches[0]
+        case 0: throw RemindersListError("no checked Reminders list is called '\(name)' (names match exactly); checked lists: \(names)")
+        default: throw RemindersListError("\(matches.count) checked Reminders lists are called '\(name)' (rename one in Reminders); checked lists: \(names)")
+        }
+    }
+
+    /// Why a todo in `self` can't move to `target`, if it can't: they are in different Reminders accounts (iCloud and
+    /// On My Mac, say). EventKit keeps a moved reminder's identifier within an account (checked on macOS 15, #70), so
+    /// its short id stays; across accounts that isn't known to hold, so Perch leaves those moves to the Reminders app.
+    public func moveRefusal(to target: ReminderList) -> String? {
+        guard let account, let other = target.account, account != other else { return nil }
+        return "'\(title)' and '\(target.title)' are in different Reminders accounts; Perch only moves todos within one, so move it in the Reminders app"
+    }
+}
+
+/// A list name Perch can't use (`ReminderList.checked(named:in:)`, `moveRefusal`). The message is for an agent to act on.
+public struct RemindersListError: Error, CustomStringConvertible, Equatable {
+    public let description: String
+    public init(_ description: String) { self.description = description }
 }
 
 /// One reminder in a checked Reminders list ("Perch", and any other the user checked, #69), as the bridge app reads
@@ -102,9 +133,13 @@ public struct ReminderChange: Codable, Equatable, Sendable {
     public var url: String?
     /// Removes the URL. Never together with `url`.
     public var clearURL: Bool?
+    /// The list it goes in (`ReminderList.id`, #70): a new reminder is made there instead of in "Perch", and a changed
+    /// one moves there. A target, unlike `TodoOperation.seenInList`; always a checked list.
+    public var list: String?
 
     public init(title: String? = nil, priority: Int? = nil, completed: Bool? = nil, dueAt: Date? = nil,
-                dueDateOnly: Bool? = nil, clearDue: Bool? = nil, notes: String? = nil, url: String? = nil, clearURL: Bool? = nil) {
+                dueDateOnly: Bool? = nil, clearDue: Bool? = nil, notes: String? = nil, url: String? = nil, clearURL: Bool? = nil,
+                list: String? = nil) {
         self.title = title
         self.priority = priority
         self.completed = completed
@@ -114,10 +149,11 @@ public struct ReminderChange: Codable, Equatable, Sendable {
         self.notes = notes
         self.url = url
         self.clearURL = clearURL
+        self.list = list
     }
 
     enum CodingKeys: String, CodingKey {
-        case title, priority, completed, url, notes
+        case title, priority, completed, url, notes, list
         case dueAt = "due_at"
         case dueDateOnly = "due_date_only"
         case clearDue = "clear_due"
@@ -126,7 +162,7 @@ public struct ReminderChange: Codable, Equatable, Sendable {
 
     public var isEmpty: Bool { self == ReminderChange() }
 
-    /// What turns the todo `old` into `new`: only the fields Perch manages that differ.
+    /// What turns the todo `old` into `new`: only the fields Perch manages that differ (its list too, #70).
     public init(from old: Item, to new: Item) {
         self.init()
         if new.title != old.title { title = new.title }
@@ -144,6 +180,7 @@ public struct ReminderChange: Codable, Equatable, Sendable {
         if new.link != old.link {
             if let link = new.link { url = link } else { clearURL = true }
         }
+        if let id = new.listID, id != old.listID { list = id }
     }
 
     /// The reminder's absolute alarm times after this change, the way the Reminders app keeps them (#53): a due time
@@ -160,8 +197,8 @@ public struct ReminderChange: Codable, Equatable, Sendable {
 }
 
 /// A todo write perchd hands to the bridge (#52), pushed on the bridge's watch connection. The bridge applies it to the
-/// todo's own list (new ones go to "Perch", #69), answers with `todo_ack` (same `id`), then sends a snapshot; perchd
-/// answers the writer after that.
+/// todo's own list (new ones go to "Perch", #69), or to `change.list` (#70: a new one goes there, a changed one moves),
+/// answers with `todo_ack` (same `id`), then sends a snapshot; perchd answers the writer after that.
 public struct TodoOperation: Codable, Equatable, Sendable {
     public enum Action: String, Codable, Sendable {
         /// A new reminder with `change`'s fields (`title` is set).
@@ -180,7 +217,7 @@ public struct TodoOperation: Codable, Equatable, Sendable {
     public var action: Action
     public var externalID: String?
     /// A hint, not a target: the list perchd last saw the reminder in (`ReminderList.id`, #69), where the bridge looks
-    /// first. Nil for a new reminder, which goes to "Perch".
+    /// first. Nil for a new reminder. The target, for a new reminder or a move, is `change.list` (#70).
     public var seenInList: String?
     public var change: ReminderChange
 
