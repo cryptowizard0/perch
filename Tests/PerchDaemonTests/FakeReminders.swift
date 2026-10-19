@@ -30,6 +30,8 @@ final class FakeRemindersStore: RemindersStore {
     private(set) var allLists: [ReminderList] = []
     /// The lists the last snapshot read covered.
     private(set) var lastRead: [String] = []
+    /// Lists `lists()` leaves out for now (they still exist): EventKit missing them for a moment.
+    var hidden: Set<String> = []
     private(set) var entries: [Entry] = []
     private var observers: [@MainActor () -> Void] = []
     private var serial = 0
@@ -48,7 +50,7 @@ final class FakeRemindersStore: RemindersStore {
     }
 
     func lists() -> [ReminderList] {
-        authorization == .fullAccess ? allLists : []
+        authorization == .fullAccess ? allLists.filter { !hidden.contains($0.id) } : []
     }
 
     func createList(named name: String) throws -> ReminderList {

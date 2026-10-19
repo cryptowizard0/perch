@@ -45,12 +45,24 @@ import Testing
         #expect(selection.order == ["p", "w", "e"])
     }
 
-    @Test func deletedListsAreDroppedSilently() {
+    @Test func aMissingListIsLeftOutButNotForgotten() {
         let selection = ListSelection(defaults: defaults(), listName: "Perch")
         selection.order = ["w", "p", "h"]
         selection.checked = ["w", "h", "p"]
+        // Gone (deleted, or EventKit didn't list it this time): not shown…
         #expect(selection.resolve(lists: [perch, home], perch: perch) == [perch, home])
-        #expect(selection.order == ["p", "h"] && Set(selection.checked) == ["h", "p"])
+        // …but still remembered, so a list that comes back is checked again, in its old place.
+        #expect(selection.order == ["w", "p", "h"] && Set(selection.checked) == ["w", "h", "p"])
+        #expect(selection.resolve(lists: [perch, home, work], perch: perch) == [work, perch, home])
+    }
+
+    @Test func noListsAtAllLeaveTheSelectionAlone() {
+        let selection = ListSelection(defaults: defaults(), listName: "Perch")
+        selection.order = ["w", "p"]
+        selection.checked = ["w", "p"]
+        #expect(selection.resolve(lists: [], perch: nil).isEmpty)
+        #expect(selection.order == ["w", "p"] && selection.checked == ["w", "p"])
+        #expect(selection.resolve(lists: [perch, work], perch: perch) == [work, perch])
     }
 
     @Test func aRenamedListStaysCheckedInItsPlace() {

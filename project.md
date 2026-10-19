@@ -594,7 +594,7 @@ PR #57 squash 合并为 `0c267b8`，#56 已关；合并前从分支装到了本�
 
 - **列表选择**：`PerchAppCore/Reminders.swift` 的 `ListSelection`（注入 `UserDefaults`），`RemindersBridge.selection` / `checkedLists`。defaults 的键按 "Perch" 列表名分命名空间，值都是 `calendarIdentifier` 的字符串数组：
   - `RemindersOrder.Perch`：所有已知列表的顺序；`RemindersChecked.Perch`：勾选的（顺序无所谓）。隔离运行是 `RemindersOrder.Perch Dev` / `RemindersChecked.Perch Dev`。
-  - `resolve(lists:perch:)` 在每次 `refresh()`（有权限时）跑：去掉不存在的、把新的追加到最后（不勾）、加上 "Perch"，只在变了时写回。
+  - `resolve(lists:perch:)` 在每次 `refresh()`（有权限时）跑：把新的追加到最后（不勾）、加上 "Perch"，只在变了时写回；**从不删**，返回时只过滤掉眼下不存在的（`ListSelectionTests.aMissingListIsLeftOutButNotForgotten` / `noListsAtAllLeaveTheSelectionAlone`、`TodoListsTests.aListMissingForAMomentComesBackCheckedInItsPlace`）。
   - #70 之前手动改：先在 App 跑过一次（顺序里就有所有列表的 id），`defaults read dev.perch.app 'RemindersOrder.Perch'` 看 id（列表名要自己对，EventKit 的 id 没有名字；也可以 `perch ls --json` 看 `todo_lists`，但那里只有勾选的），然后 `defaults write dev.perch.app 'RemindersChecked.Perch' -array <PerchID> <WorkID>`、`defaults write dev.perch.app 'RemindersOrder.Perch' -array <WorkID> <PerchID> …`，展开一次面板（`QueueModel.expanded` → `remindersChanged(listChanged: false)` 发现勾选变了就发快照）或等 Reminders 有变化。
 - **接缝**：`RemindersStore.reminders(inLists:completedSince:)` 一次读多个列表、每条带 `Reminder.list`（EventKit 实现里列表全没了就返回空：空的 calendars 对 EventKit 是"所有列表"）。别的方法还是按单个列表；`RemindersBridge.listOf(_:hint:)` 找提醒在哪个勾选列表里（先 hint = 缓存的 `meta.list_id` / `TodoOperation.list`，再别的勾选列表），找不到就报 "that reminder isn't in a list Perch shows"。新建（`add`、`apply(.create)`）还是 `readyList()` = "Perch"；`upsert` 先在勾选列表里找，没有就在 "Perch" 新建。
 - **"Perch" 不在时**：`settle(.createList, lists:)` 仍然算勾选的其他列表，所以快照里还有它们（Todo tab 照样只显示 Create Perch list 按钮）。
@@ -606,7 +606,7 @@ PR #57 squash 合并为 `0c267b8`，#56 已关；合并前从分支装到了本�
 - 提交：`db18c32`（perchd / CLI / todo.md）、`2aaa364`（bridge、选择、Todo tab），之后是文档。
 - **没做（要人）**：真 Mac 上的人工验收（本机开发版没有 Reminders 权限，没截图）：用 `defaults write` 勾上别的列表后展开面板，看分组、"All clear"、"Not syncing"、组标题样式；在别的列表里完成 / Undo / 编辑 / 改优先级 / 删除 / ✎；取消勾选再勾上短 id 不变。`CONFIG=debug scripts/bundle-app.sh` 能编过。
 - **已知限制 / 风险**：
-  - 删掉的列表会被立刻从 defaults 去掉；如果 EventKit 在启动时一瞬间只返回部分列表（比如 iCloud 账户还没加载完），那时被认为"不存在"的勾选列表会丢掉勾选（没实测到，#70 的窗口能重新勾）。
+  - 选择从不删 id：真删掉的列表的 id 一直留在 `RemindersOrder` / `RemindersChecked` 里（只是不显示），换来的是 EventKit 一时少列几个列表（iCloud 抖一下、启动时账户没加载完、`createList` 状态）时勾选和位置不丢（评审后改的）。
   - `defaults write` 改选择要等下次展开面板或 Reminders 有变化才生效（App 不监听外部 defaults 改动）。
   - 跨账户挪提醒（iCloud → 本机）时 EventKit 可能换外部标识符，那时短 id 会变：#66 的 Further Notes 说留给 #70（移动列表）去核实。
   - 两个勾选列表同名时 `perch ls` 的组标题一样（按 id 分组，不会混）。

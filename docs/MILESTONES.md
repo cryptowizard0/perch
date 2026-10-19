@@ -163,7 +163,7 @@
 设计见 #66（父 issue）和 `docs/PRD.md` 的"Todo tab"、Reminders 一节。
 
 **#69 数据通路、列表选择、Todo tab 和 CLI 按列表分组**
-- [x] 列表选择存在 App 的 defaults（`RemindersOrder.<名字>` / `RemindersChecked.<名字>`，按 `calendarIdentifier`）："Perch" 永远勾选、位置可变；新列表排到最后不勾；删掉的默默去掉；改名的照样勾着、位置不变；隔离运行自己一套、只勾 "Perch Dev"；升级的用户只勾 "Perch"
+- [x] 列表选择存在 App 的 defaults（`RemindersOrder.<名字>` / `RemindersChecked.<名字>`，按 `calendarIdentifier`）："Perch" 永远勾选、位置可变；新列表排到最后不勾；不存在的默默不显示（选择里不删，回来照样勾着、位置不变）；改名的照样勾着、位置不变；隔离运行自己一套、只勾 "Perch Dev"；升级的用户只勾 "Perch"
 - [x] "Perch" 的特殊处理不变（记下的 id → 名字、第一次自动建、从不自动重建、Connect / Open System Settings / Create Perch list）；别的勾选列表被删了就消失
 - [x] 快照覆盖所有勾选列表（未完成 + 7 天内完成），每条带列表，加按顺序的列表描述（id、名字、iCloud）
 - [x] perchd 把 todo 的列表记在 `meta`，列表描述存在 `daemon_state`（不改 schema），没有 bridge、重启后照样分组；`todo_refs` 从不删

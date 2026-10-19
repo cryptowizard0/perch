@@ -194,9 +194,32 @@ import Testing
         let work = try #require(store.list("Work")).id
         store.deleteList("Work")
         try await support.until { model.todos.groups.map(\.title) == ["Perch"] }
-        // No alert, no state of its own: it is simply gone, from the selection too.
+        // No alert, no state of its own: it is simply gone from the tab (the selection still remembers it, in case
+        // EventKit only missed it for a moment).
         #expect(model.todos.openCount == 0 && model.reminders == .ready(iCloud: true) && model.flash == nil)
-        #expect(!bridge.selection.order.contains(work) && !bridge.selection.checked.contains(work))
+        #expect(!bridge.checkedLists.contains { $0.id == work } && bridge.selection.checked.contains(work))
+    }
+
+    /// A checked list EventKit leaves out for one look (an iCloud blip, sources still loading at launch) comes back
+    /// checked and in its place.
+    @Test func aListMissingForAMomentComesBackCheckedInItsPlace() async throws {
+        let (store, defaults) = store(checked: ["Work"], order: ["Work", "Perch"])
+        let d = try TestDaemon()
+        let (model, bridge) = try await bridge(d, store, defaults)
+        defer { model.disconnect() }
+        store.phoneAdd("send the invoice", list: "Work")
+        try await support.until { model.todos.openCount == 1 }
+        let work = try #require(store.list("Work"))
+        let shortID = try #require(model.todos.items.first).id
+
+        store.hidden = [work.id]
+        store.changed()
+        try await support.until { model.todos.groups.map(\.title) == ["Perch"] }
+        store.hidden = []
+        store.changed()
+        try await support.until { model.todos.groups.map(\.title) == ["Work", "Perch"] }
+        #expect(model.todos.items.map(\.id) == [shortID])
+        #expect(bridge.checkedLists.map(\.title) == ["Work", "Perch"])
     }
 
     @Test func aRenamedListKeepsItsPlaceAndAListOutOfICloudSaysSo() async throws {

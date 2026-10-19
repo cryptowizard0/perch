@@ -89,8 +89,10 @@ public enum RemindersState: Equatable, Sendable {
 /// - `RemindersOrder.<name>`: every known list's identifier, in order (an array of strings);
 /// - `RemindersChecked.<name>`: the checked lists' identifiers (an array of strings; order doesn't matter).
 ///
-/// "Perch" is always checked, wherever it is in the order. Lists not known yet go at the end, unchecked; lists that no
-/// longer exist are dropped. Until the Lists… window (#70), only `defaults write dev.perch.app …` changes it.
+/// "Perch" is always checked, wherever it is in the order. Lists not known yet go at the end, unchecked. Lists that
+/// don't exist now are left out but never forgotten: EventKit can miss a list for a moment (an iCloud blip, sources
+/// still loading at launch), and one that comes back is checked again, in its old place. Until the Lists… window
+/// (#70), only `defaults write dev.perch.app …` changes it.
 @MainActor
 public struct ListSelection {
     public let defaults: UserDefaults
@@ -125,15 +127,15 @@ public struct ListSelection {
         checked = ids
     }
 
-    /// Brings the stored selection up to date with `lists` (every list there is now) and returns the checked ones in
-    /// order. `perch`: the "Perch" list, always checked (nil while it is gone). Writes back only what changed.
+    /// Adds the lists in `lists` (every list there is now) that the stored selection doesn't know yet, checks "Perch"
+    /// (`perch`; nil while it is gone), and returns the checked lists that exist, in order. Nothing is ever removed
+    /// from the stored selection; only what changed is written back.
     @discardableResult
     public func resolve(lists: [ReminderList], perch: ReminderList?) -> [ReminderList] {
-        let exists = Set(lists.map(\.id))
-        var newOrder = order.filter { exists.contains($0) }
+        var newOrder = order
         var seen = Set(newOrder)
         for list in lists where seen.insert(list.id).inserted { newOrder.append(list.id) }
-        var newChecked = checked.filter { exists.contains($0) }
+        var newChecked = checked
         if let perch, !newChecked.contains(perch.id) { newChecked.append(perch.id) }
         if newOrder != order { order = newOrder }
         if newChecked != checked { checked = newChecked }
