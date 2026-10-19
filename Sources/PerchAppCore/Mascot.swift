@@ -10,7 +10,7 @@ import PerchCore
 /// or done, it now and then plays a quirk from its mood's set (a yawn, a look around, a snot bubble; a sigh, rubbing
 /// its head; a sway, a hum). Failed keeps its X eye and Done its happy eye through theirs (#59). It also feels the
 /// time: a turn running over 10 minutes makes it sweat (#60); Needs you insists after a minute and knocks on the glass
-/// from five (#61).
+/// from five (#61). After you answer it, it bows (Allow) or scratches its head (Deny) (#62).
 public enum Mascot {
     /// The canvas, in points: the 13 × 13 sprite at `origin`, with room above for the hop and beside for the
     /// shake and the sparkles. Idle's "z" drifts past the right edge, up to `overflowWidth`.
@@ -124,15 +124,52 @@ public enum Mascot {
     /// `since` is when the signal's state began, on the same clock: the oldest running turn's start (Running sweats
     /// from `sweatAfter`), the longest wait's start (Needs you insists from `insistAfter`, knocks from `knockAfter`).
     /// Nil leaves time out of it.
+    ///
+    /// Precedence, highest first: the entry reaction, an answer's bow or scratch, a quirk, the mood's own loop.
     public static func frame(_ mood: Mood, time: TimeInterval, since: TimeInterval? = nil, reaction: Reaction? = nil,
-                             quirk: QuirkPlay? = nil) -> [Cell] {
+                             answer: AnswerPlay? = nil, quirk: QuirkPlay? = nil) -> [Cell] {
         if let reaction, !reaction.isOver {
             return draw(look(reaction.mood, time: time, reaction: reaction.age))
+        }
+        if let answer, !answer.isOver {
+            return draw(look(answer.answer, age: answer.age, mood: mood))
         }
         if let quirk, mood.quirks.contains(quirk.quirk), !quirk.isOver {
             return draw(look(quirk.quirk, age: quirk.age, mood: mood))
         }
         return draw(look(mood, time: time, reaction: nil, waited: since.map { time - $0 }))
+    }
+
+    // MARK: - Answers
+
+    /// What it does after you answer it (#62): a bow for Allow (or any other option), a sheepish head scratch for Deny.
+    /// Neither a quirk nor a pulse: no banner, no sound; it plays in the signal's colour.
+    public enum Answer: Equatable, Sendable, CaseIterable {
+        case bow, scratch
+
+        /// The reaction to sending `value` to a request.
+        public init(response value: String) {
+            self = value == "deny" ? .scratch : .bow
+        }
+
+        public var duration: TimeInterval {
+            switch self {
+            case .bow: return 1.2
+            case .scratch: return 1.4
+            }
+        }
+    }
+
+    public struct AnswerPlay: Equatable, Sendable {
+        public let answer: Answer
+        public let age: TimeInterval
+
+        public init(_ answer: Answer, age: TimeInterval) {
+            self.answer = answer
+            self.age = age
+        }
+
+        public var isOver: Bool { age < 0 || age >= answer.duration }
     }
 
     // MARK: - Time in the state
@@ -369,6 +406,33 @@ public enum Mascot {
         return look
     }
 
+    /// A bow or scratch over the mood's still look. Failed keeps its X eye: the signal never softens.
+    static func look(_ answer: Answer, age: TimeInterval, mood: Mood) -> Look {
+        var look = look(mood, time: 0, reaction: nil)
+        look.z = nil
+        var eye: Eye?
+        switch answer {
+        case .bow:
+            // Leans forward, eye down, antenna tipped towards you; holds; comes back up.
+            if age < 0.95 {
+                look.dy = 1
+                look.antenna = .forward
+                look.arms = .down
+                eye = .down
+            }
+        case .scratch:
+            switch age {
+            case ..<0.2, 1.2...: look.arms = .leftUp
+            default:
+                look.arms = .behindHead(scratching: Int(((age - 0.2) / 0.15).rounded(.down)) % 2 == 1)
+                look.mouth = .small
+                eye = .right
+            }
+        }
+        if let eye, mood != .failed { look.eye = eye }
+        return look
+    }
+
     static func look(_ quirk: Quirk, age: TimeInterval, mood: Mood) -> Look {
         var look = look(mood, time: 0, reaction: nil)
         look.z = nil
@@ -458,6 +522,8 @@ public enum Mascot {
         case open, up, left, right, blink, closed, happy, cross, drowsy, squeezed
         /// Leaning in to knock: wide open, staring straight out.
         case wide
+        /// Looking down (a bow).
+        case down
         /// Done's blink: the happy arc squeezed flatter, still a "^".
         case happyBlink
 
@@ -475,6 +541,7 @@ public enum Mascot {
             case .squeezed: return [".....", "o...o", ".o.o.", "..o..", "....."]
             case .happyBlink: return [".....", ".....", ".ooo.", "o...o", "....."]
             case .wide: return ["wwwww", "wwwww", "wwoww", "wwwww", "wwwww"]
+            case .down: return [".www.", "wwwww", "wwwww", "wwoww", ".www."]
             }
         }
     }
@@ -499,6 +566,8 @@ public enum Mascot {
         case up, left, drooping, bent
         /// Failed's sigh: bent all the way over onto its head.
         case flat
+        /// A bow: tipped towards you, so only its base shows, the tip in front of it.
+        case forward
 
         var cells: [(Int, Int)] {
             switch self {
@@ -507,6 +576,7 @@ public enum Mascot {
             case .drooping: return [(7, 0), (6, 1)]
             case .bent: return [(7, 1), (6, 1)]
             case .flat: return [(8, 1), (7, 1)]
+            case .forward: return [(6, 1)]
             }
         }
     }
@@ -519,6 +589,8 @@ public enum Mascot {
         case wipe(across: Bool)
         /// A long wait's knock: the right hand raised, up against the glass or drawn back.
         case knock(hit: Bool)
+        /// Deny's scratch: the left hand up behind its head, scratching back and forth.
+        case behindHead(scratching: Bool)
 
         var cells: [(Int, Int)] {
             let left = [(0, 8), (0, 9)], right = [(12, 8), (12, 9)]
@@ -531,6 +603,7 @@ public enum Mascot {
             case .onHead(let reaching): return left + [(12, 5), (12, 4), (11, 3), (10, 2), (9, 1)] + (reaching ? [(8, 1)] : [])
             case .wipe(let across): return left + (across ? [(12, 4), (11, 3), (10, 2)] : [(12, 5), (12, 4), (11, 3)])
             case .knock(let hit): return left + (hit ? rightRaised : [(12, 5), (12, 6)])
+            case .behindHead(let scratching): return [(0, 5), (0, 4), (1, 3), scratching ? (2, 2) : (1, 2)] + right
             }
         }
     }

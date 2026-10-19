@@ -3,7 +3,8 @@ import PerchCore
 import SwiftUI
 
 /// The collapsed notch's mascot (#22): `Mascot`'s cells drawn one point each, no antialiasing. Redraws only while
-/// something moves (Running, Needs you, Idle, a reaction, a quirk: Failed and Done stand still between theirs); with
+/// something moves (Running, Needs you, Idle, a reaction, a bow or scratch, a quirk: Failed and Done stand still between
+/// theirs); with
 /// Reduce Motion it shows each mood's still frame and plays no quirks. Reactions and quirks may draw `Mascot.margin`
 /// points around its frame.
 struct MascotView: View {
@@ -14,13 +15,15 @@ struct MascotView: View {
     /// Bumped on entering Needs you / Failed / Done; `pulseStatus` is the state that caused it.
     var pulse = 0
     var pulseStatus: SessionStatus?
+    /// A bow or scratch after an answer, while the model says it plays (#62).
+    var answer: AnswerReaction?
     @State private var reaction: (status: SessionStatus, start: Date)?
     @State private var quirk: (quirk: Mascot.Quirk, start: Date)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let mood = Mascot.Mood(signal: signal, online: online)
-        let fps = Mascot.fps(mood, reacting: reaction != nil, quirking: quirk != nil)
+        let fps = Mascot.fps(mood, reacting: reaction != nil || answer != nil, quirking: quirk != nil)
         let quirks = Mascot.quirks(mood, online: online, reduceMotion: reduceMotion)
         let margin = CGFloat(Mascot.margin)
         TimelineView(.animation(minimumInterval: 1 / max(fps, 1), paused: reduceMotion || fps == 0)) { timeline in
@@ -31,9 +34,10 @@ struct MascotView: View {
                     return reduceMotion || played.isOver ? nil : (reaction.status, played)
                 }
                 let quirking = quirk.map { Mascot.QuirkPlay($0.quirk, age: timeline.date.timeIntervalSince($0.start)) }
+                let answering = answer.map { Mascot.AnswerPlay($0.answer, age: timeline.date.timeIntervalSince($0.start)) }
                 let cells = reduceMotion ? Mascot.still(mood) : Mascot.frame(
                     mood, time: timeline.date.timeIntervalSinceReferenceDate, since: since?.timeIntervalSinceReferenceDate,
-                    reaction: playing?.reaction, quirk: quirking
+                    reaction: playing?.reaction, answer: answering, quirk: quirking
                 )
                 for ink in Mascot.Ink.allCases {
                     var path = Path()

@@ -613,3 +613,77 @@ extension MascotTests {
         #expect(Mascot.still(.waiting) == Mascot.frame(.waiting, time: 0))
     }
 }
+
+/// Bow and scratch (#62).
+extension MascotTests {
+    func answered(_ answer: Mascot.Answer, _ age: Double, _ mood: Mascot.Mood = .running, time: Double = 0) -> [Mascot.Cell] {
+        Mascot.frame(mood, time: time, answer: .init(answer, age: age))
+    }
+
+    /// Allow: it leans forward, eye down, antenna tipped towards you, holds, and comes back up.
+    @Test func allowBows() {
+        #expect(art(answered(.bow, 0.5), x: 0..<15, y: 3..<17) == [
+            "...............",
+            "...............",
+            ".......#.......",
+            "....#######....",
+            "...#########...",
+            "..####www####..",
+            "..###wwwww###..",
+            "..###wwwww###..",
+            "..###wwoww###..",
+            ".#####www#####.",
+            ".#############.",
+            "...###ooo###...",
+            "...#########...",
+            "....##...##....",
+        ])
+        #expect(answered(.bow, 1.0) == Mascot.still(.running))
+        #expect(answered(.bow, Mascot.Answer.bow.duration) == Mascot.frame(.running, time: 0))
+    }
+
+    /// Deny: the left hand up behind its head, scratching, its eye glancing away, a small embarrassed mouth.
+    @Test func denyScratchesItsHead() {
+        #expect(art(answered(.scratch, 0.3), x: 0..<15, y: 3..<16) == [
+            ".......#.......",
+            ".......#.......",
+            "..#.#######....",
+            "..##########...",
+            ".#####www####..",
+            ".####wwwww###..",
+            "..###wwwow###..",
+            "..###wwwww###..",
+            "..####www#####.",
+            "..############.",
+            "...####o####...",
+            "...#########...",
+            "....##...##....",
+        ])
+        let hand = { (age: Double) in self.art(self.answered(.scratch, age), x: 0..<15, y: 5..<6)[0] }
+        #expect([0.3, 0.4, 0.5, 0.7].map(hand) == ["..#.#######....", "...########....", "..#.#######....", "...########...."])
+        #expect(answered(.scratch, 1.3) != Mascot.still(.running))
+        #expect(answered(.scratch, Mascot.Answer.scratch.duration) == Mascot.frame(.running, time: 0))
+    }
+
+    /// They play over the mood's loop, in its colour (no other inks), and Failed keeps its X eye.
+    @Test func answersOverrideTheLoopButNotTheSignal() {
+        for mood in Mascot.Mood.allCases {
+            for answer in Mascot.Answer.allCases {
+                for age in stride(from: 0.0, to: answer.duration, by: 0.05) {
+                    let cells = answered(answer, age, mood, time: 600.3)
+                    #expect(Set(cells.map(\.ink)).isSubset(of: [.body, .white, .dark]), "\(mood) \(answer) \(age)")
+                    if mood == .failed {
+                        #expect(cells.contains { $0.ink == .dark && $0.x == 6 && $0.y == 8 + (answer == .bow && age < 0.95 ? 1 : 0) },
+                                "\(answer) \(age)")
+                    }
+                }
+            }
+        }
+        // A sweating run bows without its drop or trot, then goes back to them.
+        #expect(Mascot.frame(.running, time: 600.3, since: 0, answer: .init(.bow, age: 0.5)) == answered(.bow, 0.5))
+        // A quirk waits; the entry reaction wins.
+        #expect(Mascot.frame(.done, time: 0, answer: .init(.bow, age: 0.5), quirk: .init(.sway, age: 1)) == answered(.bow, 0.5, .done))
+        let reaction = Mascot.Reaction(mood: .waiting, age: 0.2)
+        #expect(Mascot.frame(.running, time: 0, reaction: reaction, answer: .init(.bow, age: 0.5)) == Mascot.frame(.running, time: 0, reaction: reaction))
+    }
+}

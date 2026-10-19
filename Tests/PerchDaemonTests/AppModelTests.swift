@@ -243,3 +243,62 @@ extension AppModelTests {
         #expect(model.panel.signal == .waiting && model.pulseStatus == .done)
     }
 }
+
+/// The mascot's bow and scratch after an answer (#62).
+extension AppModelTests {
+    /// A session needing you, with a request the panel can answer.
+    func askedModel(_ d: TestDaemon) async throws -> (QueueModel, Item) {
+        let model = QueueModel()
+        model.connect(client: d.client)
+        try await until { model.online }
+        try report(d, "a", .waiting, detail: "npm test")
+        let request = try #require(try d.client.send(Request(op: .add, item: Item(
+            title: "npm test", kind: .request, meta: ["session_id": "a"]))).item)
+        try await until { model.headRequest != nil }
+        return (model, request)
+    }
+
+    @Test func aHotkeyAnswerBowsAtOnceWithNoBannerOrSound() async throws {
+        let d = try TestDaemon()
+        let (model, _) = try await askedModel(d)
+        defer { model.disconnect() }
+        var played: [ChimeSound] = []
+        model.onChime = { played.append($0) }
+        let pulses = model.pulse
+        #expect(model.answerReaction == nil)
+        model.answerHead("allow")
+        #expect(model.answerReaction?.answer == .bow)
+        try report(d, "a", .resume)
+        try await until { model.sessions["a"]?.status == .running }
+        #expect(model.pulse == pulses && played.isEmpty && model.banner == nil)
+        // It ends by itself.
+        try await until(timeout: 3) { model.answerReaction == nil }
+    }
+
+    @Test func aPanelAnswerScratchesWhenTheNotchFolds() async throws {
+        let d = try TestDaemon()
+        let (model, request) = try await askedModel(d)
+        defer { model.disconnect() }
+        model.expanded = true
+        model.respond(request, "deny")
+        #expect(model.answerReaction == nil)
+        model.expanded = false
+        #expect(model.answerReaction?.answer == .scratch)
+        // Expanding again stops it; folding again doesn't replay it.
+        model.expanded = true
+        #expect(model.answerReaction == nil)
+        model.expanded = false
+        #expect(model.answerReaction == nil)
+    }
+
+    @Test func aPulseReplacesABow() async throws {
+        let d = try TestDaemon()
+        let (model, _) = try await askedModel(d)
+        defer { model.disconnect() }
+        model.answerHead("allow")
+        #expect(model.answerReaction?.answer == .bow)
+        try report(d, "b", .waiting, detail: "rm -rf build/")
+        try await until { model.pulseStatus == .waiting && model.sessions["b"] != nil }
+        #expect(model.answerReaction == nil)
+    }
+}

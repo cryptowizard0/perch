@@ -27,6 +27,8 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var pulseStatus: SessionStatus?
     /// Agent sessions by id, in any state (Hermes too; `panel` leaves those out).
     @Published public private(set) var sessions: [String: Session] = [:]
+    /// The folded mascot's bow or scratch after an answer (#62), while it plays. Never a pulse: no banner, no sound.
+    @Published public private(set) var answerReaction: AnswerReaction?
     /// The collapsed notch's event banner, while one shows (see `Banner`).
     @Published public private(set) var banner: Banner?
     /// The last failed action, shown briefly in the expanded notch.
@@ -60,7 +62,10 @@ public final class QueueModel: ObservableObject {
     /// Whether the notch is expanded; the app sets it. Opening picks the tab (`PanelTab.opening`).
     public var expanded = false {
         didSet {
-            guard expanded != oldValue, expanded else { return }
+            guard expanded != oldValue else { return }
+            // An answer given in the panel plays as it folds; an expanded notch has no mascot to play one.
+            playAnswer(expanded ? nil : answers.folded(at: Date()))
+            guard expanded else { return }
             // Access may have been revoked in System Settings while nobody looked.
             remindersChanged(listChanged: false)
             let opening = PanelTab.opening(picked: pickedTab, panel: panel)
@@ -86,6 +91,8 @@ public final class QueueModel: ObservableObject {
     }
 
     private var chime = Chime()
+    private var answers = AnswerReactions()
+    private var answerTimer: Timer?
     private var banners = BannerState()
     private var bannerTimer: Timer?
     private var connection: QueueConnection?
@@ -183,6 +190,8 @@ public final class QueueModel: ObservableObject {
             if Panel.pulses(from: before, to: after) {
                 pulseStatus = after?.status
                 pulse += 1
+                // The entry reaction replaces a bow or scratch.
+                playAnswer(nil)
             }
             if let sound = chime.sound(from: before, to: after, now: Date()) { onChime(sound) }
             if showsBanners, banners.update(id: event.session.id, from: before, to: after) { setBanner(banners.current) }
@@ -227,9 +236,11 @@ public final class QueueModel: ObservableObject {
         send(Request(op: .sessionRemove, id: session.id))
     }
 
-    /// Allow / Deny (or any of the request's options). The waiting hook prints the decision.
+    /// Allow / Deny (or any of the request's options). The waiting hook prints the decision. The mascot bows or
+    /// scratches its head: now if the notch is folded (the hotkeys), else as it folds (`AnswerReactions`).
     public func respond(_ item: Item, _ value: String) {
         send(Request(op: .respond, id: item.id, value: value))
+        if let answer = answers.answered(value, at: Date(), expanded: expanded) { playAnswer(answer) }
     }
 
     /// ⌥⇧O: the session that has waited longest.
@@ -511,6 +522,23 @@ public final class QueueModel: ObservableObject {
                     failed?()
                     self?.show(failure)
                 }
+            }
+        }
+    }
+
+    /// Plays `answer` from now (nil: stops the one playing) and ends it after its duration.
+    private func playAnswer(_ answer: Mascot.Answer?) {
+        answerTimer?.invalidate()
+        answerTimer = nil
+        guard let answer else {
+            if answerReaction != nil { answerReaction = nil }
+            return
+        }
+        let playing = AnswerReaction(answer, start: Date())
+        answerReaction = playing
+        answerTimer = Timer.scheduledTimer(withTimeInterval: answer.duration, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                if self?.answerReaction == playing { self?.answerReaction = nil }
             }
         }
     }
