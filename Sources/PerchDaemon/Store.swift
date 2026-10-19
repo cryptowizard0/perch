@@ -392,4 +392,17 @@ extension Store {
     public func setTodosAsOf(_ date: Date) throws {
         try db.run("INSERT OR REPLACE INTO daemon_state (name, value) VALUES ('todos_as_of', ?)", [.text(Self.formatDate(date))])
     }
+
+    /// The checked Reminders lists of the latest snapshot, in order (#69): todos are grouped by them with no bridge
+    /// connected and across restarts. Kept as JSON in `daemon_state`, so no schema change; empty before any snapshot
+    /// that had them.
+    public func todoLists() throws -> [ReminderList] {
+        var value: String?
+        try db.run("SELECT value FROM daemon_state WHERE name = 'todo_lists'") { value = $0.text(0) }
+        return value.flatMap { try? JSONDecoder().decode([ReminderList].self, from: Data($0.utf8)) } ?? []
+    }
+
+    public func setTodoLists(_ lists: [ReminderList]) throws {
+        try db.run("INSERT OR REPLACE INTO daemon_state (name, value) VALUES ('todo_lists', ?)", [SQLValue(Self.json(lists))])
+    }
 }

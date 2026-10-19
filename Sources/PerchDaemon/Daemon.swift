@@ -29,7 +29,7 @@ public final class Daemon {
     private var subscribers: [UUID: (Response) -> Void] = [:]
     /// Watchers that can be the bridge (the Unix socket), and so hear when one comes or goes.
     private var bridgeCandidates: Set<UUID> = []
-    /// The watcher that is the Reminders bridge (#51): the one app that reads and writes the "Perch" list.
+    /// The watcher that is the Reminders bridge (#51): the one app that reads and writes the checked lists (#69).
     private var bridge: UUID?
     /// Todo writes handed to the bridge, by operation id, until its snapshot after the ack answers them (or it leaves).
     private var pendingWrites: [String: PendingWrite] = [:]
@@ -243,8 +243,17 @@ public final class Daemon {
         guard let bridge, request.watcher.flatMap(UUID.init(uuidString:)) == bridge else {
             return .failure("only the Reminders bridge sends todo snapshots; register with bridge_register first")
         }
+        let before = service.todoLists()
         do {
-            afterChange(try service.applySnapshot(request.reminders ?? []))
+            let events = try service.applySnapshot(request.reminders ?? [], lists: request.lists ?? [])
+            // The lists first, so a client never groups the snapshot's todos under the lists of the one before (#69).
+            let lists = service.todoLists()
+            if lists != before {
+                let message = Response(ok: true, todoLists: lists)
+                for sink in subscribers.values { sink(message) }
+                writeMirror()
+            }
+            afterChange(events)
         } catch {
             return .failure("internal error: \(error)")
         }
@@ -344,7 +353,8 @@ public final class Daemon {
 
     /// todo.md; while no bridge keeps the todos current, it says how old they are.
     private func writeMirror() {
-        mirror.write((try? service.store.list(nil)) ?? [], todosAsOf: bridge == nil ? service.todosAsOf() : nil)
+        mirror.write((try? service.store.list(nil)) ?? [], lists: service.todoLists(),
+                     todosAsOf: bridge == nil ? service.todosAsOf() : nil)
     }
 
     /// How long an unterminated last line must stay unchanged before it counts as finished (#6).

@@ -1,10 +1,34 @@
 import Foundation
 
-/// One reminder in the "Perch" Reminders list, as the bridge app reads it (#51). The list is the only truth for
-/// todos; perchd keeps the latest snapshot of these as a read-only cache of task items.
+/// A Reminders list. The bridge's snapshot carries the checked ones (#69), in the order the Todo tab shows them;
+/// perchd keeps the latest of these so it can group todos by list with no bridge connected.
+public struct ReminderList: Codable, Equatable, Sendable {
+    /// EventKit's `calendarIdentifier`: stable across renames on this Mac.
+    public var id: String
+    public var title: String
+    /// In the iCloud account, so it reaches the phone.
+    public var isICloud: Bool
+
+    public init(id: String, title: String, isICloud: Bool) {
+        self.id = id
+        self.title = title
+        self.isICloud = isICloud
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title
+        case isICloud = "icloud"
+    }
+}
+
+/// One reminder in a checked Reminders list ("Perch", and any other the user checked, #69), as the bridge app reads
+/// it (#51). The lists are the only truth for todos; perchd keeps the latest snapshot of these as a read-only cache
+/// of task items.
 public struct Reminder: Codable, Equatable, Sendable {
     /// EventKit's `calendarItemExternalIdentifier`: the same on every device.
     public var externalID: String
+    /// The list it is in (`ReminderList.id`); nil from a bridge older than #69.
+    public var list: String?
     public var title: String
     /// EventKit's 0–9: 0 none, 1 high … 9 low (see `ItemPriority(reminderPriority:)`).
     public var priority: Int
@@ -16,9 +40,10 @@ public struct Reminder: Codable, Equatable, Sendable {
     public var notes: String?
     public var createdAt: Date?
 
-    public init(externalID: String, title: String, priority: Int = 0, completed: Bool = false, dueAt: Date? = nil,
-                dueDateOnly: Bool = false, url: String? = nil, notes: String? = nil, createdAt: Date? = nil) {
+    public init(externalID: String, list: String? = nil, title: String, priority: Int = 0, completed: Bool = false,
+                dueAt: Date? = nil, dueDateOnly: Bool = false, url: String? = nil, notes: String? = nil, createdAt: Date? = nil) {
         self.externalID = externalID
+        self.list = list
         self.title = title
         self.priority = priority
         self.completed = completed
@@ -30,7 +55,7 @@ public struct Reminder: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case title, priority, completed, url, notes
+        case title, priority, completed, url, notes, list
         case externalID = "external_id"
         case dueAt = "due_at"
         case dueDateOnly = "due_date_only"
@@ -40,6 +65,7 @@ public struct Reminder: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         externalID = try c.decode(String.self, forKey: .externalID)
+        list = try c.decodeIfPresent(String.self, forKey: .list)
         title = try c.decode(String.self, forKey: .title)
         priority = try c.decodeIfPresent(Int.self, forKey: .priority) ?? 0
         completed = try c.decodeIfPresent(Bool.self, forKey: .completed) ?? false
@@ -126,7 +152,8 @@ public struct ReminderChange: Codable, Equatable, Sendable {
 }
 
 /// A todo write perchd hands to the bridge (#52), pushed on the bridge's watch connection. The bridge applies it to the
-/// "Perch" list, answers with `todo_ack` (same `id`), then sends a snapshot; perchd answers the writer after that.
+/// todo's own list (new ones go to "Perch", #69), answers with `todo_ack` (same `id`), then sends a snapshot; perchd
+/// answers the writer after that.
 public struct TodoOperation: Codable, Equatable, Sendable {
     public enum Action: String, Codable, Sendable {
         /// A new reminder with `change`'s fields (`title` is set).
@@ -144,17 +171,22 @@ public struct TodoOperation: Codable, Equatable, Sendable {
     public var id: String
     public var action: Action
     public var externalID: String?
+    /// The list perchd last saw the reminder in (`ReminderList.id`, #69): where the bridge looks first. Nil for a new
+    /// reminder, which goes to "Perch".
+    public var list: String?
     public var change: ReminderChange
 
-    public init(id: String = UUID().uuidString, action: Action, externalID: String? = nil, change: ReminderChange = ReminderChange()) {
+    public init(id: String = UUID().uuidString, action: Action, externalID: String? = nil, list: String? = nil,
+                change: ReminderChange = ReminderChange()) {
         self.id = id
         self.action = action
         self.externalID = externalID
+        self.list = list
         self.change = change
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, action, change
+        case id, action, change, list
         case externalID = "external_id"
     }
 }
@@ -215,4 +247,57 @@ extension Item {
     }
 
     public static let notesMetaKey = "notes"
+
+    /// The list a cached todo is in (#69): its identifier and name, kept in `meta` like the reminder's identifier.
+    public static let listIDMetaKey = "list_id"
+    public static let listNameMetaKey = "list_name"
+
+    /// `ReminderList.id` of the todo's list; nil for anything that isn't a todo (or a todo cached before #69).
+    public var listID: String? { meta?[Self.listIDMetaKey] }
+
+    /// The name of the todo's list, as of the latest snapshot. `perch ls --json` carries it as `list`.
+    public var listName: String? { meta?[Self.listNameMetaKey] }
+}
+
+/// Open todos by list (#69), for the Todo tab, `perch ls` and todo.md alike.
+public struct TodoGroup: Equatable, Sendable {
+    /// Nil only without any known lists (a cache from before #69): then every todo is in this one group.
+    public var list: ReminderList?
+    /// Open todos, High → Normal → Low, then oldest first, then by id. Due dates never reorder (#53).
+    public var items: [Item]
+
+    public init(list: ReminderList?, items: [Item]) {
+        self.list = list
+        self.items = items
+    }
+}
+
+extension Item {
+    /// The order inside a list: priority, then creation time, then id.
+    public static func todoOrder(_ a: Item, _ b: Item) -> Bool {
+        if a.priority != b.priority { return a.priority.rank < b.priority.rank }
+        if a.createdAt != b.createdAt { return a.createdAt < b.createdAt }
+        return a.id < b.id
+    }
+}
+
+extension Sequence where Element == Item {
+    /// The open todos (open tasks) grouped by list: one group per list in `lists`' order, empty ones included. A todo
+    /// whose list isn't among them (the descriptors and the cache can be a moment apart) gets a group of its own after
+    /// those, named as cached. With no lists at all, one group holds every open todo (none when there are none).
+    public func todoGroups(lists: [ReminderList]) -> [TodoGroup] {
+        let open = filter { $0.kind == .task && $0.status == .open }.sorted(by: Item.todoOrder)
+        guard !lists.isEmpty else { return open.isEmpty ? [] : [TodoGroup(list: nil, items: open)] }
+        var groups = lists.map { TodoGroup(list: $0, items: []) }
+        var index = Dictionary(lists.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for item in open {
+            let id = item.listID ?? ""
+            if index[id] == nil {
+                index[id] = groups.count
+                groups.append(TodoGroup(list: ReminderList(id: id, title: item.listName ?? "Reminders", isICloud: true), items: []))
+            }
+            groups[index[id]!].items.append(item)
+        }
+        return groups
+    }
 }

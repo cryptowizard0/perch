@@ -169,6 +169,37 @@ import Testing
         #expect(events.first { $0.type == .added }?.item.id == milk.id)
     }
 
+    /// Each cached todo knows its list (#69), and `list` groups by the snapshot's lists in their order. A list no longer
+    /// checked leaves the cache; checked again, its todos keep their short ids.
+    @Test func snapshotsCarryTheirLists() throws {
+        let perch = ReminderList(id: "p", title: "Perch", isICloud: true)
+        let work = ReminderList(id: "w", title: "Work", isICloud: false)
+        let created = Date(timeIntervalSince1970: 1_700_000_000)
+        let invoice = Reminder(externalID: "r1", list: "w", title: "send the invoice", createdAt: created)
+        let flights = Reminder(externalID: "r2", list: "p", title: "book flights", createdAt: created)
+        _ = try service.applySnapshot([flights, invoice], lists: [work, perch])
+        let listed = call(Request(op: .list)).0
+        #expect(listed.todoLists == [work, perch])
+        #expect(listed.items?.map(\.title) == ["send the invoice", "book flights"])
+        #expect(listed.items?.map(\.listName) == ["Work", "Perch"] && listed.items?.map(\.listID) == ["w", "p"])
+        let ids = listed.items?.map(\.id) ?? []
+
+        // Renamed: the todos follow.
+        let office = ReminderList(id: "w", title: "Office", isICloud: false)
+        let renamed = try service.applySnapshot([flights, invoice], lists: [office, perch])
+        #expect(renamed.map(\.type) == [.updated] && renamed.first?.item.listName == "Office")
+        // Unchecked, then checked again.
+        _ = try service.applySnapshot([flights], lists: [perch])
+        #expect(call(Request(op: .list)).0.items?.map(\.title) == ["book flights"])
+        _ = try service.applySnapshot([flights, invoice], lists: [perch, office])
+        #expect(call(Request(op: .list)).0.items?.map(\.id) == [ids[1], ids[0]])
+        // perchd keeps them for when no bridge is connected.
+        #expect(service.todoLists() == [perch, office])
+        // Writes say which list the reminder was last seen in.
+        guard case .bridge(let write) = service.planTodoWrite(Request(op: .done, id: ids[0])) else { Issue.record("not a bridge write"); return }
+        #expect(write.operation.list == "w" && write.operation.externalID == "r1")
+    }
+
     @Test func pingReportsVersion() {
         #expect(call(Request(op: .ping)).0.version == PerchVersion.string)
     }

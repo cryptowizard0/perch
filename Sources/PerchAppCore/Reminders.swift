@@ -10,21 +10,6 @@ public enum RemindersAuthorization: Equatable, Sendable {
     case fullAccess
 }
 
-/// A Reminders list.
-public struct ReminderList: Equatable, Sendable {
-    /// EventKit's `calendarIdentifier`: stable across renames on this Mac.
-    public var id: String
-    public var title: String
-    /// In the iCloud account, so it reaches the phone.
-    public var isICloud: Bool
-
-    public init(id: String, title: String, isICloud: Bool) {
-        self.id = id
-        self.title = title
-        self.isICloud = isICloud
-    }
-}
-
 public struct RemindersError: Error, CustomStringConvertible, Equatable {
     public let description: String
     public init(_ description: String) { self.description = description }

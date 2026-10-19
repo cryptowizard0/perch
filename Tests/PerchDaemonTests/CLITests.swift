@@ -142,7 +142,7 @@ struct CLITests {
         let cli = CLI(home: URL(fileURLWithPath: "/tmp/perch-test-help"))
         let add = try cli.run(["add", "--help"], env: ["COLUMNS": "300"]).stdout
         #expect(add.contains("\nWith --kind request --wait, blocks until someone responds and prints the answer (exit 0). If the request"))
-        #expect(add.contains("\nOpen and done tasks are todos: they live in the \"Perch\" list in Apple Reminders, so adding one needs Perch.app"))
+        #expect(add.contains("\nOpen and done tasks are todos: they live in Apple Reminders (new ones in the \"Perch\" list; `perch ls` also shows"))
         let update = try cli.run(["update", "--help"], env: ["COLUMNS": "300"]).stdout
         #expect(update.contains("\nSnooze: perch update <id> --due +30m. Keep a notice as a task: perch update <id> --kind task (it stops"))
         #expect(update.contains("changed through Perch.app: --status open reopens a done one"))

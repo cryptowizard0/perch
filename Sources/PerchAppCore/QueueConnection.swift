@@ -78,6 +78,7 @@ public final class QueueConnection: @unchecked Sendable {
                     case .session(let event): send(.session(event))
                     case .bridge(let connected): send(.bridge(connected))
                     case .todo(let operation): send(.todo(operation))
+                    case .lists: break
                     }
                 }
                 if !isStopped { send(.offline("perchd stopped")) }

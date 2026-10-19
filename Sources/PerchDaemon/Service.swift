@@ -27,7 +27,9 @@ public final class Service {
             case .add:
                 return try add(request.item)
             case .list:
-                return (Response(ok: true, items: try store.list(request.filter).queueOrdered(now: now())), [])
+                let lists = try store.todoLists()
+                let items = try store.list(request.filter).queueOrdered(now: now(), lists: lists.map(\.id))
+                return (Response(ok: true, items: items, todoLists: lists.isEmpty ? nil : lists), [])
             case .get:
                 return (Response(ok: true, item: try existing(request.id)), [])
             case .done:
@@ -270,7 +272,7 @@ public final class Service {
 
     // MARK: - Todos (#51)
 
-    /// Todos live in the "Perch" Reminders list; only the bridge app writes them. `Daemon` hands todo writes to it
+    /// Todos live in the checked Reminders lists ("Perch" and any others, #69); only the bridge app writes them. `Daemon` hands todo writes to it
     /// (`planTodoWrite`, #52); with no bridge connected they are refused, never queued.
     static let todoWriteRefused = "Todo needs Perch.app running with Reminders access"
 
@@ -286,10 +288,14 @@ public final class Service {
     /// The source cached todos carry: they come from Reminders, whoever wrote them there.
     public static let remindersSource = "reminders"
 
-    /// Replaces the todo cache with the bridge's full read of the list: new reminders get a short id, changed ones are
-    /// updated, and cached todos missing from it are removed. Only what changed emits an event.
-    public func applySnapshot(_ reminders: [Reminder]) throws -> [Event] {
+    /// Replaces the todo cache with the bridge's full read of the checked lists: new reminders get a short id, changed
+    /// ones are updated, and cached todos missing from it are removed (deleted, or in a list no longer checked: their
+    /// references stay, so they keep their short ids if they come back, #69). Only what changed emits an event.
+    /// `lists`: the checked lists in order, kept for grouping (none from a bridge older than #69).
+    public func applySnapshot(_ reminders: [Reminder], lists: [ReminderList] = []) throws -> [Event] {
         try store.transaction {
+            try store.setTodoLists(lists)
+            let names = Dictionary(lists.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
             var refs = Dictionary(try store.todoRefs().map { ($0.externalID, $0) }, uniquingKeysWith: { a, _ in a })
             let cached = Dictionary(try store.todos().map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             let t = timestamp()
@@ -311,7 +317,7 @@ public final class Service {
                     priority: ItemPriority(reminderPriority: reminder.priority), source: Self.remindersSource,
                     dueAt: reminder.dueAt.map(Self.wholeSeconds), dueDateOnly: reminder.dueAt != nil && reminder.dueDateOnly,
                     link: reminder.url,
-                    meta: Self.meta(of: reminder), key: ref.key,
+                    meta: Self.meta(of: reminder, listName: reminder.list.flatMap { names[$0] }), key: ref.key,
                     createdAt: reminder.createdAt.map(Self.wholeSeconds) ?? old?.createdAt ?? t,
                     updatedAt: old?.updatedAt ?? t
                 )
@@ -334,11 +340,18 @@ public final class Service {
         }
     }
 
-    /// What a cached todo keeps in `meta`: the reminder's identifier, and its notes when it has any.
-    static func meta(of reminder: Reminder) -> [String: String] {
+    /// What a cached todo keeps in `meta`: the reminder's identifier, its list (#69) and its notes when it has any.
+    static func meta(of reminder: Reminder, listName: String? = nil) -> [String: String] {
         var item = Item(title: "", meta: [Item.reminderMetaKey: reminder.externalID])
+        item.meta?[Item.listIDMetaKey] = reminder.list
+        item.meta?[Item.listNameMetaKey] = listName
         item.notes = reminder.notes
         return item.meta ?? [:]
+    }
+
+    /// The checked lists of the latest snapshot, in order.
+    public func todoLists() -> [ReminderList] {
+        (try? store.todoLists()) ?? []
     }
 
     /// When the todo cache was last known to match Reminders (shown while no bridge is connected). A cache from before
@@ -455,7 +468,7 @@ public final class Service {
     /// Deleting the cached todo `item` (answered with `item` itself).
     private func planDelete(_ item: Item) throws -> TodoPlan {
         guard let reminder = item.reminderID else { throw ServiceError("\(item.id) is not a reminder") }
-        return .bridge(TodoWrite(operation: TodoOperation(action: .delete, externalID: reminder), removed: item))
+        return .bridge(TodoWrite(operation: TodoOperation(action: .delete, externalID: reminder, list: item.listID), removed: item))
     }
 
     /// An update to the cached todo `old` so it reads like `new`; nothing to do when they already agree.
@@ -463,7 +476,7 @@ public final class Service {
         guard let reminder = old.reminderID else { throw ServiceError("\(old.id) is not a reminder") }
         let change = ReminderChange(from: old, to: new)
         guard !change.isEmpty else { return .answer(Response(ok: true, item: old)) }
-        return .bridge(TodoWrite(operation: TodoOperation(action: .update, externalID: reminder, change: change)))
+        return .bridge(TodoWrite(operation: TodoOperation(action: .update, externalID: reminder, list: old.listID, change: change)))
     }
 
     /// A new reminder's fields. `source`, `meta` and `expires_at` are not stored for todos.

@@ -94,6 +94,8 @@ public enum Push: Sendable {
     case bridge(Bool)
     /// To the bridge only: a todo write to apply to Reminders and acknowledge (#52).
     case todo(TodoOperation)
+    /// The checked Reminders lists changed (#69), in order.
+    case lists([ReminderList])
 }
 
 /// Events pushed by perchd, one per `next()` / `nextPush()`.
@@ -140,6 +142,7 @@ public final class EventStream {
             if let event = response.sessionEvent { return .session(event) }
             if let bridge = response.bridge { return .bridge(bridge) }
             if let operation = response.todoOp { return .todo(operation) }
+            if let lists = response.todoLists { return .lists(lists) }
         }
     }
 

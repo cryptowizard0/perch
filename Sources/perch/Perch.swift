@@ -76,9 +76,9 @@ struct Add: ParsableCommand {
         With --kind request --wait, blocks until someone responds and prints the answer (exit 0). \
         If the request expires (--expires), is closed or removed first, exits 3 with no answer.
 
-        Open and done tasks are todos: they live in the "Perch" list in Apple Reminders, so adding one needs \
-        Perch.app running (it fails otherwise, and nothing is queued). --source, --meta and --expires are not \
-        stored for them.
+        Open and done tasks are todos: they live in Apple Reminders (new ones in the "Perch" list; `perch ls` also \
+        shows the other lists checked in Perch.app), so adding one needs Perch.app running (it fails otherwise, and \
+        nothing is queued). --source, --meta and --expires are not stored for them.
         """
     )
 
@@ -159,7 +159,7 @@ func parseDue(_ text: String, now: Date) throws -> DueParser.Due {
 struct Ls: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "List items in queue order.",
-        discussion: "Shows open and waiting items unless --status or --all is given."
+        discussion: "Shows open and waiting items unless --status or --all is given. Open todos are grouped by Reminders list, each group under a [list name] line (with --json each todo carries `list`)."
     )
     @Option(help: "Filter by status: open | waiting | done | dismissed.") var status: String?
     @Option(help: "Filter by source.") var source: String?
@@ -188,7 +188,13 @@ struct Ls: ParsableCommand {
             FileHandle.standardError.write(Data("Todos as of \(Format.shortDate(asOf, now: Date())) \u{2014} Perch.app isn't connected\n".utf8))
         }
         let sourceWidth = items.map(\.source.count).max() ?? 0
+        // Open todos come grouped by Reminders list (#69): each group starts with the list's name.
+        var list: String?
         for item in items {
+            if item.kind == .task, item.status == .open, let id = item.listID, id != list {
+                print("[\(item.listName ?? "Reminders")]")
+                list = id
+            }
             print(Format.row(item, sourceWidth: sourceWidth))
         }
     }
@@ -229,8 +235,9 @@ struct Update: ParsableCommand {
         Snooze: perch update <id> --due +30m. Keep a notice as a task: perch update <id> --kind task \
         (it stops expiring). Requests keep their kind.
 
-        Open and done tasks are todos in the "Perch" Reminders list, changed through Perch.app: --status open \
-        reopens a done one, --status dismissed deletes it, and a waiting task set to open moves into Reminders.
+        Open and done tasks are todos in Reminders ("Perch" or another checked list; changes stay in the todo's own \
+        list), changed through Perch.app: --status open reopens a done one, --status dismissed deletes it, and a \
+        waiting task set to open moves into the "Perch" list.
         """
     )
     @Argument var id: String
@@ -312,7 +319,7 @@ struct Watch: ParsableCommand {
             case nil: throw CLIError("perchd stopped")
             case .item(let event): json ? printJSON(event) : print(Format.event(event))
             case .session(let event): json ? printJSON(event) : print(Format.sessionEvent(event))
-            case .bridge, .todo: break  // for the notch apps, not people
+            case .bridge, .todo, .lists: break  // for the notch apps, not people
             }
         }
     }
