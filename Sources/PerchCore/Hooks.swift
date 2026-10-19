@@ -4,7 +4,8 @@ import Foundation
 /// Codex's extra fields (`turn_id`, `model`, …) and nulls are ignored. Hermes shell hooks send the same
 /// top-level fields and put the event's details in `extra`. Grok sends camelCase (`sessionId`,
 /// `lastAssistantMessage`, …) with snake_case copies of only some keys (`session_id`, `hook_event_name`,
-/// `tool_name`, `tool_input`, `transcript_path`), so each field is read under either name.
+/// `tool_name`, `tool_input`, `transcript_path`), so each field is read under either name. Perch's own dsh plugin
+/// sends Claude-style names plus `at`, `pid`, `turn`, `keep_prompt` and `questions` (see `HookAdapter.dsh`).
 public struct HookInput: Decodable, Equatable, Sendable {
     public var sessionID: String
     public var event: String
@@ -31,6 +32,27 @@ public struct HookInput: Decodable, Equatable, Sendable {
     public var cancelledBy: String?
     /// Grok: set on the events of a subagent's own session.
     public var subagentType: String?
+    /// dsh: when the event happened (sent as epoch ms).
+    public var at: Date?
+    /// dsh: the dsh process, as its plugin says (`process.pid`); see `AgentProcess.dsh(claimed:parent:)`.
+    public var pid: Int32?
+    /// dsh: the turn an event belongs to (a string or a number on the wire).
+    public var turn: String?
+    /// dsh Prompt: nobody typed it (the goal driver, a schedule, a background job woke dsh).
+    public var keepPrompt: Bool?
+    /// dsh QuestionAsked: what `ask_user_question` asks.
+    public var questions: [Question]?
+
+    /// One of dsh's `ask_user_question` questions (its options are left out).
+    public struct Question: Decodable, Equatable, Sendable {
+        public var question: String?
+        public var header: String?
+
+        public init(question: String? = nil, header: String? = nil) {
+            self.question = question
+            self.header = header
+        }
+    }
 
     /// The Hermes `extra` fields Perch reads (the rest, like the whole conversation history, is skipped).
     public struct Extra: Decodable, Equatable, Sendable {
@@ -76,6 +98,8 @@ public struct HookInput: Decodable, Equatable, Sendable {
         case toolName = "tool_name", toolNameCamel = "toolName"
         case toolInput = "tool_input", toolInputCamel = "toolInput"
         case promptID = "promptId", cancelledBy, subagentType
+        case at, pid, turn, questions
+        case keepPrompt = "keep_prompt"
     }
 
     public init(from decoder: Decoder) throws {
@@ -97,21 +121,40 @@ public struct HookInput: Decodable, Equatable, Sendable {
         prompt = try c.decodeIfPresent(String.self, forKey: .prompt)
         error = try c.decodeIfPresent(JSONValue.self, forKey: .error)
         toolName = try string(.toolName, .toolNameCamel)
-        toolInput = try c.decodeIfPresent([String: JSONValue].self, forKey: .toolInput)
-            ?? c.decodeIfPresent([String: JSONValue].self, forKey: .toolInputCamel)
+        toolInput = Self.object(c, .toolInput) ?? Self.object(c, .toolInputCamel)
         extra = try c.decodeIfPresent(Extra.self, forKey: .extra)
         // Grok's own fields: an unexpected shape from another agent must never break decoding.
         promptID = try? c.decodeIfPresent(String.self, forKey: .promptID)
         reason = try? c.decodeIfPresent(String.self, forKey: .reason)
         cancelledBy = try? c.decodeIfPresent(String.self, forKey: .cancelledBy)
         subagentType = try? c.decodeIfPresent(String.self, forKey: .subagentType)
+        // dsh's fields, just as tolerant.
+        at = (try? c.decodeIfPresent(Double.self, forKey: .at)).flatMap { $0 }.map { Date(timeIntervalSince1970: $0 / 1000) }
+        pid = (try? c.decodeIfPresent(Int32.self, forKey: .pid)).flatMap { $0 }
+        turn = (try? c.decodeIfPresent(String.self, forKey: .turn)).flatMap { $0 }
+            ?? (try? c.decodeIfPresent(Int.self, forKey: .turn)).flatMap { $0 }.map(String.init)
+        keepPrompt = (try? c.decodeIfPresent(Bool.self, forKey: .keepPrompt)).flatMap { $0 }
+        questions = (try? c.decodeIfPresent([Question].self, forKey: .questions)).flatMap { $0 }
+    }
+
+    /// An object, or the JSON text of one (dsh keeps a tool call's arguments as a string); nil for anything else.
+    private static func object(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> [String: JSONValue]? {
+        if let object = try? c.decodeIfPresent([String: JSONValue].self, forKey: key) { return object }
+        guard let text = try? c.decodeIfPresent(String.self, forKey: key) else { return nil }
+        return try? JSONDecoder().decode([String: JSONValue].self, from: Data(text.utf8))
     }
 
     public init(sessionID: String, event: String, cwd: String? = nil, notificationType: String? = nil,
                 message: String? = nil, lastAssistantMessage: String? = nil, toolName: String? = nil,
                 toolInput: [String: JSONValue]? = nil, extra: Extra? = nil, prompt: String? = nil, error: JSONValue? = nil,
                 transcriptPath: String? = nil, promptID: String? = nil, reason: String? = nil, cancelledBy: String? = nil,
-                subagentType: String? = nil) {
+                subagentType: String? = nil, at: Date? = nil, pid: Int32? = nil, turn: String? = nil, keepPrompt: Bool? = nil,
+                questions: [Question]? = nil) {
+        self.at = at
+        self.pid = pid
+        self.turn = turn
+        self.keepPrompt = keepPrompt
+        self.questions = questions
         self.promptID = promptID
         self.reason = reason
         self.cancelledBy = cancelledBy
@@ -170,6 +213,8 @@ public struct HookInput: Decodable, Equatable, Sendable {
 ///
 /// Grok Build: Claude-style event names, camelCase payloads; see `grok(_:link:now:)`. It has no PermissionRequest
 /// and its PreToolUse `allow` never skips the prompt, so the notch can never answer Grok either.
+///
+/// dsh: Perch's own plugin sends normalised events; see `dsh(_:link:now:)`. The notch never answers dsh.
 public enum HookAdapter {
     /// Notification types that mean "an agent is blocked on the human". `idle_prompt` is left out on purpose:
     /// Stop already marks the session done, and every finished turn turning orange would dilute the signal.
@@ -181,17 +226,18 @@ public enum HookAdapter {
     public static func waitingKey(agent: String, session: String) -> String { "\(agent):\(session)" }
     public static func noticeKey(agent: String, session: String) -> String { "\(agent):\(session):done" }
     /// Events that start a turn: the human just typed, so that terminal has focus.
-    static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call"]
+    static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call", "Prompt"]
 
     /// Whether the human just typed into this event's terminal. A prompt Claude Code injects on its own (a background
-    /// task finishing) fires UserPromptSubmit too, while focus may be anywhere.
+    /// task finishing) fires UserPromptSubmit too, while focus may be anywhere; so does a dsh turn its plugin marks
+    /// `keep_prompt`.
     public static func startsTurn(_ input: HookInput) -> Bool {
-        turnStarts.contains(input.event) && !isInjected(input.prompt ?? "")
+        turnStarts.contains(input.event) && keepsPrompt(input) == nil
     }
 
     /// `keep_prompt` for a prompt report: set only when the agent injected the prompt.
     static func keepsPrompt(_ input: HookInput) -> Bool? {
-        isInjected(input.prompt ?? "") ? true : nil
+        input.keepPrompt == true || isInjected(input.prompt ?? "") ? true : nil
     }
 
     /// A prompt the agent sent itself rather than the human: Claude Code's `<task-notification>`, which wakes the model
@@ -202,13 +248,18 @@ public enum HookAdapter {
 
     /// Another agent running this agent's hooks. Grok runs Claude Code's hooks from ~/.claude/settings.json by default
     /// (`[compat.claude] hooks`); its own `perch hook grok` reports its sessions, so the borrowed call says nothing.
-    /// Grok sets `GROK_HOOK_EVENT` for every hook it runs.
-    public static func isForeign(agent: String, environment: [String: String]) -> Bool {
-        agent != "grok" && environment["GROK_HOOK_EVENT"] != nil
+    /// Grok sets `GROK_HOOK_EVENT` for every hook it runs. dsh's Claude Code / Codex hooks bridges (not mounted by
+    /// default) run those files too, with no such variable, so for them it is the process chain: `processes` are
+    /// `pid`'s ancestors (see `AgentProcess.insideDsh`).
+    public static func isForeign(agent: String, environment: [String: String], processes: [Int32: ProcessEntry] = [:],
+                                 from pid: Int32 = 0) -> Bool {
+        if agent != "grok", environment["GROK_HOOK_EVENT"] != nil { return true }
+        return ["claude-code", "codex"].contains(agent) && AgentProcess.insideDsh(agent: agent, from: pid, in: processes)
     }
 
     public static func requests(for input: HookInput, agent: String, link: String?, now: Date) -> [Request] {
         if agent == "grok" { return grok(input, link: link, now: now) }
+        if agent == "dsh" { return dsh(input, link: link, now: now) }
         func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> [Request] {
             [Request(op: .sessionReport, report: sessionReport(input, kind, agent: agent, link: link, now: now, fill))]
         }
@@ -304,6 +355,89 @@ public enum HookAdapter {
         default:
             return []
         }
+    }
+
+    // MARK: - dsh
+
+    /// What Perch's dsh plugin sends (one event per `perch hook dsh`, already normalised; dsh's raw events stay in
+    /// the plugin, the decisions here):
+    ///
+    /// | event | session report |
+    /// | --- | --- |
+    /// | Prompt | prompt → running; `turn` becomes the current turn; `keep_prompt` when nobody typed it |
+    /// | ApprovalAsked | waiting with the full command + "Answer in the terminal: <reason>" (never a request) |
+    /// | QuestionAsked | waiting with the first question (and how many more) + "Answer in the terminal" |
+    /// | Answered (allowed, denied, cancelled; a question answered or dismissed) | resume → running |
+    /// | TurnEnd `completed` / `max-tokens` / anything else | stop → done with the last reply's first line |
+    /// | TurnEnd `error` | failure → failed with dsh's message |
+    /// | TurnEnd `aborted` (Esc) / `blocked` (a hook refused the prompt) | interrupt → idle |
+    /// | SessionEnd | end → removed |
+    ///
+    /// The report time is dsh's own (`at`): the plugin spawns one perch per event without waiting, so reports can
+    /// arrive out of order, and perchd drops what is older than the session's last event. Every report carries
+    /// `turn`, so a late TurnEnd for an earlier turn is dropped too (as for Grok's `promptId`).
+    static func dsh(_ input: HookInput, link: String?, now: Date) -> [Request] {
+        func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> [Request] {
+            [Request(op: .sessionReport, report: sessionReport(input, kind, agent: "dsh", link: link, now: input.at ?? now) {
+                $0.turn = input.turn
+                fill(&$0)
+            })]
+        }
+        switch input.event {
+        case "Prompt":
+            let keep = keepsPrompt(input)
+            return report(.prompt) { $0.prompt = keep == true ? nil : promptLine(input.prompt ?? ""); $0.keepPrompt = keep }
+        case "ApprovalAsked":
+            let reason = input.reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return report(.waiting) {
+                $0.detail = dshCommand(tool: input.toolName, input: input.toolInput) + "\n" + answerInTerminal
+                    + (reason.isEmpty ? "" : ": \(reason)")
+            }
+        case "QuestionAsked":
+            return report(.waiting) { $0.detail = dshQuestion(input.questions ?? []) + "\n" + answerInTerminal }
+        case "Answered":
+            return report(.resume)
+        case "TurnEnd":
+            switch input.reason {
+            case "error": return report(.failure) { $0.error = input.errorMessage }
+            case "aborted", "blocked": return report(.interrupt)
+            default: return report(.stop) { $0.lastMessage = oneLine(input.lastAssistantMessage ?? "") }
+            }
+        case "SessionEnd":
+            return report(.end)
+        default:
+            return []
+        }
+    }
+
+    /// The full command dsh asks about, never shortened: `bash`'s command itself, any other tool its name and every
+    /// argument.
+    static func dshCommand(tool: String?, input: [String: JSONValue]?) -> String {
+        let tool = tool.flatMap { $0.trimmingCharacters(in: .whitespaces).nilIfEmpty } ?? "tool"
+        let input = input ?? [:]
+        if tool.lowercased() == "bash" {
+            if case .string(let command)? = input["command"], !command.isEmpty { return command }
+            return tool
+        }
+        let arguments = input.sorted { $0.key < $1.key }.map { "\($0.key)=\(text($0.value))" }
+        return ([tool] + arguments).joined(separator: " ")
+    }
+
+    /// A question as the row shows it: the first one (its header if it has no text), and how many more there are.
+    static func dshQuestion(_ questions: [HookInput.Question]) -> String {
+        let first = questions.first.flatMap { q in
+            [q.question, q.header].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }.first
+        }
+        guard let first else { return waitingForAnswer }
+        return questions.count > 1 ? "\(first) (and \(questions.count - 1) more)" : first
+    }
+
+    /// A tool argument as text: strings as they are, anything else as compact JSON.
+    private static func text(_ value: JSONValue) -> String {
+        if case .string(let s) = value { return s }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? ""
     }
 
     // MARK: - Hermes
@@ -485,6 +619,12 @@ extension HookInput {
     public var errorType: String {
         if case .string(let type)? = error, !type.isEmpty { return type }
         return "unknown"
+    }
+
+    /// dsh TurnEnd's `error`: the message itself, or an error object's `message`; else "unknown".
+    public var errorMessage: String {
+        if case .object(let object)? = error, case .string(let message)? = object["message"], !message.isEmpty { return message }
+        return errorType
     }
 }
 

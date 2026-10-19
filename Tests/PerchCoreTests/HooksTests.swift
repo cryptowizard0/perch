@@ -498,3 +498,147 @@ import Testing
         }
     }
 }
+
+/// What Perch's dsh plugin sends `perch hook dsh`: already-normalised events (#74), built from the dsh 0.2.0-rc.2
+/// probe run in #73 (2026-10-19).
+@Suite struct DshAdapterTests {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let link = "perch-terminal://ghostty?id=T1"
+    /// dsh's event time, epoch ms.
+    let at = 1_792_398_869_889.0
+
+    func decode(_ event: String, _ fields: String = "", turn: String = #""4""#) throws -> HookInput {
+        let json = #"{"hook_event_name":"\#(event)","session_id":"b7627ec2-685c-4f15-84f0-a5188bdc8d7c","cwd":"/private/tmp/perch-dsh-ws","at":1792398869889,"pid":60402,"turn":\#(turn)\#(fields)}"#
+        return try JSONDecoder().decode(HookInput.self, from: Data(json.utf8))
+    }
+
+    func reports(_ event: String, _ fields: String = "") throws -> [SessionReport] {
+        let requests = HookAdapter.requests(for: try decode(event, fields), agent: "dsh", link: link, now: now)
+        // Never a request or any other item: the notch never approves dsh.
+        #expect(requests.allSatisfy { $0.op == .sessionReport })
+        return requests.compactMap(\.report)
+    }
+
+    @Test func decodesThePayload() throws {
+        let prompt = try decode("Prompt", #","prompt":"PROBE_BASH please approve""#)
+        #expect(prompt.sessionID == "b7627ec2-685c-4f15-84f0-a5188bdc8d7c" && prompt.event == "Prompt")
+        #expect(prompt.cwd == "/private/tmp/perch-dsh-ws" && prompt.prompt == "PROBE_BASH please approve")
+        #expect(prompt.at == Date(timeIntervalSince1970: at / 1000) && prompt.pid == 60402 && prompt.turn == "4")
+        #expect(prompt.keepPrompt == nil)
+        // A numeric turn reads the same.
+        #expect(try decode("Prompt", turn: "4").turn == "4")
+        #expect(try decode("Prompt", #","keep_prompt":true"#).keepPrompt == true)
+
+        let questions = try decode("QuestionAsked", #","questions":[{"id":"colour","question":"Which colour should the button be?","header":"Colour","options":[{"label":"Orange"}],"multiSelect":false}]"#)
+        #expect(questions.questions == [.init(question: "Which colour should the button be?", header: "Colour")])
+
+        let end = try decode("TurnEnd", #","reason":"error","error":"mock: scripted failure","last_assistant_message":null"#)
+        #expect(end.reason == "error" && end.error == .string("mock: scripted failure"))
+
+        // The plugin may hand over `tool/call`'s arguments as the JSON string dsh keeps them in.
+        let parsed = try decode("ApprovalAsked", #","tool_name":"bash","tool_input":{"command":"ls"}"#)
+        let raw = try decode("ApprovalAsked", #","tool_name":"bash","tool_input":"{\"command\":\"ls\"}""#)
+        #expect(parsed.toolInput == ["command": .string("ls")] && raw.toolInput == parsed.toolInput)
+
+        // Odd shapes never break decoding.
+        let odd = try JSONDecoder().decode(HookInput.self, from: Data(#"{"hook_event_name":"Prompt","session_id":"s","at":"soon","pid":"x","turn":[1],"keep_prompt":"yes","questions":{"a":1},"tool_input":"not json"}"#.utf8))
+        #expect(odd.at == nil && odd.pid == nil && odd.turn == nil && odd.keepPrompt == nil && odd.questions == nil && odd.toolInput == nil)
+    }
+
+    @Test func aTurn() throws {
+        let time = Date(timeIntervalSince1970: at / 1000)
+        let prompt = try reports("Prompt", #","prompt":"PROBE_BASH please approve\nthen stop""#)
+        #expect(prompt == [SessionReport(id: "b7627ec2-685c-4f15-84f0-a5188bdc8d7c", kind: .prompt, at: time, source: "dsh",
+                                         title: "perch-dsh-ws", cwd: "/private/tmp/perch-dsh-ws", link: link,
+                                         prompt: "PROBE_BASH please approve", turn: "4")])
+
+        let done = try reports("TurnEnd", ###","reason":"completed","last_assistant_message":"## Finished after the tool.\nMore""###)
+        #expect(done.map(\.kind) == [.stop] && done.first?.lastMessage == "Finished after the tool.")
+        #expect(done.first?.turn == "4" && done.first?.at == time)
+
+        #expect(try reports("SessionEnd").map(\.kind) == [.end])
+    }
+
+    @Test func theEventTimeIsTheReportTime() throws {
+        let input = try JSONDecoder().decode(HookInput.self, from: Data(#"{"hook_event_name":"Answered","session_id":"s"}"#.utf8))
+        #expect(HookAdapter.requests(for: input, agent: "dsh", link: nil, now: now).first?.report?.at == now)
+    }
+
+    @Test func anApprovalIsAnsweredInTheTerminal() throws {
+        let bash = try reports("ApprovalAsked", #","tool_name":"bash","tool_input":{"command":"curl -s https://example.com -o /tmp/perch-dsh-outside.html","description":"Fetch example.com outside the workspace","sandbox_permissions":"danger-full-access","justification":"Probe: needs network"},"reason":"Probe: needs network and a path outside the workspace""#)
+        #expect(bash.map(\.kind) == [.waiting])
+        #expect(bash.first?.detail == "curl -s https://example.com -o /tmp/perch-dsh-outside.html\nAnswer in the terminal: Probe: needs network and a path outside the workspace")
+        #expect(bash.first?.turn == "4")
+
+        // Any other tool: its name and every argument, in full.
+        let write = try reports("ApprovalAsked", #","tool_name":"write_file","tool_input":{"path":"/etc/hosts","content":"127.0.0.1 x","append":false}"#)
+        #expect(write.first?.detail == "write_file append=false content=127.0.0.1 x path=/etc/hosts\nAnswer in the terminal")
+        #expect(try reports("ApprovalAsked", #","tool_name":"bash""#).first?.detail == "bash\nAnswer in the terminal")
+        #expect(try reports("ApprovalAsked").first?.detail == "tool\nAnswer in the terminal")
+
+        // Allowed, denied, Esc or Ctrl+C on the prompt: dsh carries on.
+        #expect(try reports("Answered").map(\.kind) == [.resume])
+    }
+
+    @Test func aQuestionIsAnsweredInTheTerminal() throws {
+        let one = try reports("QuestionAsked", #","questions":[{"question":"Which colour should the button be?","header":"Colour"}]"#)
+        #expect(one.map(\.kind) == [.waiting] && one.first?.detail == "Which colour should the button be?\nAnswer in the terminal")
+        let three = try reports("QuestionAsked", #","questions":[{"question":"Which colour?"},{"question":"Which size?"},{"question":"Ship it?"}]"#)
+        #expect(three.first?.detail == "Which colour? (and 2 more)\nAnswer in the terminal")
+        let header = try reports("QuestionAsked", #","questions":[{"question":"","header":"Colour"}]"#)
+        #expect(header.first?.detail == "Colour\nAnswer in the terminal")
+        #expect(try reports("QuestionAsked").first?.detail == "Waiting for your answer\nAnswer in the terminal")
+    }
+
+    @Test func howATurnEnds() throws {
+        for reason in ["completed", "max-tokens", "something-new"] {
+            let r = try reports("TurnEnd", #","reason":"\#(reason)","last_assistant_message":"Done: hi""#)
+            #expect(r.map(\.kind) == [.stop] && r.first?.lastMessage == "Done: hi" && r.first?.turn == "4")
+        }
+        #expect(try reports("TurnEnd").map(\.kind) == [.stop])
+        let error = try reports("TurnEnd", #","reason":"error","error":"400 mock: scripted failure""#)
+        #expect(error.map(\.kind) == [.failure] && error.first?.error == "400 mock: scripted failure" && error.first?.turn == "4")
+        // dsh's own shape, should the plugin pass it through.
+        let object = try reports("TurnEnd", #","reason":"error","error":{"message":"mock: scripted failure","code":"invalid_request_error","status":400}"#)
+        #expect(object.first?.error == "mock: scripted failure")
+        #expect(try reports("TurnEnd", #","reason":"error""#).first?.error == "unknown")
+        for reason in ["aborted", "blocked"] {
+            let r = try reports("TurnEnd", #","reason":"\#(reason)""#)
+            #expect(r.map(\.kind) == [.interrupt] && r.first?.turn == "4")
+        }
+    }
+
+    @Test func aTurnNobodyTyped() throws {
+        // The goal driver, a schedule or a background job woke dsh: the row keeps the human's prompt.
+        let input = try decode("Prompt", #","keep_prompt":true,"prompt":"[scheduled] check the build""#)
+        let report = try #require(HookAdapter.requests(for: input, agent: "dsh", link: nil, now: now).first?.report)
+        #expect(report.kind == .prompt && report.prompt == nil && report.keepPrompt == true && report.turn == "4")
+        // Focus may be anywhere: no terminal is recorded for it.
+        #expect(!HookAdapter.startsTurn(input))
+        #expect(HookAdapter.startsTurn(try decode("Prompt", #","prompt":"hi""#)))
+        #expect(try reports("Prompt", #","prompt":"hi""#).first?.keepPrompt == nil)
+    }
+
+    @Test func dshsHooksBridgeCallingAnotherAgentsHookIsForeign() {
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        // perch ← sh ← node dsh (its Claude Code / Codex hooks bridge running ~/.claude/settings.json).
+        let bridge: [Int32: ProcessEntry] = [
+            900: ProcessEntry(pid: 900, ppid: 800, name: "perch", startedAt: t0),
+            800: ProcessEntry(pid: 800, ppid: 700, name: "sh", startedAt: t0),
+            700: ProcessEntry(pid: 700, ppid: 1, name: "node", startedAt: t0, script: "/n/bin/dsh"),
+        ]
+        #expect(HookAdapter.isForeign(agent: "claude-code", environment: [:], processes: bridge, from: 900))
+        #expect(HookAdapter.isForeign(agent: "codex", environment: [:], processes: bridge, from: 900))
+        // dsh's own plugin, and agents dsh has no bridge for.
+        #expect(!HookAdapter.isForeign(agent: "dsh", environment: [:], processes: bridge, from: 900))
+        #expect(!HookAdapter.isForeign(agent: "grok", environment: [:], processes: bridge, from: 900))
+        #expect(!HookAdapter.isForeign(agent: "claude-code", environment: [:], processes: [:], from: 900))
+    }
+
+    @Test func unhandledEvents() throws {
+        // Including other agents' names: dsh never sends them, and PermissionRequest must never reach the notch.
+        for event in ["SessionStart", "UserPromptSubmit", "PermissionRequest", "Stop", "Notification", "tool/call"] {
+            #expect(try reports(event).isEmpty)
+        }
+    }
+}

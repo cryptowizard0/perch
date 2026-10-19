@@ -156,6 +156,62 @@ struct SessionStateTests {
         #expect(!FileManager.default.fileExists(atPath: d.home.appendingPathComponent("hook.log").path))
     }
 
+    /// What Perch's dsh plugin sends (#74). `at` is dsh's event time in epoch ms; `pid` is the dsh process, here the test
+    /// itself, which is `perch hook dsh`'s parent just as dsh is.
+    func dsh(_ name: String, at: Int, turn: Int = 1, session: String = "d1", pid: Int32 = getpid(), _ extra: String = "") -> String {
+        #"{"hook_event_name":"\#(name)","session_id":"\#(session)","cwd":"/private/tmp/perch-dsh-ws","at":\#(at),"pid":\#(pid),"turn":"\#(turn)"\#(extra)}"#
+    }
+
+    @Test func dshWalksThroughEveryState() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        // Whole seconds in the past: perchd keeps whole seconds and never takes a report from the future.
+        let t = (Int(Date().timeIntervalSince1970) - 600) * 1000
+        func second(_ n: Int) -> Int { t + n * 1000 }
+
+        try hook(cli, "dsh", dsh("Prompt", at: second(0), #","prompt":"PROBE_BASH please approve""#))
+        var s = try #require(try session(d, "d1"))
+        #expect(s.status == .running && s.source == "dsh" && s.title == "perch-dsh-ws" && s.prompt == "PROBE_BASH please approve")
+        #expect(s.turnStartedAt == Date(timeIntervalSince1970: TimeInterval(t / 1000)))
+        #expect(s.pid == getpid() && s.pidStartedAt != nil)
+
+        // An escalated bash command: needs you, full command, answered in the terminal only.
+        try hook(cli, "dsh", dsh("ApprovalAsked", at: second(1), #","tool_name":"bash","tool_input":{"command":"curl -s https://example.com -o /tmp/out.html","sandbox_permissions":"danger-full-access"},"reason":"needs network""#))
+        s = try #require(try session(d, "d1"))
+        #expect(s.status == .waiting && s.detail == "curl -s https://example.com -o /tmp/out.html\nAnswer in the terminal: needs network")
+        #expect(try allItems(d) == [])
+        try hook(cli, "dsh", dsh("Answered", at: second(2)))
+        #expect(try session(d, "d1")?.status == .running)
+        // The plugin does not wait for perch, so reports can arrive out of order: an older one is dropped.
+        try hook(cli, "dsh", dsh("QuestionAsked", at: second(1), #","questions":[{"question":"Which colour?"}]"#))
+        #expect(try session(d, "d1")?.status == .running)
+
+        try hook(cli, "dsh", dsh("TurnEnd", at: second(3), #","reason":"completed","last_assistant_message":"Finished after the tool.""#))
+        s = try #require(try session(d, "d1"))
+        #expect(s.status == .done && s.lastMessage == "Finished after the tool.")
+
+        // A late end for an earlier turn leaves the current one alone.
+        try hook(cli, "dsh", dsh("Prompt", at: second(4), turn: 2, #","prompt":"PROBE_SLOW""#))
+        try hook(cli, "dsh", dsh("Prompt", at: second(5), turn: 3, #","prompt":"PROBE_FAIL""#))
+        try hook(cli, "dsh", dsh("TurnEnd", at: second(6), turn: 2, #","reason":"aborted""#))
+        s = try #require(try session(d, "d1"))
+        #expect(s.status == .running && s.prompt == "PROBE_FAIL")
+        try hook(cli, "dsh", dsh("TurnEnd", at: second(7), turn: 3, #","reason":"error","error":"400 mock: scripted failure""#))
+        s = try #require(try session(d, "d1"))
+        #expect(s.status == .failed && s.error == "400 mock: scripted failure")
+
+        // `/new`: the old session ends, and a straggler does not bring it back.
+        try hook(cli, "dsh", dsh("SessionEnd", at: second(8)))
+        try hook(cli, "dsh", dsh("Answered", at: second(7)))
+        #expect(try session(d, "d1") == nil)
+
+        // A pid that is not perch's parent is not trusted: no pid, the 24-hour rule.
+        try hook(cli, "dsh", dsh("Prompt", at: second(9), session: "d2", pid: 1, #","prompt":"hi""#))
+        s = try #require(try session(d, "d2"))
+        #expect(s.status == .running && s.pid == nil)
+        #expect(!FileManager.default.fileExists(atPath: d.home.appendingPathComponent("hook.log").path))
+    }
+
     @Test func anEventForAnUnknownSessionCreatesIt() throws {
         let d = try TestDaemon()
         try hook(CLI(home: d.home), "claude-code", claude("Stop", #","last_assistant_message":"ok""#, session: "late"))

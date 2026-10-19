@@ -4,7 +4,8 @@ import PerchClient
 import PerchCore
 import PerchSetup
 
-/// `perch hook <agent>` — the hook adapter. Claude Code / Codex / Hermes run it with the hook JSON on stdin (see HookAdapter).
+/// `perch hook <agent>` — the hook adapter. Claude Code / Codex / Grok / Hermes run it with the hook JSON on stdin, and
+/// Perch's dsh plugin with its own normalised events (see HookAdapter).
 /// Contract with the agent: print nothing (SessionStart / UserPromptSubmit stdout would be added to the
 /// model's context) except a PermissionRequest decision, always exit 0, never block for long (PermissionRequest:
 /// at most `--wait`). No answer is never permission: then nothing is printed and the terminal asks as usual.
@@ -14,16 +15,19 @@ struct Hook: ParsableCommand {
         abstract: "Hook adapter: reads an agent's hook JSON on stdin and reports to perchd. Prints nothing, exits 0.",
         discussion: "Installed by `perch hooks install`. Agents: \(Hook.agents.joined(separator: ", "))."
     )
-    static let agents = HookFiles.all.map(\.agent)
+    /// The agents with a hook file, plus dsh (its plugin, not a hook file, runs `perch hook dsh`).
+    static let agents = HookFiles.all.map(\.agent) + ["dsh"]
 
-    @Argument(help: "claude-code | codex | grok | hermes") var agent: String
+    @Argument(help: "claude-code | codex | grok | hermes | dsh") var agent: String
     @Option(help: "PermissionRequest: seconds to wait for Allow / Deny in the notch before the terminal asks.")
     var wait: Double = HookAdapter.permissionWait
 
     func run() {
         let now = Date()
         guard Self.agents.contains(agent) else { return HookLog.write("unknown agent '\(agent)'") }
-        if HookAdapter.isForeign(agent: agent, environment: ProcessInfo.processInfo.environment) { return }
+        let processes = SystemProcesses.ancestors(of: getpid())
+        if HookAdapter.isForeign(agent: agent, environment: ProcessInfo.processInfo.environment, processes: processes,
+                                 from: getpid()) { return }
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let input: HookInput
         do {
@@ -32,9 +36,12 @@ struct Hook: ParsableCommand {
             return HookLog.write("unreadable \(agent) hook input: \(error)")
         }
         let client = PerchClient()
-        let process = agentProcess()
+        let process = agentProcess(input, processes: processes)
         let link = terminalLink(for: input, client: client, process: process)
-        if input.event == "PermissionRequest" { return permission(input, link: link, process: process, client: client, now: now) }
+        // The notch never answers dsh (#73): it has no PermissionRequest, and its plugin never sends one.
+        if input.event == "PermissionRequest", agent != "dsh" {
+            return permission(input, link: link, process: process, client: client, now: now)
+        }
         for request in HookAdapter.requests(for: input, agent: agent, link: link, now: now) {
             do {
                 let response = try client.send(request.reporting(process), timeout: 2)
@@ -76,11 +83,13 @@ struct Hook: ParsableCommand {
         send(Request(op: .sessionReport, report: handoff).reporting(process), client: client)
     }
 
-    /// The agent process this hook runs under (it starts hooks through a shell, so it is an ancestor). Every session
-    /// report carries it, and perchd removes the session once that process is gone.
-    func agentProcess() -> ProcessEntry? {
+    /// The agent process this hook runs under (it starts hooks through a shell, so it is an ancestor; dsh's plugin
+    /// spawns perch itself and says which). Every session report carries it, and perchd removes the session once that
+    /// process is gone.
+    func agentProcess(_ input: HookInput, processes: [Int32: ProcessEntry]) -> ProcessEntry? {
+        if agent == "dsh" { return AgentProcess.dsh(claimed: input.pid, parent: processes[getppid()]) }
         guard AgentProcess.names[agent] != nil else { return nil }
-        return AgentProcess.find(agent: agent, from: getpid(), in: SystemProcesses.ancestors(of: getpid()))
+        return AgentProcess.find(agent: agent, from: getpid(), in: processes)
     }
 
     /// Fire and forget; failures go to the hook log.
