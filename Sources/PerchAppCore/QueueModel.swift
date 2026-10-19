@@ -31,6 +31,12 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var answerReaction: AnswerReaction?
     /// The collapsed notch's event banner, while one shows (see `Banner`).
     @Published public private(set) var banner: Banner?
+    /// The Done run while it plays (#64): the folded bar draws the mascot along it instead of in its spot.
+    @Published public private(set) var flight: DoneRun?
+    /// The notch's width on the panel's screen (0 for the menu bar pill); the app sets it on every layout.
+    public var notchWidth: Double = 0
+    /// No Done run with Reduce Motion; the app keeps it current.
+    public var reduceMotion = false
     /// The last failed action, shown briefly in the expanded notch.
     @Published public private(set) var flash: String?
     /// Which pulses also play a sound (#35). The Sounds menu edits it; the app keeps it in its user defaults.
@@ -87,7 +93,18 @@ public final class QueueModel: ObservableObject {
     public var measureBanner: (Banner) -> Double = { _ in 0 }
     /// False while the notch is expanded: the list says it all, so banners are dropped, not saved for later.
     public var showsBanners = true {
-        didSet { if !showsBanners { setBanner(nil) } }
+        didSet {
+            guard !showsBanners else { return }
+            setBanner(nil)
+            // Expanding ends the run: folded again, the mascot is just home.
+            setFlight(nil)
+        }
+    }
+
+    /// Whether the banner up is the run's: the right wing has room for the mascot at its end, and it opens behind it.
+    public var carriesBanner: Bool {
+        guard let flight, !flight.interrupted, let banner else { return false }
+        return banner.id == flightBanner
     }
 
     private var chime = Chime()
@@ -95,6 +112,8 @@ public final class QueueModel: ObservableObject {
     private var answerTimer: Timer?
     private var banners = BannerState()
     private var bannerTimer: Timer?
+    private var flightBanner: Int?
+    private var flightTimer: Timer?
     private var connection: QueueConnection?
     private var client = PerchClient()
     private var ticker: Timer?
@@ -192,9 +211,20 @@ public final class QueueModel: ObservableObject {
                 pulse += 1
                 // The entry reaction replaces a bow or scratch.
                 playAnswer(nil)
+                // Something needs you or failed: the mascot dashes home from its run to play it.
+                if after?.status == .waiting || after?.status == .failed { updateFlight { $0.dashHome(at: $1) } }
             }
             if let sound = chime.sound(from: before, to: after, now: Date()) { onChime(sound) }
-            if showsBanners, banners.update(id: event.session.id, from: before, to: after) { setBanner(banners.current) }
+            if showsBanners, banners.update(id: event.session.id, from: before, to: after) {
+                let new = banners.current
+                if DoneRun.flies(new, panel: panel, reduceMotion: reduceMotion), let new {
+                    fly(with: new)
+                } else if new == nil, carriesBanner {
+                    // Its session left Done: nothing to carry, back home.
+                    updateFlight { $0.returnNow(at: $1) }
+                }
+                setBanner(new)
+            }
             onSession?(event)
         case .bridge(let connected):
             // The bridge left: offer to take over (the first app to ask wins).
@@ -206,6 +236,7 @@ public final class QueueModel: ObservableObject {
             offlineReason = reason
             sessions = [:]
             setBanner(nil)
+            setFlight(nil)
             watcher = nil
             isBridge = false
         }
@@ -543,14 +574,56 @@ public final class QueueModel: ObservableObject {
         }
     }
 
-    /// Shows `new` (nil: none) and times it out.
+    /// Starts the Done run for `banner`, or, already on one, swaps in the new banner (it hops and its time starts over).
+    private func fly(with banner: Banner) {
+        let width = measureBanner(banner)
+        let wing = Banner.wing(contentWidth: width), duration = Banner.duration(contentWidth: width)
+        let now = Date().timeIntervalSinceReferenceDate
+        flightBanner = banner.id
+        if var flight, !flight.interrupted, now < flight.end {
+            flight.anotherDone(at: now, bannerWing: wing, bannerDuration: duration)
+            return setFlight(flight)
+        }
+        let left = NotchGeometry.collapsedWing(runningCount: panel.runningCount, online: online, todoCount: collapsedTodoCount)
+        setFlight(DoneRun(start: now, band: DoneRun.Band(leftWing: Double(left), notchWidth: notchWidth),
+                          bannerWing: wing, bannerDuration: duration))
+    }
+
+    private func updateFlight(_ change: (inout DoneRun, TimeInterval) -> Void) {
+        guard var flight else { return }
+        change(&flight, Date().timeIntervalSinceReferenceDate)
+        setFlight(flight)
+        // The banner it carried now goes on its own timer, or with the run's new schedule.
+        if let banner { setBanner(banner) }
+    }
+
+    /// Shows the run (nil: none) and ends it once the mascot is home.
+    private func setFlight(_ new: DoneRun?) {
+        flightTimer?.invalidate()
+        flightTimer = nil
+        if flight != new { flight = new }
+        guard let new else {
+            flightBanner = nil
+            return
+        }
+        flightTimer = Timer.scheduledTimer(withTimeInterval: max(new.end - Date().timeIntervalSinceReferenceDate, 0), repeats: false) {
+            [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.flight == new else { return }
+                self.setFlight(nil)
+            }
+        }
+    }
+
+    /// Shows `new` (nil: none) and times it out. The run's banner stays until the mascot has rolled it up.
     private func setBanner(_ new: Banner?) {
         if new == nil { banners.clear() }
         bannerTimer?.invalidate()
         bannerTimer = nil
         if banner != new { banner = new }
         guard let new else { return }
-        let duration = Banner.duration(contentWidth: measureBanner(new))
+        var duration = Banner.duration(contentWidth: measureBanner(new))
+        if carriesBanner, let end = flight?.bannerEnd { duration = max(end - Date().timeIntervalSinceReferenceDate, 0) }
         bannerTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.banners.dismiss(new.id) else { return }

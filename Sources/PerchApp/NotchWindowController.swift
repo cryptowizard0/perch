@@ -96,9 +96,14 @@ final class NotchWindowController {
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.gaze.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+            MainActor.assumeIsolated {
+                let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                self?.gaze.reduceMotion = reduceMotion
+                self?.queue.reduceMotion = reduceMotion
+            }
         })
         queue.expanded = notch.expanded
+        queue.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         // Dev aid next to PERCH_PIN_EXPANDED: `PERCH_PIN_TAB=todo` starts on that tab (screenshots without a mouse).
         if let tab = ProcessInfo.processInfo.environment["PERCH_PIN_TAB"].flatMap(PanelTab.init(rawValue:)) { queue.pick(tab) }
         observers.append(NotificationCenter.default.addObserver(
@@ -144,7 +149,10 @@ final class NotchWindowController {
         if notch.geometry != geometry { notch.geometry = geometry }
         let left = NotchGeometry.collapsedWing(runningCount: queue.panel.runningCount, online: queue.online,
                                                todoCount: queue.collapsedTodoCount)
-        let right = queue.banner.map { CGFloat(Banner.wing(contentWidth: BannerView.contentWidth($0))) } ?? left
+        let right = queue.banner.map {
+            CGFloat(Banner.wing(contentWidth: BannerView.contentWidth($0), carried: queue.carriesBanner))
+        } ?? left
+        queue.notchWidth = Double(geometry.notch?.width ?? 0)
         if notch.leftWing != left { notch.leftWing = left }
         if notch.expanded {
             endShrink()

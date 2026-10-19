@@ -46,7 +46,8 @@ struct MascotView: View {
                     for cell in cells where cell.ink == ink {
                         path.addRect(CGRect(x: CGFloat(cell.x) + margin, y: CGFloat(cell.y) + margin, width: 1, height: 1))
                     }
-                    context.fill(path, with: .color(color(ink, status: playing?.status ?? signal)), style: FillStyle(antialiased: false))
+                    context.fill(path, with: .color(Self.color(ink, status: playing?.status ?? signal, online: online)),
+                                 style: FillStyle(antialiased: false))
                 }
             }
         }
@@ -85,7 +86,7 @@ struct MascotView: View {
         }
     }
 
-    private func color(_ ink: Mascot.Ink, status: SessionStatus?) -> Color {
+    static func color(_ ink: Mascot.Ink, status: SessionStatus?, online: Bool) -> Color {
         switch ink {
         case .body: return online ? SessionStatus.color(status) : Color.gray.opacity(0.5)
         case .white: return .white
@@ -94,6 +95,50 @@ struct MascotView: View {
         case .confetti0: return SessionStatus.color(.waiting)
         case .confetti1: return Color(red: 1, green: 0.4, blue: 0.7)
         case .confetti2: return Color(red: 0.3, green: 0.85, blue: 1)
+        }
+    }
+}
+
+/// The mascot on its Done run (#64), drawn over the whole folded band: along `DoneRun`'s path, hidden while the notch
+/// covers it. In Done's colour, except dashing home in the signal's.
+struct FlightView: View {
+    var flight: DoneRun
+    var signal: SessionStatus?
+    var online: Bool
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            Canvas { context, size in
+                guard let position = flight.position(at: timeline.date.timeIntervalSinceReferenceDate), !position.hidden else { return }
+                let cells = Mascot.frame(flying: position, mood: Mascot.Mood(signal: signal, online: online))
+                let status = position.move == .dash ? signal : .done
+                // Where the bar draws it at home: `collapsedInset` in, centred in the band.
+                let x = CGFloat(position.x.rounded()), y = (size.height - CGFloat(Mascot.height)) / 2
+                for ink in Mascot.Ink.allCases {
+                    var path = Path()
+                    for cell in cells where cell.ink == ink {
+                        path.addRect(CGRect(x: x + CGFloat(cell.x), y: y + CGFloat(cell.y), width: 1, height: 1))
+                    }
+                    context.fill(path, with: .color(MascotView.color(ink, status: status, online: online)),
+                                 style: FillStyle(antialiased: false))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The right wing's content as the Done run pulls the banner open and rolls it up (#64): shown from the wing's inner
+/// edge to the mascot.
+struct FlightReveal: View {
+    var flight: DoneRun
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let reveal = flight.position(at: timeline.date.timeIntervalSinceReferenceDate)?.reveal
+            Rectangle().frame(width: reveal.map { CGFloat($0) })
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

@@ -114,6 +114,8 @@ struct CollapsedBar: View {
             HStack(spacing: NotchGeometry.collapsedGap) {
                 MascotView(signal: panel.signal, since: panel.signalSince, online: queue.online, pulse: queue.pulse,
                            pulseStatus: queue.pulseStatus, answer: queue.answerReaction, gaze: gaze.gaze)
+                    // Away on its Done run, drawn by the overlay; the running count keeps its place.
+                    .opacity(queue.flight == nil ? 1 : 0)
                 Group {
                     if !queue.online {
                         Image(systemName: "bolt.horizontal.circle").help(queue.offlineReason ?? "perchd is not running")
@@ -129,9 +131,13 @@ struct CollapsedBar: View {
             Color.clear.frame(width: notchWidth)
             ZStack(alignment: .leading) {
                 if let banner = queue.banner {
-                    BannerView(banner: banner)
+                    BannerView(banner: banner, delay: scrollDelay)
                         .id(banner.id)
                         .padding(.leading, CGFloat(Banner.inset))
+                        // Opened and rolled up by the Done run; on the banner itself, so it stays rolled up as it fades.
+                        .mask(alignment: .leading) {
+                            if let flight = queue.flight, !flight.interrupted { FlightReveal(flight: flight) } else { Rectangle() }
+                        }
                         .transition(.opacity.animation(.easeInOut(duration: 0.2)))
                 } else {
                     CollapsedTodos(count: queue.collapsedTodoCount)
@@ -143,6 +149,17 @@ struct CollapsedBar: View {
             .clipped()
             Spacer(minLength: 0)
         }
+        .overlay(alignment: .topLeading) {
+            if let flight = queue.flight {
+                FlightView(flight: flight, signal: panel.signal, online: queue.online)
+            }
+        }
+    }
+
+    /// A too-long banner waits for the Done run to finish opening it before it scrolls.
+    private var scrollDelay: TimeInterval {
+        guard queue.carriesBanner, let opened = queue.flight?.opened else { return Banner.scrollDelay }
+        return Banner.scrollDelay + max(0, opened - Date().timeIntervalSinceReferenceDate)
     }
 }
 

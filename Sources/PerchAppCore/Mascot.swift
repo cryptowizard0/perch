@@ -144,6 +144,39 @@ public enum Mascot {
         return draw(look)
     }
 
+    // MARK: - The Done run
+
+    /// The mascot on its Done run (#64), at `position`. In Done's look throughout (it is a Done celebration): the hop,
+    /// a trot with the trailing hand up (holding the curtain), and on the banner's end a sway under the confetti.
+    /// Dashing home it is `mood`, the signal that called it back. The run outranks everything, gaze included.
+    public static func frame(flying position: DoneRun.Position, mood: Mood) -> [Cell] {
+        switch position.move {
+        case .hop:
+            return draw(look(.done, time: 0, reaction: min(position.age, DoneRun.hopDuration - 0.01)))
+        case .run:
+            var look = look(.done, time: 0, reaction: nil)
+            trot(&look, age: position.age)
+            look.arms = position.facingRight ? .leftUp : .rightUp
+            return draw(look)
+        case .stand:
+            var look = look(.sway, age: position.age.truncatingRemainder(dividingBy: Quirk.sway.duration), mood: .done)
+            look.confetti = position.age
+            return draw(look)
+        case .dash:
+            var look = look(mood, time: 0, reaction: nil)
+            look.z = nil
+            trot(&look, age: position.age)
+            return draw(look)
+        }
+    }
+
+    /// Feet tucked and up a point every other tenth of a second.
+    static func trot(_ look: inout Look, age: TimeInterval) {
+        guard Int((max(age, 0) / 0.1).rounded(.down)) % 2 == 1 else { return }
+        look.feetTucked = true
+        look.dy = -1
+    }
+
     // MARK: - Answers
 
     /// What it does after you answer it (#62): a bow for Allow (or any other option), a sheepish head scratch for Deny.

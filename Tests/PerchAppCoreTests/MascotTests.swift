@@ -789,3 +789,48 @@ extension MascotTests {
         #expect(Mascot.frame(.asleep, time: 0, gaze: .down) != Mascot.frame(.asleep, time: 0))
     }
 }
+
+/// The Done run's look (#64).
+extension MascotTests {
+    func flying(_ move: DoneRun.Move, age: Double, right: Bool = true, mood: Mascot.Mood = .done) -> [Mascot.Cell] {
+        Mascot.frame(flying: DoneRun.Position(x: 0, hidden: false, reveal: nil, move: move, age: age, facingRight: right), mood: mood)
+    }
+
+    /// Running out it trots in Done's look, its trailing (left) hand up holding the curtain; coming back, the right.
+    @Test func onTheRunItHoldsTheCurtain() {
+        #expect(art(flying(.run, age: 0.05)) == [
+            "......#......",
+            "......#......",
+            "...#######...",
+            "..#########..",
+            "############.",
+            "######o#####.",
+            ".####o#o####.",
+            ".###o###o###.",
+            ".############",
+            ".############",
+            "..##o###o##..",
+            "..###ooo###..",
+            "...##...##...",
+        ])
+        let back = art(flying(.run, age: 0.05, right: false))
+        #expect(back[4] == ".############" && back[8] == "############.")
+        // The trot: up a point and feet tucked every other tenth.
+        #expect(flying(.run, age: 0.15).map(\.y).min()! < flying(.run, age: 0.05).map(\.y).min()!)
+        #expect(flying(.hop, age: 0.2) == Mascot.frame(.done, time: 0, reaction: .init(mood: .done, age: 0.2)))
+    }
+
+    /// On the banner's end: Done's sway under a burst of confetti; dashing home: the signal's own look, trotting.
+    @Test func atTheEndItSwaysUnderTheConfetti() {
+        let confetti: Set<Mascot.Ink> = [.confetti0, .confetti1, .confetti2]
+        let standing = flying(.stand, age: 0.4)
+        #expect(standing.contains { confetti.contains($0.ink) })
+        #expect(standing.filter { !confetti.contains($0.ink) && $0.ink != .white }
+                == Mascot.frame(.done, time: 0, quirk: .init(.sway, age: 0.4)).filter { $0.ink != .white })
+        #expect(!flying(.stand, age: 3).contains { confetti.contains($0.ink) })
+        #expect(flying(.stand, age: 0.4 + Mascot.Quirk.sway.duration).filter { $0.ink == .body }
+                == standing.filter { $0.ink == .body })
+        #expect(art(flying(.dash, age: 0.05, mood: .waiting)) == art(Mascot.still(.waiting)))
+        #expect(art(flying(.dash, age: 0.05, mood: .failed)) == art(Mascot.still(.failed)))
+    }
+}
