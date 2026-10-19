@@ -2,6 +2,7 @@
 # Builds the notch app with SwiftPM and assembles Perch.app — no Xcode needed. The app carries perch and perchd in
 # Contents/Helpers: an app in /Applications or ~/Applications copies them into ~/.perch/bin when their version differs.
 # Contents/Resources/bin/perch is the script Homebrew links onto PATH (packaging/perch-path.sh).
+# Contents/Resources/dsh/perch.mjs is the plugin that reports dsh sessions to `perch hook dsh` (#75).
 #   scripts/bundle-app.sh              # release build → .build/Perch.app
 #   CONFIG=debug scripts/bundle-app.sh
 #   APP=/Applications/Perch.app scripts/bundle-app.sh
@@ -30,6 +31,8 @@ cp packaging/Perch.icns "$APP/Contents/Resources/Perch.icns"  # redraw with scri
 cp packaging/perch-path.sh "$APP/Contents/Resources/bin/perch"
 mkdir -p "$APP/Contents/Resources/Sounds"
 cp packaging/sounds/*.wav "$APP/Contents/Resources/Sounds/"  # regenerate with scripts/sound/make-sounds.sh
+mkdir -p "$APP/Contents/Resources/dsh"
+cp packaging/dsh/perch.mjs "$APP/Contents/Resources/dsh/"  # the dsh plugin (#75)
 sed "s/__VERSION__/$SHORT/g" packaging/Info.plist > "$APP/Contents/Info.plist"
 plutil -lint -s "$APP/Contents/Info.plist"
 # Nested code first, then the bundle (which seals it).
