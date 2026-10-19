@@ -19,6 +19,14 @@ public struct ReminderList: Codable, Equatable, Sendable {
         case id, title
         case isICloud = "icloud"
     }
+
+    /// What a todo's list is called when nobody said (a todo cached without its list's name).
+    public static let untitled = "Reminders"
+
+    /// Each identifier's position in `ids` (the first, if one repeats): the order lists are shown in.
+    public static func positions(_ ids: some Sequence<String>) -> [String: Int] {
+        Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+    }
 }
 
 /// One reminder in a checked Reminders list ("Perch", and any other the user checked, #69), as the bridge app reads
@@ -258,6 +266,9 @@ extension Item {
 
     /// The name of the todo's list, as of the latest snapshot. `perch ls --json` carries it as `list`.
     public var listName: String? { meta?[Self.listNameMetaKey] }
+
+    /// `listName`, or `ReminderList.untitled` without one: what headings show.
+    public var listTitle: String { listName ?? ReminderList.untitled }
 }
 
 /// Open todos by list (#69), for the Todo tab, `perch ls` and todo.md alike.
@@ -285,17 +296,19 @@ extension Item {
 extension Sequence where Element == Item {
     /// The open todos (open tasks) grouped by list: one group per list in `lists`' order, empty ones included. A todo
     /// whose list isn't among them (the descriptors and the cache can be a moment apart) gets a group of its own after
-    /// those, named as cached. With no lists at all, one group holds every open todo (none when there are none).
-    public func todoGroups(lists: [ReminderList]) -> [TodoGroup] {
+    /// those, named as cached, unless `includingUnknown` is false (then it is left out). With no lists at all, one group
+    /// holds every open todo (none when there are none).
+    public func todoGroups(lists: [ReminderList], includingUnknown: Bool = true) -> [TodoGroup] {
         let open = filter { $0.kind == .task && $0.status == .open }.sorted(by: Item.todoOrder)
         guard !lists.isEmpty else { return open.isEmpty ? [] : [TodoGroup(list: nil, items: open)] }
         var groups = lists.map { TodoGroup(list: $0, items: []) }
-        var index = Dictionary(lists.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var index = ReminderList.positions(lists.map(\.id))
         for item in open {
             let id = item.listID ?? ""
             if index[id] == nil {
+                guard includingUnknown else { continue }
                 index[id] = groups.count
-                groups.append(TodoGroup(list: ReminderList(id: id, title: item.listName ?? "Reminders", isICloud: true), items: []))
+                groups.append(TodoGroup(list: ReminderList(id: id, title: item.listTitle, isICloud: true), items: []))
             }
             groups[index[id]!].items.append(item)
         }

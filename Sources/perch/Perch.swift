@@ -192,7 +192,7 @@ struct Ls: ParsableCommand {
         var list: String?
         for item in items {
             if item.kind == .task, item.status == .open, let id = item.listID, id != list {
-                print("[\(item.listName ?? "Reminders")]")
+                print("[\(item.listTitle)]")
                 list = id
             }
             print(Format.row(item, sourceWidth: sourceWidth))

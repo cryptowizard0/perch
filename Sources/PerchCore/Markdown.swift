@@ -32,7 +32,7 @@ public enum MirrorRenderer {
             out += ["## To do", ""]
             if let asOf { out += [asOf, ""] }
             for group in todo {
-                out += ["### \(group.list?.title ?? "Reminders")", ""]
+                out += ["### \(group.list?.title ?? ReminderList.untitled)", ""]
                 out += group.items.isEmpty ? ["All clear"] : group.items.map { line($0, checkbox: true, calendar: calendar) }
                 out.append("")
             }

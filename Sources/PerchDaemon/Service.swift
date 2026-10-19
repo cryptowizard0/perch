@@ -272,8 +272,8 @@ public final class Service {
 
     // MARK: - Todos (#51)
 
-    /// Todos live in the checked Reminders lists ("Perch" and any others, #69); only the bridge app writes them. `Daemon` hands todo writes to it
-    /// (`planTodoWrite`, #52); with no bridge connected they are refused, never queued.
+    /// Todos live in the checked Reminders lists ("Perch" and any others, #69); only the bridge app writes them.
+    /// `Daemon` hands todo writes to it (`planTodoWrite`, #52); with no bridge connected they are refused, never queued.
     static let todoWriteRefused = "Todo needs Perch.app running with Reminders access"
 
     /// What todos are cached as. Every other item (waiting tasks, notices, requests) stays perchd's own.
@@ -468,7 +468,8 @@ public final class Service {
     /// Deleting the cached todo `item` (answered with `item` itself).
     private func planDelete(_ item: Item) throws -> TodoPlan {
         guard let reminder = item.reminderID else { throw ServiceError("\(item.id) is not a reminder") }
-        return .bridge(TodoWrite(operation: TodoOperation(action: .delete, externalID: reminder, seenInList: item.listID), removed: item))
+        let operation = TodoOperation(action: .delete, externalID: reminder, seenInList: item.listID)
+        return .bridge(TodoWrite(operation: operation, removed: item))
     }
 
     /// An update to the cached todo `old` so it reads like `new`; nothing to do when they already agree.
@@ -476,7 +477,8 @@ public final class Service {
         guard let reminder = old.reminderID else { throw ServiceError("\(old.id) is not a reminder") }
         let change = ReminderChange(from: old, to: new)
         guard !change.isEmpty else { return .answer(Response(ok: true, item: old)) }
-        return .bridge(TodoWrite(operation: TodoOperation(action: .update, externalID: reminder, seenInList: old.listID, change: change)))
+        let operation = TodoOperation(action: .update, externalID: reminder, seenInList: old.listID, change: change)
+        return .bridge(TodoWrite(operation: operation))
     }
 
     /// A new reminder's fields. `source`, `meta` and `expires_at` are not stored for todos.

@@ -207,7 +207,7 @@ extension Array where Element == Item {
     /// among them after those), then High → Normal → Low, then oldest first; due dates don't reorder them. Everything
     /// else: within a rank by due date, then oldest first. Closed items: most recently updated first.
     public func queueOrdered(now: Date = Date(), calendar: Calendar = .current, lists: [String] = []) -> [Item] {
-        let position = Dictionary(lists.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        let position = ReminderList.positions(lists)
         /// Open tasks share one slot (ranks 2…4), split by list.
         func slot(_ item: Item, _ rank: Int) -> (Int, Int) {
             (2...4).contains(rank) ? (2, item.listID.flatMap { position[$0] } ?? lists.count) : (rank, 0)
@@ -217,6 +217,8 @@ extension Array where Element == Item {
                 let sa = slot(a.0, a.1), sb = slot(b.0, b.1)
                 if sa != sb { return sa < sb }
                 if sa.0 == 2 {
+                    // Same slot but different lists only happens for lists not in `lists` (they share the last
+                    // position): keep each such list's todos together.
                     if a.0.listID != b.0.listID { return (a.0.listID ?? "") < (b.0.listID ?? "") }
                     return Item.todoOrder(a.0, b.0)
                 }

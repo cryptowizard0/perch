@@ -26,9 +26,9 @@ public struct TodoList: Equatable, Sendable {
     /// among them is left out: perchd sends the lists ahead of the snapshot's todos, so that is a list just unchecked.
     /// Without any lists (a cache from before #69) every todo is in one group named `unlisted`.
     public init(items: some Sequence<Item>, lists: [ReminderList] = [], unlisted: String = "Perch") {
-        let grouped = items.todoGroups(lists: lists)
-        groups = grouped.prefix(lists.isEmpty ? grouped.count : lists.count).map {
-            Group(id: $0.list?.id ?? "", title: $0.list?.title ?? unlisted, items: $0.items, notSyncing: $0.list.map { !$0.isICloud } ?? false)
+        groups = items.todoGroups(lists: lists, includingUnknown: false).map {
+            Group(id: $0.list?.id ?? "", title: $0.list?.title ?? unlisted, items: $0.items,
+                  notSyncing: $0.list.map { !$0.isICloud } ?? false)
         }
         openCount = groups.reduce(0) { $0 + $1.items.count }
         highCount = groups.reduce(0) { $0 + $1.items.filter { $0.priority == .high }.count }

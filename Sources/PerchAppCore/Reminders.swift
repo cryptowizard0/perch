@@ -225,8 +225,8 @@ public final class RemindersBridge {
     public func snapshot(now: Date = Date()) async throws -> (lists: [ReminderList], reminders: [Reminder]) {
         let lists = checkedLists
         guard !lists.isEmpty else { return ([], []) }
-        let reminders = try await store.reminders(inLists: lists.map(\.id), completedSince: now.addingTimeInterval(-Self.completedWindow))
-        return (lists, reminders)
+        let since = now.addingTimeInterval(-Self.completedWindow)
+        return (lists, try await store.reminders(inLists: lists.map(\.id), completedSince: since))
     }
 
     /// A new todo from the add popup: it goes to "Perch".
@@ -267,40 +267,44 @@ public final class RemindersBridge {
     /// The larger editor's save (#53): exactly `change`, nothing else, in the todo's own list.
     public func update(_ item: Item, _ change: ReminderChange) throws {
         guard !change.isEmpty else { return }
-        let reminder = try reminderID(item)
-        try store.updateReminder(reminder, inList: try listOf(reminder, hint: item.listID).id, change)
+        let (reminder, list) = try locate(item)
+        try store.updateReminder(reminder, inList: list.id, change)
     }
 
     /// ✎ (#53): the Reminders app's link to this reminder, which opens Reminders on its list (checked on macOS 15, see
     /// #50). Nil when it can't be found (no access, not in a checked list): then just open Reminders.
     public func link(for item: Item) -> URL? {
-        guard let reminder = item.reminderID, let list = try? listOf(reminder, hint: item.listID),
+        guard let (reminder, list) = try? locate(item),
               let local = store.localIdentifier(of: reminder, inList: list.id) else { return nil }
         return URL(string: "x-apple-reminderkit://REMCDReminder/\(local)")
     }
 
     public func delete(_ item: Item) throws {
-        let reminder = try reminderID(item)
-        try store.deleteReminder(reminder, inList: try listOf(reminder, hint: item.listID).id)
+        let (reminder, list) = try locate(item)
+        try store.deleteReminder(reminder, inList: list.id)
+    }
+
+    private func requireAccess() throws {
+        if state == .connect || state == .openSettings { throw RemindersError("Perch.app doesn't have access to Reminders") }
     }
 
     /// Where new todos go: "Perch".
     private func readyList() throws -> ReminderList {
-        switch state {
-        case .ready: if let list { return list }
-        case .createList: break
-        case .connect, .openSettings: throw RemindersError("Perch.app doesn't have access to Reminders")
-        }
-        throw RemindersError("\(listName) list not found")
+        try requireAccess()
+        guard state.isReady, let list else { throw RemindersError("\(listName) list not found") }
+        return list
+    }
+
+    /// The todo's reminder, and the checked list it is in now.
+    private func locate(_ item: Item) throws -> (reminder: String, list: ReminderList) {
+        let reminder = try reminderID(item)
+        return (reminder, try listOf(reminder, hint: item.listID))
     }
 
     /// The checked list the reminder is in: `hint` (where perchd last saw it) first, then the others, since it may
     /// have moved between checked lists since. Moved to a list that isn't checked, it is out of Perch's reach.
     private func listOf(_ reminder: String, hint: String?) throws -> ReminderList {
-        switch state {
-        case .connect, .openSettings: throw RemindersError("Perch.app doesn't have access to Reminders")
-        case .createList, .ready: break
-        }
+        try requireAccess()
         let candidates = checkedLists.filter { $0.id == hint } + checkedLists.filter { $0.id != hint }
         guard let list = candidates.first(where: { store.containsReminder(reminder, inList: $0.id) }) else {
             throw RemindersError("that reminder isn't in a list Perch shows")
