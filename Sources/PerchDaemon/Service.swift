@@ -301,6 +301,7 @@ public final class Service {
 
     /// Marks the open todo `item` as Doing, or clears it (#71). Kept on its reference, so it follows the short id; nothing
     /// is written to the reminder, so it works with no bridge. Alone in its update: the rest of a todo goes to Reminders.
+    /// Only the reference changes; the cached todo stays as the last snapshot wrote it.
     private func setDoing(_ item: Item, _ doing: Bool) throws -> (Response, [Event]) {
         guard try store.isTodo(id: item.id) else {
             throw ServiceError("\(item.id) is a \(item.status.rawValue) \(item.kind.rawValue); Doing only applies to todos (open tasks in Reminders)")
@@ -310,9 +311,8 @@ public final class Service {
         }
         guard item.doing != doing else { return (Response(ok: true, item: item), []) }
         try store.setDoing(doing, forRef: item.id)
-        var changed = item
-        changed.doing = doing
-        return try save(changed)
+        let changed = try existing(item.id)
+        return (Response(ok: true, item: changed), [Event(type: .updated, item: changed, at: timestamp())])
     }
 
     /// The source cached todos carry: they come from Reminders, whoever wrote them there.
@@ -321,11 +321,13 @@ public final class Service {
     /// Replaces the todo cache with the bridge's full read of the checked lists: new reminders get a short id, changed
     /// ones are updated, and cached todos missing from it are removed (deleted, or in a list no longer checked: their
     /// references stay, so they keep their short ids if they come back, #69). Only what changed emits an event.
-    /// `lists`: the checked lists in order, kept for grouping (none from a bridge older than #69).
+    /// `lists`: the checked lists in order, kept for grouping (nil from a bridge older than #69).
     /// Doing (#71) comes from the reference. It clears when the reminder shows up completed, or is missing while its list
-    /// is still checked (deleted, or moved in Reminders to a list that isn't); a todo whose list was unchecked keeps it.
-    public func applySnapshot(_ reminders: [Reminder], lists: [ReminderList] = []) throws -> [Event] {
-        try store.transaction {
+    /// is still checked (deleted, or moved in Reminders to a list that isn't); a todo whose list was unchecked keeps it,
+    /// and so does every todo when the snapshot lists no lists at all (nothing to say it was deleted).
+    public func applySnapshot(_ reminders: [Reminder], lists snapshotLists: [ReminderList]? = nil) throws -> [Event] {
+        let lists = snapshotLists ?? []
+        return try store.transaction {
             try store.setTodoLists(lists)
             let names = Dictionary(lists.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
             var refs = Dictionary(try store.todoRefs().map { ($0.externalID, $0) }, uniquingKeysWith: { a, _ in a })
@@ -367,8 +369,8 @@ public final class Service {
             }
             let checked = Set(lists.map(\.id))
             for (id, gone) in cached.sorted(by: { $0.key < $1.key }) where !present.contains(id) {
-                // A cache from before lists (or a bridge older than #69) only ever had "Perch", which is checked.
-                if gone.doing && (lists.isEmpty || gone.listID.map(checked.contains) ?? true) {
+                // A bridge older than #69 only ever had "Perch", which is checked.
+                if gone.doing && (snapshotLists == nil || gone.listID.map(checked.contains) ?? false) {
                     try store.setDoing(false, forRef: id)
                 }
                 try store.delete(id: id)

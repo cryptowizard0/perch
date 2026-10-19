@@ -322,7 +322,8 @@ struct PriorityCapsule: View {
 }
 
 /// Reports the pointer entering and leaving its frame even though the notch panel is never key (SwiftUI's own hover
-/// follows the key window), like `NotchHostingView` does for the whole panel. Never takes a click.
+/// follows the key window), like `NotchHostingView` does for the whole panel. A row that appears (or moves) under the
+/// pointer gets no entered event, so it also looks where the pointer is whenever its area is set up. Never takes a click.
 struct HoverTracker: NSViewRepresentable {
     var changed: (Bool) -> Void
 
@@ -347,6 +348,11 @@ struct HoverTracker: NSViewRepresentable {
                                       owner: self, userInfo: nil)
             addTrackingArea(area)
             tracking = area
+            // After this layout pass: SwiftUI state mustn't change while it updates views.
+            if let window {
+                let inside = bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+                DispatchQueue.main.async { [weak self] in self?.changed?(inside) }
+            }
         }
 
         override func mouseEntered(with event: NSEvent) { changed?(true) }

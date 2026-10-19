@@ -245,7 +245,7 @@ public final class Daemon {
         }
         let before = service.todoLists()
         do {
-            let events = try service.applySnapshot(request.reminders ?? [], lists: request.lists ?? [])
+            let events = try service.applySnapshot(request.reminders ?? [], lists: request.lists)
             // The lists first, so a client never groups the snapshot's todos under the lists of the one before (#69).
             let lists = service.todoLists()
             if lists != before {

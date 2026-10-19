@@ -171,6 +171,27 @@ import Testing
 
     /// Each cached todo knows its list (#69), and `list` groups by the snapshot's lists in their order. A list no longer
     /// checked leaves the cache; checked again, its todos keep their short ids.
+    /// #71: a todo missing from a snapshot loses Doing only when its list is among the snapshot's checked lists (or the
+    /// bridge predates lists, when "Perch" was the only one). A snapshot listing no lists at all (EventKit listing
+    /// nothing for a moment, "Perch" gone with nothing else checked) proves nothing was deleted, so Doing stays.
+    @Test func doingClearsOnlyForATodoGoneFromACheckedList() throws {
+        let perch = ReminderList(id: "p", title: "Perch", isICloud: true)
+        let flights = Reminder(externalID: "r1", list: "p", title: "book flights")
+        _ = try service.applySnapshot([flights], lists: [perch])
+        let id = try #require(call(Request(op: .list)).0.items?.first?.id)
+        #expect(call(Request(op: .update, id: id, patch: .init(doing: true))).0.item?.doing == true)
+
+        _ = try service.applySnapshot([], lists: [])
+        #expect(call(Request(op: .list)).0.items?.isEmpty == true)
+        _ = try service.applySnapshot([flights], lists: [perch])
+        #expect(call(Request(op: .get, id: id)).0.item?.doing == true)
+
+        // From a bridge older than lists: everything was in "Perch", so missing means deleted.
+        _ = try service.applySnapshot([], lists: nil)
+        _ = try service.applySnapshot([flights], lists: [perch])
+        #expect(call(Request(op: .get, id: id)).0.item?.doing == false)
+    }
+
     @Test func snapshotsCarryTheirLists() throws {
         let perch = ReminderList(id: "p", title: "Perch", isICloud: true)
         let work = ReminderList(id: "w", title: "Work", isICloud: false)

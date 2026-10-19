@@ -260,9 +260,6 @@ struct Update: ParsableCommand {
     @Flag(help: "Print JSON.") var json = false
 
     func run() throws {
-        if title == nil && kind == nil && status == nil && priority == nil && due == nil && !noDue && list == nil && doing == nil {
-            throw CLIError("give at least one of --title, --kind, --status, --priority, --due, --no-due, --list, --doing, --no-doing", code: 64)
-        }
         if due != nil && noDue { throw CLIError("--due and --no-due cannot be combined", code: 64) }
         let newKind = try kind.map { raw -> ItemKind in
             guard let k = ItemKind(rawValue: raw), k != .request else { throw CLIError("--kind must be task or notice") }
@@ -284,6 +281,9 @@ struct Update: ParsableCommand {
             list: list,
             doing: doing
         )
+        if patch.isEmpty {
+            throw CLIError("give at least one of --title, --kind, --status, --priority, --due, --no-due, --list, --doing, --no-doing", code: 64)
+        }
         let response = try call(Request(op: .update, id: id, patch: patch))
         if json { return printJSON(response) }
         if let item = response.item { print("updated \(item.id)  \(item.title)") }

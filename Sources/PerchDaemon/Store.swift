@@ -93,7 +93,8 @@ public final class Store {
         return n
     }
 
-    /// Every item column, then whether it is Doing (#71): that lives on the todo's reference, so it follows the short id.
+    /// Every item column (0–15), then whether it is Doing (#71, column 16, read by `item(from:)`): that lives on the
+    /// todo's reference, so it follows the short id.
     private func select(_ tail: String, _ args: [SQLValue]) throws -> [Item] {
         var items: [Item] = []
         let doing = "COALESCE((SELECT doing FROM todo_refs WHERE todo_refs.id = items.id), 0)"
