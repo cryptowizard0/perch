@@ -3,7 +3,7 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-20 · **v0.4.4 已发布**（dsh / DeepSeek：终端 UI（M15，#73）和 dsh web（M16，#80）、新的鲸鱼图标（#82）、Ghostty 符号链接修复）· v0.4.3（Todo tab、Todo 搬进 Reminders、更多列表 / Lists… / Doing、收起态 todo 数、小怪物更多动作）· v0.4.2（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.3`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50 · 收起态右翼的 todo 图标和数（#56）已完成，PR #57 squash 合并为 `0c267b8`，见下方"收起态右翼的 todo 数" · **更多 Reminders 列表（M14，#66）完成**：#69（数据通路、列表选择、Todo tab 和 CLI 按列表分组）、#70（Lists… 窗口、列表选择器、`--list`）、#71（优先级胶囊、Doing，schema v7）2026-10-19 维护者验收通过，PR #72 squash 合并为 `4e4131c`，#66 已关，见下方"更多 Reminders 列表（M14）"；随 v0.4.3 发布
+最后更新：2026-10-20 · **v0.4.4 已发布**（dsh / DeepSeek：终端 UI（M15，#73）和 dsh web（M16，#80）、新的鲸鱼图标（#82）、Ghostty 符号链接修复）· 发版后 main 上：展开态左右分栏（#83）和点优先级胶囊（#85），PR #84 合并为 `ebe06f4`，见下方"展开态左右分栏" · v0.4.3（Todo tab、Todo 搬进 Reminders、更多列表 / Lists… / Doing、收起态 todo 数、小怪物更多动作）· v0.4.2（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.3`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50 · 收起态右翼的 todo 图标和数（#56）已完成，PR #57 squash 合并为 `0c267b8`，见下方"收起态右翼的 todo 数" · **更多 Reminders 列表（M14，#66）完成**：#69（数据通路、列表选择、Todo tab 和 CLI 按列表分组）、#70（Lists… 窗口、列表选择器、`--list`）、#71（优先级胶囊、Doing，schema v7）2026-10-19 维护者验收通过，PR #72 squash 合并为 `4e4131c`，#66 已关，见下方"更多 Reminders 列表（M14）"；随 v0.4.3 发布
 
 ## 发布
 
@@ -664,14 +664,14 @@ v0.5 接更多 agent（#24）的第二个。dsh 是 DeepSeek 的 Node agent 框�
 - **实测**（隔离的 `DSH_HOME` 链接 `~/.dsh/profiles/web`，假模型，浏览器面板）：见 MILESTONES 的 M16。坑：浏览器面板里 `find` 返回的 ref 每次都会变，点之前要用这次的；`about:blank` 在浏览器面板里不能用，要"关掉"页面就导航到别的本地地址。
 - 测试里 `sameTree` 的符号链接用例原来依赖 `/tmp/perch-dsh-real` 这个目录存在（删了就失败），改成测试自己建目录。
 
-## 展开态左右分栏（#83，2026-10-20）
+## 展开态左右分栏 + 点优先级胶囊（#83 / #85，2026-10-20）
 
-**状态**：🚧 代码、测试和文档完成，在分支 `feat/split-panel`，等维护者在有刘海的屏上看一眼。
+**状态**：✅ 完成。2026-10-20 维护者装上用过（分栏和点胶囊都能用），PR #84 squash 合并为 `ebe06f4`，#83 / #85 已关。刘海屏上标题避开刘海没单独实测。
 
 - **起因**：维护者说展开后 Todo 和 Agents 要切 tab，不方便也不好看。讨论了三种：左右分栏、一条不分来源的"注意力"列表、保留 tab 但把开关挪到两翼；维护者选左右分栏，同意加宽。注意力列表留作以后的方向。
 - **做法**：`ExpandedPanel` 是 `HStack`（`SessionList` | 细线 | `TodoColumn`），宽 760；条带是 `ExpandedBand`（最左 Agents、最右 Todo + 摘要，避开刘海）；`PanelLayout.expandedHeight` 取两栏高的那个；`lineLength` 52 → 41（实测 41 个等宽字符正好折行）；Todo 栏的 `ScrollView` 最高只到列表的估计高度，所以 "+ Add a todo" 紧跟列表。删了 `PanelTab`、`QueueModel.tab` / `pick`、`Panel.attention`、`PERCH_PIN_TAB` 和切 tab 的高度动画。
 - **截图**（隔离 perchd + `PERCH_PIN_EXPANDED=1`，假会话，往 "Perch Dev" 加了 5 条 todo、看完删掉）：两栏、Needs you 的完整命令折行、Doing 行、胶囊、日期都放得下。这台机器当时只有无刘海的屏（胶囊样式），**刘海屏上标题避开刘海没实测**。
-- **点优先级胶囊（#85，同一个分支）**：维护者用了分栏后要点胶囊就能改优先级。`PriorityMenuArea`（`NSViewRepresentable`，`NSMenu.popUp(positioning:)`，当前的打勾、盖在胶囊上），选了才走 `setPriority`。点击没法合成，等维护者手点验收。
+- **点优先级胶囊（#85，同一个 PR）**：维护者用了分栏后要点胶囊就能改优先级。`PriorityMenuArea`（`NSViewRepresentable`，`NSMenu.popUp(positioning:)`，当前的打勾、盖在胶囊上），选了才走 `setPriority`。点击没法合成，维护者手点验收通过。
 
 ## 未决问题
 
