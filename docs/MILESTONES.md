@@ -217,7 +217,7 @@
 - [x] `swift build` / `swift test` 通过；CLAUDE.md、PRD、README、project.md、调研文档更新
 - [x] 验收（真模型，2026-10-19，维护者本机，Claude 按维护者要求跑的；dsh 0.2.1-rc.2 + dsh-tui 0.16.1，`scripts/install.sh` 装的这个分支，Ghostty）：`perch setup dsh` 连上；ask_user 回答 / Esc → Needs you → Done；越出沙箱的命令 → Needs you（完整命令 + dsh 的理由），批准 / 拒绝 / Esc 都 → Done；Esc 打断 → Idle；真实的模型错误 → Failed（dsh 的原话）；`/new`、`/exit` 马上移除；关 Ghostty 窗口 → 约 56 秒后被 pid 存活检测清掉；两个项目两行，各自跳回自己的 Ghostty terminal；`dsh headless` 不出现；断开后 `~/.dsh/cordis.patch.yml` 被删掉（装之前就没有），重新连上。验收中修了两处：Ghostty terminal 对比解析符号链接、Done 那行跳过 `⏵` 旁白
 
-## M16 — dsh web 的会话上刘海（#80，#24）
+## M16 — dsh web 的会话上刘海（#80，#24）✅
 
 设计见 #80；推翻 #73 的"只支持终端 UI"（2026-10-20 维护者要的），`dsh headless` 照旧不显示。
 
