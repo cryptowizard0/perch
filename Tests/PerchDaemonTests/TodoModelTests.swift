@@ -147,49 +147,6 @@ import Testing
         #expect(model.todos.openCount == 0)
     }
 
-    @Test func thePanelOpensOnAgentsWhileOneNeedsYouOrFailed() async throws {
-        let d = try TestDaemon()
-        let model = try await connected(d, FakeRemindersStore())
-        defer { model.disconnect() }
-        model.expanded = true
-        #expect(model.tab == .agents)
-        model.pick(.todo)
-        #expect(model.tab == .todo)
-        model.expanded = false
-        model.expanded = true
-        #expect(model.tab == .todo)
-
-        // Open on Todo: a session needing you dots the Agents icon orange and does not switch tabs.
-        try report(d, "a", .waiting)
-        try await until { model.panel.attention == .waiting }
-        #expect(model.tab == .todo)
-        model.expanded = false
-        model.expanded = true
-        #expect(model.tab == .agents)
-
-        // Failed: a red dot, and still Agents first.
-        try report(d, "a", .failure)
-        try await until { model.panel.attention == .failed }
-        model.expanded = false
-        model.expanded = true
-        #expect(model.tab == .agents)
-
-        // Nothing urgent: back to the tab last picked.
-        try report(d, "a", .prompt)
-        try await until { model.panel.attention == nil }
-        model.expanded = false
-        model.expanded = true
-        #expect(model.tab == .todo)
-
-        // A relaunch starts on Agents.
-        let relaunched = QueueModel()
-        relaunched.connect(client: d.client)
-        defer { relaunched.disconnect() }
-        try await until { relaunched.online }
-        relaunched.expanded = true
-        #expect(relaunched.tab == .agents)
-    }
-
     @Test func todosNeverTouchTheFoldedNotch() async throws {
         let d = try TestDaemon()
         let store = FakeRemindersStore()

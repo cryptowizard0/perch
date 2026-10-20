@@ -115,8 +115,8 @@ import Testing
 
     @Test func heightFollowsTheGroupsAndScrollsPastTheCap() {
         let empty = PanelLayout.todoHeight(TodoList(items: []))
-        // The title, and "+ Add a todo" fixed at the bottom.
-        #expect(empty == PanelLayout.titleHeight + PanelLayout.addRowHeight)
+        // "+ Add a todo" fixed at the bottom; the summary is in the band (#83).
+        #expect(empty == PanelLayout.addRowHeight)
         let one = PanelLayout.todoHeight(TodoList(items: [todo("a", in: perch)], lists: [perch]))
         #expect(one == empty + PanelLayout.headerHeight + PanelLayout.todoRowHeight)
         let two = PanelLayout.todoHeight(TodoList(items: [todo("a", in: perch), todo("b", .high, in: perch)], lists: [perch]))
@@ -126,45 +126,24 @@ import Testing
         #expect(withEmpty == one + PanelLayout.headerHeight + PanelLayout.todoRowHeight)
         let many = TodoList(items: (0..<60).map { todo("t\($0)") })
         #expect(PanelLayout.todoHeight(many) == PanelLayout.maxListHeight)
-        #expect(PanelLayout.todoHeight(many, online: false) == PanelLayout.titleHeight + PanelLayout.messageHeight)
+        #expect(PanelLayout.todoHeight(many, online: false) == PanelLayout.messageHeight)
         // Without the list (Connect Reminders and the like), the message and its button, whatever perchd caches.
         for state in [RemindersState.connect, .openSettings, .createList] {
-            #expect(PanelLayout.todoHeight(many, reminders: state) == PanelLayout.titleHeight + PanelLayout.remindersHeight)
+            #expect(PanelLayout.todoHeight(many, reminders: state) == PanelLayout.remindersHeight)
         }
         #expect(PanelLayout.todoHeight(many, reminders: .ready(iCloud: false)) == PanelLayout.maxListHeight)
-        #expect(PanelLayout.maxListHeight > PanelLayout.titleHeight + PanelLayout.addRowHeight + PanelLayout.todoRowHeight * 10)
-        // Each tab is sized for itself.
-        let panel = Panel(sessions: [])
-        #expect(PanelLayout.listHeight(.todo, panel: panel, todos: many) == PanelLayout.maxListHeight)
-        #expect(PanelLayout.listHeight(.agents, panel: panel, todos: many) == PanelLayout.messageHeight)
-    }
-}
-
-/// Which tab the panel opens on, and the dot on the Agents icon.
-@Suite struct PanelTabTests {
-    func session(_ id: String, _ status: SessionStatus, source: String = "claude-code") -> Session {
-        var s = Session(id: id, source: source, title: id)
-        s.status = status
-        return s
-    }
-
-    @Test func theAgentsDotIsOrangeThenRed() {
-        #expect(Panel(sessions: []).attention == nil)
-        #expect(Panel(sessions: [session("a", .running), session("b", .done), session("c", .idle)]).attention == nil)
-        #expect(Panel(sessions: [session("a", .failed), session("b", .running)]).attention == .failed)
-        #expect(Panel(sessions: [session("a", .failed), session("b", .waiting)]).attention == .waiting)
-        // Hermes stays out of the panel, and of the dot.
-        #expect(Panel(sessions: [session("h", .waiting, source: "hermes")]).attention == nil)
-    }
-
-    @Test func agentsWinWhileOneNeedsYouOrFailed() {
-        for status in SessionStatus.allCases {
-            let panel = Panel(sessions: [session("a", status)])
-            let urgent = status == .waiting || status == .failed
-            #expect(PanelTab.opening(picked: .todo, panel: panel) == (urgent ? .agents : .todo))
-            #expect(PanelTab.opening(picked: .agents, panel: panel) == .agents)
-        }
-        #expect(PanelTab.opening(picked: .todo, panel: Panel(sessions: [])) == .todo)
+        #expect(PanelLayout.maxListHeight > PanelLayout.addRowHeight + PanelLayout.todoRowHeight * 10)
+        // Side by side (#83): the taller column sets the height, whichever it is.
+        let none = Panel(sessions: [])
+        #expect(PanelLayout.expandedHeight(panel: none, todos: many) == PanelLayout.maxListHeight)
+        #expect(PanelLayout.expandedHeight(panel: none, todos: TodoList(items: [])) == PanelLayout.messageHeight)
+        var waiting = Session(id: "w", source: "claude-code", title: "w")
+        waiting.status = .waiting
+        waiting.detail = String(repeating: "x", count: 400)
+        let tall = Panel(sessions: [waiting])
+        #expect(PanelLayout.expandedHeight(panel: tall, todos: TodoList(items: [])) == PanelLayout.listHeight(tall))
+        #expect(PanelLayout.listHeight(tall) > PanelLayout.todoHeight(TodoList(items: [])))
+        #expect(PanelLayout.expandedHeight(panel: tall, todos: many, online: false) == PanelLayout.messageHeight)
     }
 }
 

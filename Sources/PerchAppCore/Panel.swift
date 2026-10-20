@@ -202,34 +202,30 @@ public enum PanelLayout {
     public static let cardLineHeight: CGFloat = 22
     /// The card's title and its buttons, with padding.
     public static let cardChromeHeight: CGFloat = 84
-    /// Monospaced characters per line at the panel's width.
-    static let lineLength = 52
+    /// Monospaced characters per line in the Agents column (#83).
+    static let lineLength = 41
 
-    /// The Todo tab's title and summary line.
-    public static let titleHeight: CGFloat = 46
     public static let todoRowHeight: CGFloat = 26
     /// "+ Add a todo", fixed under the list (#43).
     public static let addRowHeight: CGFloat = 30
-    /// The Todo tab without its list (#51): a line and one button (Connect Reminders, …).
+    /// The Todo column without its list (#51): a line and one button (Connect Reminders, …).
     public static let remindersHeight: CGFloat = 80
 
-    /// The expanded notch below the band, for the tab it shows.
-    public static func listHeight(_ tab: PanelTab, panel: Panel, todos: TodoList, reminders: RemindersState? = nil,
-                                  online: Bool = true) -> CGFloat {
-        switch tab {
-        case .agents: return listHeight(panel, online: online)
-        case .todo: return todoHeight(todos, reminders: reminders, online: online)
-        }
+    /// The expanded notch below the band (#83): Agents and Todo side by side, as tall as the taller column (each
+    /// scrolls past the cap on its own).
+    public static func expandedHeight(panel: Panel, todos: TodoList, reminders: RemindersState? = nil,
+                                      online: Bool = true) -> CGFloat {
+        max(listHeight(panel, online: online), todoHeight(todos, reminders: reminders, online: online))
     }
 
-    /// The title and summary, the groups, then "+ Add a todo" (or, with perchd offline, a one-line message; without
-    /// the Reminders list, its message and button).
+    /// The groups, then "+ Add a todo" (or, with perchd offline, a one-line message; without the Reminders list, its
+    /// message and button). The summary is in the band.
     public static func todoHeight(_ todos: TodoList, reminders: RemindersState? = nil, online: Bool = true) -> CGFloat {
-        if let reminders, !reminders.isReady { return titleHeight + remindersHeight }
-        guard online else { return titleHeight + messageHeight }
+        if let reminders, !reminders.isReady { return remindersHeight }
+        guard online else { return messageHeight }
         // An empty list's group still has its header and an "All clear" row (#69).
         let groups = todos.groups.reduce(CGFloat(0)) { $0 + headerHeight + CGFloat(max($1.items.count, 1)) * todoRowHeight }
-        return min(titleHeight + groups + addRowHeight, maxListHeight)
+        return min(groups + addRowHeight, maxListHeight)
     }
 
     /// Setup, then the groups (or, with no sessions or perchd offline, a one-line message).
