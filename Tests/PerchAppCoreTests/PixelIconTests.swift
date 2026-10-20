@@ -37,9 +37,10 @@ import Testing
         #expect(!icon.isOn(x: -1, y: 0) && !icon.isOn(x: icon.grid, y: 0) && !icon.isOn(x: 0, y: icon.grid))
     }
 
-    /// The ChatGPT-like knot needs the finer grid; the others stay chunky.
+    /// The ChatGPT-like knot and the DeepSeek whale need the finer grid; the others stay chunky.
     @Test func codexIsTheFineOne() {
         #expect(PixelIcon.codex.grid == 24 && PixelIcon.codex.cellSize == 0.5)
+        #expect(PixelIcon.dsh.grid == 24, "the whale needs the fine grid too: on 12 cells it was a blob")
         #expect(PixelIcon.claudeCode.grid == 12 && PixelIcon.claudeCode.cellSize == 1)
     }
 }
