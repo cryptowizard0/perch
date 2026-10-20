@@ -178,7 +178,7 @@ struct AddTodoRow: View {
 /// few seconds (clicking again undoes); double-clicking does nothing more. The date is gray, white once overdue; hovering
 /// the row shows the full title and date. ▶ toggles Doing: gray and only while the pointer is on the row, or white and
 /// filled on a Doing row, which also gets a light background and a bold title so it stands out. The capsule is the
-/// priority, display-only. ✎ opens the reminder in Reminders.
+/// priority; clicking it pops up High / Normal / Low (#85). ✎ opens the reminder in Reminders.
 /// Right-click: Edit… · Priority ▸ · Delete.
 /// A todo just added while the panel is open is lit for a second.
 struct TodoRowView: View {
@@ -237,6 +237,12 @@ struct TodoRowView: View {
             .allowsHitTesting(showsDoing)
             .help(item.doing ? "Doing — click to clear" : "Mark as Doing")
             PriorityCapsule(priority: item.priority)
+                .overlay {
+                    if !completing {
+                        PriorityMenuArea(current: item.priority) { queue.setPriority(item, $0) }
+                            .help("Priority")
+                    }
+                }
             Button { queue.openInReminders(item) } label: {
                 Image(systemName: "pencil")
                     .font(.system(size: 11.5, weight: .semibold))
@@ -272,7 +278,7 @@ struct TodoRowView: View {
 }
 
 /// A todo's priority (#71): its name on a translucent capsule of the same colour. High orange, Normal gray (the faintest,
-/// so the many Normal rows recede), Low green. Display-only: Priority ▸ and the editor change it.
+/// so the many Normal rows recede), Low green. A click on it pops up the choice (`PriorityMenuArea`, #85).
 struct PriorityCapsule: View {
     var priority: ItemPriority
 
@@ -292,6 +298,49 @@ struct PriorityCapsule: View {
         case .high: return SessionStatus.color(.waiting)
         case .normal: return .white
         case .low: return SessionStatus.color(.running)
+        }
+    }
+}
+
+/// Clicking the priority capsule (#85): High / Normal / Low pop up over it like a pop-up button, the current one checked
+/// and drawn where the capsule is; choosing one writes it, anything else leaves it alone. An AppKit menu, like the row's
+/// right-click menu, because the notch panel is never key.
+struct PriorityMenuArea: NSViewRepresentable {
+    var current: ItemPriority
+    var pick: (ItemPriority) -> Void
+
+    func makeNSView(context: Context) -> MenuView {
+        MenuView()
+    }
+
+    func updateNSView(_ view: MenuView, context: Context) {
+        view.current = current
+        view.pick = pick
+    }
+
+    final class MenuView: NSView {
+        var current: ItemPriority = .normal
+        var pick: ((ItemPriority) -> Void)?
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            for priority in ItemPriority.allCases {
+                let item = NSMenuItem(title: priority.label, action: #selector(choose(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = priority.rawValue
+                item.state = priority == current ? .on : .off
+                menu.addItem(item)
+            }
+            let checked = menu.items.first { $0.state == .on }
+            menu.popUp(positioning: checked, at: NSPoint(x: 0, y: isFlipped ? 0 : bounds.height), in: self)
+        }
+
+        @objc private func choose(_ sender: NSMenuItem) {
+            guard let raw = sender.representedObject as? String, let priority = ItemPriority(rawValue: raw) else { return }
+            pick?(priority)
         }
     }
 }
