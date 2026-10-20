@@ -3,12 +3,13 @@
 > 给接手的 session：先读本文，再读 `CLAUDE.md`（架构铁律）、`docs/MILESTONES.md`（逐项验收清单）、`docs/PRD.md`（产品需求）。
 > 本文负责"做到哪了、下一步怎么做、有哪些坑"；验收框以 `docs/MILESTONES.md` 为准，两边进度要同步更新。
 
-最后更新：2026-10-20 · **M16 dsh web 的会话上刘海已合并**（#80：PR #81）· **M15 dsh（DeepSeek Harness）已合并**（#73：PR #77 / #78 / #79）· 两者都还没发版· **v0.4.3 已发布**（Todo tab、Todo 搬进 Reminders、更多列表 / Lists… / Doing、收起态 todo 数、小怪物更多动作）· v0.4.2（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.3`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50 · 收起态右翼的 todo 图标和数（#56）已完成，PR #57 squash 合并为 `0c267b8`，见下方"收起态右翼的 todo 数" · **更多 Reminders 列表（M14，#66）完成**：#69（数据通路、列表选择、Todo tab 和 CLI 按列表分组）、#70（Lists… 窗口、列表选择器、`--list`）、#71（优先级胶囊、Doing，schema v7）2026-10-19 维护者验收通过，PR #72 squash 合并为 `4e4131c`，#66 已关，见下方"更多 Reminders 列表（M14）"；随 v0.4.3 发布
+最后更新：2026-10-20 · **v0.4.4 已发布**（dsh / DeepSeek：终端 UI（M15，#73）和 dsh web（M16，#80）、新的鲸鱼图标（#82）、Ghostty 符号链接修复）· v0.4.3（Todo tab、Todo 搬进 Reminders、更多列表 / Lists… / Doing、收起态 todo 数、小怪物更多动作）· v0.4.2（事件横幅、小怪物动画）· v0.4.1（Grok、提示音、选显示器）· v0.4.0（零配置安装，#25：PR #30 squash 合并为 `a3558b0`）· v0.3.0 是刘海小怪物（#22 / #23）· v0.2.0 是第一阶段（M1–M8）· 只支持 Claude Code 和 Codex（Hermes 暂不支持，M9 搁置）· `main` 的版本号就是最近发布的版本（现在是 `0.4.3`，2026-10-14 用户定：不再用 `-dev`）· 零配置安装 #25 全部完成并关闭（#26–#29，2026-10-12 验收；v0.3 换 App 升级维护者定不测）；#26 / #27 已随 PR #30 关闭。各步细节见下方"零配置安装 #27 / #28 / #29" · **v0.5 进行中**：Grok（#31 / M11）已完成，PR #33 squash 合并为 `1f83a18`，见下方"M11 进度" · 提示音（#35）已完成，PR #36 squash 合并为 `6c8c3e2`，见下方"提示音 #35" · 多屏选显示器（#37）已完成，PR #38 squash 合并为 `7a88ea3`，随 v0.4.1 发布 · 事件横幅 + 小怪物动画（#39）已完成，PR #40 squash 合并为 `a4262c3`，见下方"事件横幅与小怪物动画 #39" · **Todo tab（M12，#41）进行中**：#42（priority、tab 栏、Todo tab、完成 + 撤销）PR #46 squash 合并为 `c206c27`；#43（弹窗、编辑、删除、文档）在分支 `todo-entry-popup`，等维护者用一天后验收，见下方"Todo tab（M12）" · **Todo 搬进 Apple Reminders（M13，#50）完成**：#51（bridge）、#52（CLI / inbox 经 bridge 写）、#53（日期、✎、大编辑器）2026-10-16 维护者验收通过；#52 / #53 在 PR #54，见下方"Todo 搬进 Reminders（M13）"；只剩两个延迟数字没记到 #50 · 收起态右翼的 todo 图标和数（#56）已完成，PR #57 squash 合并为 `0c267b8`，见下方"收起态右翼的 todo 数" · **更多 Reminders 列表（M14，#66）完成**：#69（数据通路、列表选择、Todo tab 和 CLI 按列表分组）、#70（Lists… 窗口、列表选择器、`--list`）、#71（优先级胶囊、Doing，schema v7）2026-10-19 维护者验收通过，PR #72 squash 合并为 `4e4131c`，#66 已关，见下方"更多 Reminders 列表（M14）"；随 v0.4.3 发布
 
 ## 发布
 
 | 版本 | 日期 | 内容 |
 | --- | --- | --- |
+| [v0.4.4](https://github.com/cryptowizard0/perch/releases/tag/v0.4.4) | 2026-10-20 | dsh（DeepSeek Harness）上刘海：终端 UI（M15，#73–#76，PR #77 / #78 / #79）和 dsh web（M16，#80，PR #81），新的鲸鱼图标（PR #82）；验收时修的 Ghostty 符号链接匹配（所有 agent）和 dsh-tui 的 `⏵` 旁白。没有数据库迁移。tag 打在 `48a65a2`（`chore: release v0.4.4`），zip 的 sha256 `2f1a2d28…`，cask 在 `8f045e7` |
 | [v0.4.3](https://github.com/cryptowizard0/perch/releases/tag/v0.4.3) | 2026-10-19 | Todo tab（M12，#41–#43，PR #46 / #47）、todo 搬进 Apple Reminders（M13，#50–#53，PR #51 / #54）、收起态右翼的 todo 数（#56，PR #57）、小怪物更多动作（#58–#64，PR #65 / #67）、更多 Reminders 列表 / Lists… 窗口 / `--list` / 优先级胶囊 / Doing（M14，#66，PR #72，schema v7）。用户定发 0.4.3（不是 0.5.0）。tag 打在 `b3fbb4c`（`chore: release v0.4.3`），zip sha256 `319b2f89…`（下载回来核对过），cask 改版本在随后的 `chore(cask): perch 0.4.3`（`a70caa5`）；release notes 提醒了 `perch ls` / `todo.md` 的新排序和 schema v7 不能回退；`main` 停在 `0.4.3` |
 | [v0.4.2](https://github.com/cryptowizard0/perch/releases/tag/v0.4.2) | 2026-10-14 | 事件横幅、小怪物第二段反应和闲时彩蛋（#39，PR #40）。用户定发 0.4.2。tag 打在 `cece3b8`（`chore: release v0.4.2`），zip sha256 `38856d71…`，cask 改版本在随后的 `chore(cask): perch 0.4.2`；`main` 停在 `0.4.2` |
 | [v0.4.1](https://github.com/cryptowizard0/perch/releases/tag/v0.4.1) | 2026-10-14 | Grok Build（#31，PR #33）、提示音（#35，PR #36）、选显示器（#37，PR #38）、后台任务通知不再盖掉 prompt（#32，PR #34）。用户定发 0.4.1（不是 0.5.0），tag 打在 `a58f016`（`chore: release v0.4.1`），zip sha256 `79290e52…`，cask 改版本在随后的 `chore(cask): perch 0.4.1`；`main` 先改回 `0.5.0-dev`，用户看到 `install.sh` 装出来是 0.5.0-dev，定版本统一用 0.4.1，`main` 就停在 `0.4.1` |
@@ -643,7 +644,7 @@ PR #57 squash 合并为 `0c267b8`，#56 已关；合并前从分支装到了本�
 
 ## M15 进度：dsh（DeepSeek Harness，#73，2026-10-19）
 
-**状态**：✅ 完成。2026-10-19 真模型验收通过（维护者本机，Claude 按维护者要求跑的），PR #79 squash 合并为 `5a2ed8b`，#73 和三个子 issue 都已关。还没发版（下一个版本带上）。
+**状态**：✅ 完成。2026-10-19 真模型验收通过（维护者本机，Claude 按维护者要求跑的），PR #79 squash 合并为 `5a2ed8b`，#73 和三个子 issue 都已关。v0.4.4 发布（2026-10-20）。
 
 v0.5 接更多 agent（#24）的第二个。dsh 是 DeepSeek 的 Node agent 框架，profile 由 cordis 插件一层层叠出来；只能从里面扩展，所以 Perch 带一个只搬运事件的 JS 插件（CLAUDE.md 规则 7 的唯一例外，#73 定），状态全在 Swift 里判。
 
@@ -655,7 +656,7 @@ v0.5 接更多 agent（#24）的第二个。dsh 是 DeepSeek 的 Node agent 框�
 
 ## M16 进度：dsh web 的会话上刘海（#80，2026-10-20）
 
-**状态**：✅ 完成。2026-10-20 隔离环境端到端和真模型检查（维护者自己的 dsh web）都通过，PR #81 squash 合并为 `bc9307b`，#80 已关。还没发版（下一个版本带上）。
+**状态**：✅ 完成。2026-10-20 隔离环境端到端和真模型检查（维护者自己的 dsh web）都通过，PR #81 squash 合并为 `bc9307b`，#80 已关。v0.4.4 发布（2026-10-20）。
 
 起因：维护者在 dsh web 里发消息，刘海没反应——#73 定了只支持终端 UI，插件看到 `webStartup` 就不动。一开始以为是 dsh web 本身坏了：19 号 17:18 起的那个 dsh web 确实卡住了（HTTP 正常、不吃 CPU，但不回消息），重开就好了，和 Perch 无关（隔离实例有没有 Perch 那一行、运行中加 / 删那一行都正常回复）；维护者重开后还是"不行"，看 dsh 的投影缓存（只看状态字段）才确认 web 会话每轮都回复了，"不行"指的是刘海不显示。
 
