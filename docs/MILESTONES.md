@@ -227,4 +227,4 @@
 - [x] perchd：链接是 http(s) 的会话（`Session.livesInBrowser`）Idle 满 30 分钟就移除（`reap`，不改 schema），新的 prompt 让它回来
 - [x] 端到端（隔离的 perchd + dsh web + 假模型 + 浏览器）：打开页面不出行；第一条 prompt 出行（链接 `http://127.0.0.1:3095`、服务的 pid）；越出沙箱的命令 → Needs you + "Answer in dsh web: …"，在网页里拒绝 → Done；ask_user → Needs you，在网页里回答 → Done；Ctrl+C 停服务 → 行马上没了；hook.log 干净（2026-10-20）
 - [x] `swift build` / `swift test` 通过；CLAUDE.md、PRD、README 更新
-- [ ] 真模型：维护者自己的 dsh web（装这个分支、重开 dsh web）发一条 → 刘海出行，点行打开浏览器
+- [x] 真模型（2026-10-20，维护者本机，Claude 按维护者要求跑的；dsh 0.2.1-rc.2，`scripts/install.sh` 装的这个分支，二进制同步顺带把 `perch-dsh.mjs` 换成新的；在维护者那个 Ghostty 标签页里重开 dsh web）：发一条 → 出行（`perch-dsh-ws`，链接 `http://127.0.0.1:3080`，服务的 pid）→ Done（回复首行）；越出沙箱的命令 → Needs you + "Answer in dsh web: …"（完整命令 + 理由），在网页里拒绝 → Done（"refused"）；ask_user → Needs you（问题 + "Answer in dsh web"），在网页里回答 → Done；打开行的链接 → 默认浏览器（Chrome）打开 dsh web、已登录（dsh web 启动时自己用带 token 的地址打开过）

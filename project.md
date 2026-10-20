@@ -37,7 +37,7 @@
 | M13 | Todo 搬进 Apple Reminders（#50：#51 / #52 / #53） | ✅ 完成 | #51 bridge、#52 CLI / inbox 经 bridge 写、#53 日期 / ✎ / 大编辑器，2026-10-16 维护者验收通过（见"Todo 搬进 Reminders（M13）"）；App 写入 → `EKEventStoreChanged` 和 iCloud 手机 → Mac 的延迟还没记到 #50 |
 | M14 | 更多 Reminders 列表，按列表分组（#66：#69 / #70 / #71） | ✅ 完成 | 605 个测试；2026-10-19 维护者验收通过，PR #72 squash 合并为 `4e4131c`，#66 / #69 / #70 / #71 已关（见"更多 Reminders 列表（M14）"） |
 | M15 | dsh（DeepSeek Harness，#73：#74 / #75 / #76，v0.5 第二个新 agent） | ✅ 完成 | 632 个测试；2026-10-19 真模型验收通过；PR #77 / #78 / #79 squash 合并为 `36d20d3` / `e68848f` / `5a2ed8b`，#73 / #74 / #75 / #76 已关（见"M15 进度"） |
-| M16 | dsh web 的会话上刘海（#80） | 🚧 待验收 | 代码、测试、文档做完，隔离环境端到端通过；等维护者在自己的 dsh web 里用真模型试（见"M16 进度"） |
+| M16 | dsh web 的会话上刘海（#80） | 🚧 待合并 | 代码、测试、文档做完；隔离环境端到端和 2026-10-20 真模型检查都通过，PR #81 等合并（见"M16 进度"） |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
