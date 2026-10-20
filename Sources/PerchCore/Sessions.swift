@@ -58,6 +58,12 @@ public struct Session: Codable, Equatable, Identifiable, Sendable {
         updatedAt = startedAt
     }
 
+    /// The session lives in a browser (`dsh web`, #80): its link is an http(s) address, not a terminal.
+    public var livesInBrowser: Bool {
+        guard let link, let scheme = URL(string: link)?.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, source, title, cwd, link, status, prompt, detail, error, pid
         case lastMessage = "last_message"

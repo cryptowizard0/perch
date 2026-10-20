@@ -8,6 +8,7 @@ import Testing
         let terminal = "perch-terminal://ghostty?id=T1&cwd=/w/perch"
         #expect(JumpTarget(link: terminal) == .terminal(TerminalLink(app: "ghostty", terminalID: "T1", cwd: "/w/perch")))
         #expect(JumpTarget(link: "https://x/pr/1") == .open(URL(string: "https://x/pr/1")!))
+        #expect(JumpTarget(link: "http://127.0.0.1:3080") == .open(URL(string: "http://127.0.0.1:3080")!))  // dsh web (#80)
         #expect(JumpTarget(link: "/tmp") == .open(URL(fileURLWithPath: "/tmp")))
         #expect(JumpTarget(link: "tmux:main") == nil)
         #expect(JumpTarget(link: nil) == nil)

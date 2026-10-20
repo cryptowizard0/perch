@@ -13,7 +13,8 @@ import PerchCore
 /// current turn is only kept in memory; after a restart the time rule alone decides.
 ///
 /// Sessions also end without an event (a closed terminal tab sends no SessionEnd): `reap()` removes those whose
-/// agent process is gone, and those without a known process after `silenceLifetime` without events.
+/// agent process is gone, those without a known process after `silenceLifetime` without events, and browser sessions
+/// idle for `browserIdleLifetime`.
 public final class SessionRegistry {
     /// Done turns to idle after this long without anyone looking.
     public static let doneLifetime: TimeInterval = 10 * 60
@@ -23,6 +24,9 @@ public final class SessionRegistry {
     public static let livenessInterval: TimeInterval = 30
     /// A session without a pid (Hermes, a node-launched agent) goes after this long without events.
     public static let silenceLifetime: TimeInterval = 24 * 3600
+    /// A session that lives in a browser (`dsh web`, #80) goes after this long idle: the browser never says a session
+    /// is closed, and the server keeps every session loaded while it runs.
+    public static let browserIdleLifetime: TimeInterval = 30 * 60
 
     public struct Outcome {
         public var response: Response
@@ -198,7 +202,9 @@ public final class SessionRegistry {
     public func reap() -> [SessionEvent] {
         guard let all = try? store.sessions() else { return [] }
         let silentSince = now().addingTimeInterval(-Self.silenceLifetime)
+        let quietSince = now().addingTimeInterval(-Self.browserIdleLifetime)
         return all.filter { s in
+            if s.livesInBrowser, s.status == .idle, s.statusAt <= quietSince { return true }
             guard let pid = s.pid else { return s.updatedAt < silentSince }
             return !isAlive(pid: pid, startedAt: s.pidStartedAt)
         }.compactMap { try? delete($0) }

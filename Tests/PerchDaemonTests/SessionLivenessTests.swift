@@ -57,6 +57,39 @@ import Testing
         #expect(ended.type == .ended && ended.session.id == "dies")
     }
 
+    /// A session that lives in a browser (`dsh web`, #80) goes after 30 minutes idle: the browser never says it's
+    /// closed and the server keeps it loaded. Terminal sessions and busy browser sessions stay.
+    @Test func anIdleBrowserSessionGoesAfterThirtyMinutes() throws {
+        let clock = Clock(t0)
+        let processes = Processes()
+        processes[7000] = t0.addingTimeInterval(-60)
+        let d = try daemon(clock, processes)
+        func send(_ id: String, _ kind: SessionReport.Kind, link: String) throws {
+            var r = SessionReport(id: id, kind: kind, at: clock.read(), source: "dsh", title: "perch", pid: 7000,
+                                  pidStartedAt: t0.addingTimeInterval(-60))
+            r.link = link
+            #expect(try d.client.send(Request(op: .sessionReport, report: r)).ok)
+        }
+        let web = "http://127.0.0.1:3080/"
+        try send("web-idle", .prompt, link: web)
+        try send("web-idle", .interrupt, link: web)
+        try send("web-busy", .prompt, link: web)
+        try send("tui-idle", .prompt, link: "perch-terminal://ghostty?id=T1")
+        try send("tui-idle", .interrupt, link: "perch-terminal://ghostty?id=T1")
+
+        clock.advance(SessionRegistry.browserIdleLifetime - 1)
+        d.daemon.reapSessions()
+        #expect(try ids(d) == ["web-idle", "web-busy", "tui-idle"])
+        clock.advance(1)
+        d.daemon.reapSessions()
+        #expect(try ids(d) == ["web-busy", "tui-idle"])
+
+        // A new prompt brings it back.
+        clock.advance(1)
+        try send("web-idle", .prompt, link: web)
+        #expect(try ids(d) == ["web-idle", "web-busy", "tui-idle"])
+    }
+
     @Test func aReusedPidIsNotTheAgent() throws {
         let clock = Clock(t0)
         let processes = Processes()

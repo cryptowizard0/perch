@@ -197,7 +197,7 @@ flowchart LR
 
 **v0.5（M11，#31）**：Grok Build 走同一个适配器 `perch hook grok`。Grok 没有 PermissionRequest，PreToolUse 的 `allow` 也不会跳过它的提示框，所以 Grok 不建 request，Needs you 只显示 Grok 的原话和"Answer in the terminal"（Grok 不说是哪条命令）。Grok 的取消报告可能晚于下一轮的 prompt，所以会话报告可以带轮次（`turn_id`），别的轮的结束报告丢掉。映射以 CLAUDE.md 的"Hook 适配"为准。
 
-**v0.5（M15，#73）**：dsh（DeepSeek Harness）只能从里面扩展，所以 Perch 带一个小插件，它把 dsh 自己的事件（开始一轮、要审批、ask_user、结束一轮的原因、会话关闭）规整后交给 `perch hook dsh`。只支持终端 UI（dsh-tui、`dsh tui`），`dsh web`（一个服务里很多会话、没有终端可跳）和 `dsh headless`（一次性，没人在等）不显示。dsh 几乎只为沙箱升级（`danger-full-access`）要审批，本来就在白名单外，所以刘海不能批准 dsh，Needs you 显示完整命令、dsh 给的理由和"Answer in the terminal"；ask_user 的问题也是 Needs you。安装零配置：设置卡片发现 `~/.dsh` 就能连，Perch 在 dsh 对所有 profile 生效的 home patch 层里写一行，不碰各个 profile。行上显示名 "DeepSeek"、鲸鱼图标。
+**v0.5（M15，#73）**：dsh（DeepSeek Harness）只能从里面扩展，所以 Perch 带一个小插件，它把 dsh 自己的事件（开始一轮、要审批、ask_user、结束一轮的原因、会话关闭）规整后交给 `perch hook dsh`。终端 UI（dsh-tui、`dsh tui`）和 `dsh web`（#80 起，2026-10-20）都显示，`dsh headless`（一次性，没人在等）不显示。web 会话的行点了在浏览器里打开 dsh web（它没有单个会话的地址，会话在侧栏里选），Needs you 写 "Answer in dsh web"；浏览器从不说会话关了，所以服务停了就全部移除，Idle 满 30 分钟的 web 会话也移除。dsh 几乎只为沙箱升级（`danger-full-access`）要审批，本来就在白名单外，所以刘海不能批准 dsh，Needs you 显示完整命令、dsh 给的理由和"Answer in the terminal"；ask_user 的问题也是 Needs you。安装零配置：设置卡片发现 `~/.dsh` 就能连，Perch 在 dsh 对所有 profile 生效的 home patch 层里写一行，不碰各个 profile。行上显示名 "DeepSeek"、鲸鱼图标。
 
 安装：`perch hooks install claude-code` 写 `~/.claude/settings.json`，`perch hooks install codex` 写 `~/.codex/hooks.json`（v0.4 起用户一般在刘海的设置卡片里点 Connect，写的是同样的 hook，见 #25）。Codex 的 hook 要在 codex 里用 `/hooks` 确认信任后才会跑。
 

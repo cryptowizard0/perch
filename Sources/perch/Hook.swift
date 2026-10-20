@@ -105,6 +105,8 @@ struct Hook: ParsableCommand {
     /// Where "jump back" goes. Captured when the human submits a prompt (that terminal has focus right then);
     /// later events reuse the session's link, since by then focus may be anywhere.
     func terminalLink(for input: HookInput, client: PerchClient, process: ProcessEntry?) -> String? {
+        // A `dsh web` session lives in the browser (#80), whichever terminal started the server.
+        if agent == "dsh", input.surface == "web" { return HookAdapter.dshWebLink(input) }
         let env = ProcessInfo.processInfo.environment
         let program = env["TERM_PROGRAM"].flatMap { $0.isEmpty ? nil : $0.lowercased() }
         var bundle = env["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 }

@@ -37,6 +37,7 @@
 | M13 | Todo 搬进 Apple Reminders（#50：#51 / #52 / #53） | ✅ 完成 | #51 bridge、#52 CLI / inbox 经 bridge 写、#53 日期 / ✎ / 大编辑器，2026-10-16 维护者验收通过（见"Todo 搬进 Reminders（M13）"）；App 写入 → `EKEventStoreChanged` 和 iCloud 手机 → Mac 的延迟还没记到 #50 |
 | M14 | 更多 Reminders 列表，按列表分组（#66：#69 / #70 / #71） | ✅ 完成 | 605 个测试；2026-10-19 维护者验收通过，PR #72 squash 合并为 `4e4131c`，#66 / #69 / #70 / #71 已关（见"更多 Reminders 列表（M14）"） |
 | M15 | dsh（DeepSeek Harness，#73：#74 / #75 / #76，v0.5 第二个新 agent） | ✅ 完成 | 632 个测试；2026-10-19 真模型验收通过；PR #77 / #78 / #79 squash 合并为 `36d20d3` / `e68848f` / `5a2ed8b`，#73 / #74 / #75 / #76 已关（见"M15 进度"） |
+| M16 | dsh web 的会话上刘海（#80） | 🚧 待合并 | 代码、测试、文档做完；隔离环境端到端和 2026-10-20 真模型检查都通过，PR #81 等合并（见"M16 进度"） |
 | M9 | Hermes 迁到会话模型 | ⏸ 搁置 | 2026-10-08 用户定：先只支持 Claude Code 和 Codex，Hermes 暂不支持。`install.sh` 不再装 Hermes hooks，本机已 `perch hooks uninstall hermes`；适配器和 `perch hooks install hermes` 代码保留，想恢复手动装即可 |
 
 ## v0.2 方向调整（2026-09-28，用户逐项拍板）
@@ -651,6 +652,14 @@ v0.5 接更多 agent（#24）的第二个。dsh 是 DeepSeek 的 Node agent 框�
 - **#76 安装**：home patch 层 `$DSH_HOME/cordis.patch.yml` 对所有 profile 生效（实测：`--dump-config` 里有那一行、注释保留、绝对路径变成 `file://`）；`name` 指向不存在的文件时 dsh 照样启动（实测），所以插件没了不会弄坏 dsh。插件不再从 App bundle 拷（CLI 在 `~/.perch/bin` 或 `.build/debug` 时旁边没有它），而是嵌进 PerchSetup（`scripts/dsh/embed-plugin.sh` 生成 `DshPluginSource.swift`，测试保证和 `packaging/dsh/perch.mjs` 一字不差），作为 hook 的附带文件写在 perch 旁边；#78 加的 bundle 拷贝去掉了。
 - **真模型验收**（2026-10-19，维护者本机，dsh 0.2.1-rc.2 + dsh-tui 0.16.1）：在 Ghostty 里用 AppleScript 驱动（`new window` + `initial input` 起 dsh-tui，`input text` / `send key` 打字；方向键要用 `perform action "text:\\x1b[B"`，`send key` 不认 `down` / `arrow_down` / `ArrowDown`）。API key 在维护者登录 shell 的环境里，Claude 的工具 shell 读不到，所以真模型只能在 Ghostty 里跑；`~/.dsh/.credentials.yaml` 里只有 `dsh web` 的浏览器会话。逐项结果在 MILESTONES 的 M15。修了两处：dsh 的 cwd 是 realpath，Ghostty 是 `/tmp/…`，聚焦的 terminal 对不上，链接没有 id（`TerminalLink.sameTree` 解析符号链接）；dsh-tui 0.16.1 让模型每条回复先写 `⏵` 旁白，Done 那行显示的是旁白（`HookAdapter.dshReply` 跳过）。关窗口后约 56 秒才清掉（tmux 里 25 秒），原因没查清。dsh-tui 0.14.0 不认 dsh 0.2.1-rc.2（profile 里的 dsh-tui 要单独升：`dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui@0.16.1`）。
 - 坑：dsh 会把上一轮没回答的 prompt 和下一条拼在一起发给模型（失败的一轮之后），假模型要只看最后一行；dsh-tui 的启动器（`dsh-tui` / `dst`）最后总是 spawn `dsh --profile dsh-tui`，所以跑插件的进程永远是 `node …/bin/dsh`。
+
+## M16 进度：dsh web 的会话上刘海（#80，2026-10-20）
+
+起因：维护者在 dsh web 里发消息，刘海没反应——#73 定了只支持终端 UI，插件看到 `webStartup` 就不动。一开始以为是 dsh web 本身坏了：19 号 17:18 起的那个 dsh web 确实卡住了（HTTP 正常、不吃 CPU，但不回消息），重开就好了，和 Perch 无关（隔离实例有没有 Perch 那一行、运行中加 / 删那一行都正常回复）；维护者重开后还是"不行"，看 dsh 的投影缓存（只看状态字段）才确认 web 会话每轮都回复了，"不行"指的是刘海不显示。
+
+- **设计**（#80）：一个 web 会话一行，第一条 prompt 才出现；链接是 dsh web 对外的根地址（不带 token），点了在默认浏览器打开（没有单个会话的地址，每次开新标签页）；Needs you 写 "Answer in dsh web"；服务停了全部移除，Idle 满 30 分钟的浏览器会话移除（perchd `reap`，按链接是 http(s) 判断，不改 schema）。
+- **实测**（隔离的 `DSH_HOME` 链接 `~/.dsh/profiles/web`，假模型，浏览器面板）：见 MILESTONES 的 M16。坑：浏览器面板里 `find` 返回的 ref 每次都会变，点之前要用这次的；`about:blank` 在浏览器面板里不能用，要"关掉"页面就导航到别的本地地址。
+- 测试里 `sameTree` 的符号链接用例原来依赖 `/tmp/perch-dsh-real` 这个目录存在（删了就失败），改成测试自己建目录。
 
 ## 未决问题
 

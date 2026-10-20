@@ -3,8 +3,9 @@
 extension DshPlugin {
     /// The plugin's source, byte for byte.
     public static let source = ####"""
-// Perch × dsh: watches a dsh terminal session and pipes each state change into
-// `perch hook dsh` (one JSON object on stdin; the payload is specified in #74).
+// Perch × dsh: watches dsh sessions (the terminal UI, and `dsh web` since #80)
+// and pipes each state change into `perch hook dsh` (one JSON object on stdin;
+// the payload is specified in #74, web's `surface` / `url` in #80).
 // It only moves events: every decision about a session's state lives in Swift
 // (HookAdapter). It never changes dsh's behaviour: it never appends session
 // events, its waterfall listener only observes and always delegates, nothing it
@@ -32,10 +33,12 @@ export const name = 'perch'
 // Services only a terminal UI provides: dsh's own TUI (`tuiPrompt`) and the
 // third-party dsh-tui (`tuiStatus`, `tuiDialogs`, …).
 const TUI_SERVICES = ['tuiPrompt', 'tuiStatus', 'tuiDialogs', 'tuiScenes', 'tuiWorkspaces']
-// Services that mean a surface Perch doesn't support (#73): `dsh web` runs many
-// sessions in one server with no terminal, `dsh headless` is one-shot. Both can
-// be started from a terminal, so a TTY alone proves nothing.
-const OTHER_SURFACES = ['webStartup', 'headlessStartup']
+// `dsh web` (#80): one server, many sessions, answered in the browser. Its
+// `webApp` service says the address it advertises (without the sign-in token).
+const WEB_SERVICE = 'webStartup'
+// `dsh headless` is one-shot, nobody waits on it: never a row. Web and headless
+// can both be started from a terminal, so a TTY alone proves nothing.
+const UNSUPPORTED_SERVICES = ['headlessStartup']
 // A perch that hasn't exited by then doesn't hold up the session's next event.
 const SPAWN_GRACE_MS = 2000
 
@@ -47,17 +50,24 @@ export function apply(ctx, config) {
   const perch = expandHome(config?.perch) ?? join(homedir(), '.perch', 'bin', 'perch')
   /** @type {Map<string, Session>} */
   const sessions = new Map()
-  /** @type {boolean | undefined} */
-  let terminal
+  /** @type {'tui' | 'web' | null | undefined} */
+  let surface
 
-  // Decided lazily: the TUI's services don't exist yet while plugins load.
-  // Only a definite answer is kept; "no TUI service yet" is asked again.
-  function isTerminal() {
-    if (terminal !== undefined) return terminal
-    if (OTHER_SURFACES.some((name) => has(ctx, name))) return (terminal = false)
-    if (!process.stdin.isTTY || !process.stdout.isTTY) return false
-    if (TUI_SERVICES.some((name) => has(ctx, name))) return (terminal = true)
-    return false
+  // Which surface this dsh is: 'tui', 'web', or null to stay out (headless, or
+  // nothing recognisable). Decided lazily: the services don't exist yet while
+  // plugins load. Only a definite answer is kept; "not yet" is asked again.
+  function currentSurface() {
+    if (surface !== undefined) return surface
+    if (UNSUPPORTED_SERVICES.some((name) => has(ctx, name))) return (surface = null)
+    if (has(ctx, WEB_SERVICE)) return (surface = 'web')
+    if (!process.stdin.isTTY || !process.stdout.isTTY) return null
+    if (TUI_SERVICES.some((name) => has(ctx, name))) return (surface = 'tui')
+    return null
+  }
+
+  /** `dsh web`'s advertised address (`http://127.0.0.1:3080/`), or undefined. */
+  function webUrl() {
+    return str(read(() => ctx.get('webApp', false)?.getAdvertisedUrl()))
   }
 
   /** The state for a session Perch follows, or undefined to stay out of it. */
@@ -66,7 +76,7 @@ export function apply(ctx, config) {
     if (typeof id !== 'string' || id === '') return undefined
     const known = sessions.get(id)
     if (known) return known.ignored ? undefined : known
-    if (!isTerminal()) return undefined
+    if (!currentSurface()) return undefined
     const header = read(() => session.header) ?? {}
     // A subagent's child session is part of its parent's turn, not a row.
     const ignored = header.origin === 'subagent' || Number(header.delegationDepth) > 0
@@ -85,6 +95,7 @@ export function apply(ctx, config) {
       at: typeof at === 'number' && Number.isFinite(at) ? at : Date.now(),
       pid: process.pid,
       turn: state.turn,
+      ...(surface === 'web' ? { surface: 'web', url: webUrl() } : {}),
       ...extra,
     }, perch)
   }
