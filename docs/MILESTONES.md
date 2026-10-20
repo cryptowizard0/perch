@@ -216,3 +216,15 @@
 - [x] 刘海：鲸鱼像素图标，名字 "DeepSeek"
 - [x] `swift build` / `swift test` 通过；CLAUDE.md、PRD、README、project.md、调研文档更新
 - [x] 验收（真模型，2026-10-19，维护者本机，Claude 按维护者要求跑的；dsh 0.2.1-rc.2 + dsh-tui 0.16.1，`scripts/install.sh` 装的这个分支，Ghostty）：`perch setup dsh` 连上；ask_user 回答 / Esc → Needs you → Done；越出沙箱的命令 → Needs you（完整命令 + dsh 的理由），批准 / 拒绝 / Esc 都 → Done；Esc 打断 → Idle；真实的模型错误 → Failed（dsh 的原话）；`/new`、`/exit` 马上移除；关 Ghostty 窗口 → 约 56 秒后被 pid 存活检测清掉；两个项目两行，各自跳回自己的 Ghostty terminal；`dsh headless` 不出现；断开后 `~/.dsh/cordis.patch.yml` 被删掉（装之前就没有），重新连上。验收中修了两处：Ghostty terminal 对比解析符号链接、Done 那行跳过 `⏵` 旁白
+
+## M16 — dsh web 的会话上刘海（#80，#24）
+
+设计见 #80；推翻 #73 的"只支持终端 UI"（2026-10-20 维护者要的），`dsh headless` 照旧不显示。
+
+- [x] 探针实测 dsh web（0.2.1-rc.2，隔离的 `DSH_HOME` + 假模型 + 浏览器）：一个服务跑所有会话（同一个 pid）；启动时没有会话，打开页面加载上次看的会话、"新会话"建一个（都没有 prompt）；换会话、关标签页都不 dispose；Ctrl+C 停服务时插件 dispose；`webApp.getAdvertisedUrl()` 是不带 token 的根地址，登录过一次后直接打开根地址就行；没有单个会话的地址（2026-10-20）
+- [x] 插件：认出 web（`webStartup` 服务），每个 payload 多带 `surface: "web"` 和 `url`；`dsh headless` 照旧不动
+- [x] `perch hook dsh`：web 会话的链接是那个地址、从不找终端（dsh web 从 Ghostty 起时环境里有 `TERM_PROGRAM=ghostty`）；Needs you 写 "Answer in dsh web"
+- [x] perchd：链接是 http(s) 的会话（`Session.livesInBrowser`）Idle 满 30 分钟就移除（`reap`，不改 schema），新的 prompt 让它回来
+- [x] 端到端（隔离的 perchd + dsh web + 假模型 + 浏览器）：打开页面不出行；第一条 prompt 出行（链接 `http://127.0.0.1:3095`、服务的 pid）；越出沙箱的命令 → Needs you + "Answer in dsh web: …"，在网页里拒绝 → Done；ask_user → Needs you，在网页里回答 → Done；Ctrl+C 停服务 → 行马上没了；hook.log 干净（2026-10-20）
+- [x] `swift build` / `swift test` 通过；CLAUDE.md、PRD、README 更新
+- [ ] 真模型：维护者自己的 dsh web（装这个分支、重开 dsh web）发一条 → 刘海出行，点行打开浏览器
