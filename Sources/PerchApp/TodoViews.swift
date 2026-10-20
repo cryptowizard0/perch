@@ -177,7 +177,8 @@ struct AddTodoRow: View {
 /// One todo: `○ title … date ▶ capsule ✎` (#53, #71). Clicking the circle or the title crosses it out with an Undo for a
 /// few seconds (clicking again undoes); double-clicking does nothing more. The date is gray, white once overdue; hovering
 /// the row shows the full title and date. ▶ toggles Doing: gray and only while the pointer is on the row, or white and
-/// filled on a Doing row, which also gets a light background and a bold title so it stands out. The capsule is the
+/// filled on a Doing row, which also gets a light background, a bold title and a soft light sweeping across it every few
+/// seconds (`DoingShimmer`, #86; still under Reduce Motion) so it stands out. The capsule is the
 /// priority; clicking it pops up High / Normal / Low (#85). ✎ opens the reminder in Reminders.
 /// Right-click: Edit… · Priority ▸ · Delete.
 /// A todo just added while the panel is open is lit for a second.
@@ -188,6 +189,7 @@ struct TodoRowView: View {
     var due: TodoList.DueLabel?
     var queue: QueueModel
     @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let doing = item.doing && !completing
@@ -256,7 +258,10 @@ struct TodoRowView: View {
         .frame(height: PanelLayout.todoRowHeight)
         .padding(.leading, 1)
         .background(
-            RoundedRectangle(cornerRadius: 6).fill(.white.opacity(highlighted ? 0.14 : doing ? 0.08 : 0)).padding(.horizontal, -4)
+            RoundedRectangle(cornerRadius: 6).fill(.white.opacity(highlighted ? 0.14 : doing ? 0.08 : 0))
+                .overlay { if doing && !reduceMotion { DoingShimmerView() } }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .padding(.horizontal, -4)
                 .animation(.easeOut(duration: 0.4), value: highlighted)
         )
         .contentShape(Rectangle())
@@ -274,6 +279,24 @@ struct TodoRowView: View {
             Divider()
             Button("Delete") { queue.delete(item) }
         }
+    }
+}
+
+/// The light sweeping across a Doing row (#86), left to right on the shared clock (`DoingShimmer`), so several Doing rows sweep
+/// together. Only exists while the panel is open, so it costs nothing collapsed.
+struct DoingShimmerView: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 60)) { timeline in
+            GeometryReader { geometry in
+                let width = geometry.size.width
+                let center = DoingShimmer.center(at: timeline.date.timeIntervalSinceReferenceDate)
+                LinearGradient(colors: [.clear, .white.opacity(DoingShimmer.peak), .clear],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(width: width * DoingShimmer.band)
+                    .offset(x: width * (center - DoingShimmer.band / 2))
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
