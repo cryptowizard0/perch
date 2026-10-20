@@ -1,4 +1,5 @@
 import Foundation
+import PerchAppCore
 import PerchClient
 import PerchCore
 import Testing
@@ -210,6 +211,25 @@ struct SessionStateTests {
         s = try #require(try session(d, "d2"))
         #expect(s.status == .running && s.pid == nil)
         #expect(!FileManager.default.fileExists(atPath: d.home.appendingPathComponent("hook.log").path))
+    }
+
+    /// A `dsh web` session (#80) links to dsh web's address and is answered there, even when the server was started
+    /// from Ghostty (its `TERM_PROGRAM` is in the environment perch inherits).
+    @Test func aDshWebSessionLivesInTheBrowser() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let t = (Int(Date().timeIntervalSince1970) - 600) * 1000
+        let web = #","surface":"web","url":"http://127.0.0.1:3080/""#
+        let ghostty = ["TERM_PROGRAM": "ghostty", "__CFBundleIdentifier": "com.mitchellh.ghostty"]
+        for (event, at, extra) in [("Prompt", t, #","prompt":"hello from the web""#),
+                                   ("ApprovalAsked", t + 1000, #","tool_name":"bash","tool_input":{"command":"touch ~/x"},"reason":"outside""#)] {
+            let result = try cli.run(["hook", "dsh"], stdin: dsh(event, at: at, session: "session-w1", web + extra), env: ghostty)
+            #expect(result.status == 0 && result.stdout.isEmpty && result.stderr.isEmpty)
+        }
+        let s = try #require(try session(d, "session-w1"))
+        #expect(s.link == "http://127.0.0.1:3080/" && s.livesInBrowser)
+        #expect(s.status == .waiting && s.detail == "touch ~/x\nAnswer in dsh web: outside")
+        #expect(JumpTarget(link: s.link) == .open(URL(string: "http://127.0.0.1:3080/")!))
     }
 
     @Test func anEventForAnUnknownSessionCreatesIt() throws {

@@ -42,6 +42,10 @@ public struct HookInput: Decodable, Equatable, Sendable {
     public var keepPrompt: Bool?
     /// dsh QuestionAsked: what `ask_user_question` asks.
     public var questions: [Question]?
+    /// dsh: `web` for a `dsh web` session (#80); absent for the terminal UI.
+    public var surface: String?
+    /// dsh web: the address dsh web advertises (`http://127.0.0.1:3080/`), without its sign-in token.
+    public var url: String?
 
     /// One of dsh's `ask_user_question` questions (its options are left out).
     public struct Question: Decodable, Equatable, Sendable {
@@ -98,7 +102,7 @@ public struct HookInput: Decodable, Equatable, Sendable {
         case toolName = "tool_name", toolNameCamel = "toolName"
         case toolInput = "tool_input", toolInputCamel = "toolInput"
         case promptID = "promptId", cancelledBy, subagentType
-        case at, pid, turn, questions
+        case at, pid, turn, questions, surface, url
         case keepPrompt = "keep_prompt"
     }
 
@@ -135,6 +139,8 @@ public struct HookInput: Decodable, Equatable, Sendable {
             ?? (try? c.decodeIfPresent(Int.self, forKey: .turn)).flatMap { $0 }.map(String.init)
         keepPrompt = (try? c.decodeIfPresent(Bool.self, forKey: .keepPrompt)).flatMap { $0 }
         questions = (try? c.decodeIfPresent([Question].self, forKey: .questions)).flatMap { $0 }
+        surface = (try? c.decodeIfPresent(String.self, forKey: .surface)).flatMap { $0 }
+        url = (try? c.decodeIfPresent(String.self, forKey: .url)).flatMap { $0 }
     }
 
     /// An object, or the JSON text of one (dsh keeps a tool call's arguments as a string); nil for anything else.
@@ -149,7 +155,9 @@ public struct HookInput: Decodable, Equatable, Sendable {
                 toolInput: [String: JSONValue]? = nil, extra: Extra? = nil, prompt: String? = nil, error: JSONValue? = nil,
                 transcriptPath: String? = nil, promptID: String? = nil, reason: String? = nil, cancelledBy: String? = nil,
                 subagentType: String? = nil, at: Date? = nil, pid: Int32? = nil, turn: String? = nil, keepPrompt: Bool? = nil,
-                questions: [Question]? = nil) {
+                questions: [Question]? = nil, surface: String? = nil, url: String? = nil) {
+        self.surface = surface
+        self.url = url
         self.at = at
         self.pid = pid
         self.turn = turn
@@ -292,6 +300,8 @@ public enum HookAdapter {
     /// What a needs-you session says when the agent asked something without saying what.
     public static let waitingForAnswer = "Waiting for your answer"
     public static let answerInTerminal = "Answer in the terminal"
+    /// A `dsh web` session is answered in the browser (#80).
+    public static let answerInDshWeb = "Answer in dsh web"
 
     /// A report about `input`'s session, carrying what every event knows (agent, project, directory, jump link;
     /// for Claude Code its transcript, where perchd finds the interruptions no hook reports).
@@ -390,11 +400,11 @@ public enum HookAdapter {
         case "ApprovalAsked":
             let reason = input.reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return report(.waiting) {
-                $0.detail = dshCommand(tool: input.toolName, input: input.toolInput) + "\n" + answerInTerminal
+                $0.detail = dshCommand(tool: input.toolName, input: input.toolInput) + "\n" + dshAnswer(input)
                     + (reason.isEmpty ? "" : ": \(reason)")
             }
         case "QuestionAsked":
-            return report(.waiting) { $0.detail = dshQuestion(input.questions ?? []) + "\n" + answerInTerminal }
+            return report(.waiting) { $0.detail = dshQuestion(input.questions ?? []) + "\n" + dshAnswer(input) }
         case "Answered":
             return report(.resume)
         case "TurnEnd":
@@ -408,6 +418,19 @@ public enum HookAdapter {
         default:
             return []
         }
+    }
+
+    /// Where a dsh session is answered: the terminal, or the browser for `dsh web` (#80).
+    static func dshAnswer(_ input: HookInput) -> String {
+        input.surface == "web" ? answerInDshWeb : answerInTerminal
+    }
+
+    /// A `dsh web` session's link: the address dsh web advertises, opened in the browser. Never a terminal, even when
+    /// dsh web was started from one (Ghostty's `TERM_PROGRAM` is in its environment): nil without a usable http(s) URL.
+    public static func dshWebLink(_ input: HookInput) -> String? {
+        guard let url = input.url?.trimmingCharacters(in: .whitespaces),
+              let scheme = URL(string: url)?.scheme?.lowercased(), ["http", "https"].contains(scheme) else { return nil }
+        return url
     }
 
     /// The reply without dsh-tui's `⏵` narration lines: its `dsh-working-activity` plugin has the model open with a

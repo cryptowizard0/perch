@@ -120,8 +120,12 @@ import Testing
         #expect(TerminalLink.sameTree("/Users/me/p", "/Users/me/p/sub"))
         #expect(!TerminalLink.sameTree("/Users/me/p", "/Users/me/other"))
         #expect(!TerminalLink.sameTree("/Users/me/p", "/Users/me/p2"))
-        #expect(TerminalLink.sameTree("/private/tmp/perch-dsh-real", "/tmp/perch-dsh-real"))
-        #expect(TerminalLink.sameTree("/tmp/perch-dsh-real/x", "/private/tmp/perch-dsh-real"))
+        // Symlinks resolve only for paths that exist (a live shell's directory always does): make one under /tmp.
+        let dir = "/tmp/perch-same-tree-\(UUID().uuidString.prefix(8))"
+        try? FileManager.default.createDirectory(atPath: dir + "/x", withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        #expect(TerminalLink.sameTree("/private" + dir, dir))
+        #expect(TerminalLink.sameTree(dir + "/x", "/private" + dir))
     }
 
     /// Codex's desktop app runs its agent inside ChatGPT.app and passes hooks no terminal or bundle variables:
@@ -600,6 +604,24 @@ import Testing
         let header = try reports("QuestionAsked", #","questions":[{"question":"","header":"Colour"}]"#)
         #expect(header.first?.detail == "Colour\nAnswer in the terminal")
         #expect(try reports("QuestionAsked").first?.detail == "Waiting for your answer\nAnswer in the terminal")
+    }
+
+    /// A `dsh web` session (#80): answered in the browser, linked to dsh web's address and never to a terminal.
+    @Test func webSessions() throws {
+        let web = #","surface":"web","url":"http://127.0.0.1:3080/""#
+        let ask = try reports("ApprovalAsked", web + #","tool_name":"bash","tool_input":{"command":"touch ~/x"},"reason":"escalate""#)
+        #expect(ask.first?.detail == "touch ~/x\nAnswer in dsh web: escalate")
+        let question = try reports("QuestionAsked", web + #","questions":[{"question":"Orange or blue?"}]"#)
+        #expect(question.first?.detail == "Orange or blue?\nAnswer in dsh web")
+        #expect(HookAdapter.dshWebLink(try decode("Prompt", web)) == "http://127.0.0.1:3080/")
+        #expect(HookAdapter.dshWebLink(try decode("Prompt", #","surface":"web","url":"https://dsh.example/ui/""#)) == "https://dsh.example/ui/")
+        // No usable address: no link at all, never a terminal.
+        #expect(HookAdapter.dshWebLink(try decode("Prompt", #","surface":"web""#)) == nil)
+        #expect(HookAdapter.dshWebLink(try decode("Prompt", #","surface":"web","url":"file:///etc/passwd""#)) == nil)
+        // The terminal UI is unchanged.
+        let tui = try reports("ApprovalAsked", #","tool_name":"bash","tool_input":{"command":"ls"}"#)
+        #expect(tui.first?.detail == "ls\nAnswer in the terminal")
+        #expect(try decode("Prompt").surface == nil)
     }
 
     @Test func howATurnEnds() throws {
