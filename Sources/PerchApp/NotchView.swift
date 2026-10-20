@@ -29,7 +29,7 @@ struct NotchView: View {
             VStack(spacing: 0) {
                 Group {
                     if notch.expanded {
-                        TabStrip(queue: queue)
+                        ExpandedBand(queue: queue)
                     } else {
                         CollapsedBar(queue: queue, gaze: gaze, notchWidth: notchWidth, leftWing: notch.leftWing, rightWing: notch.rightWing)
                     }

@@ -3,16 +3,20 @@ import PerchAppCore
 import PerchCore
 import SwiftUI
 
-/// The expanded notch: the current tab's content, then a failed action's message if any.
+/// The expanded notch (#83): Agents and Todo side by side, split under the notch, each scrolling on its own; then a
+/// failed action's message if any.
 struct ExpandedPanel: View {
     @ObservedObject var queue: QueueModel
     @ObservedObject var setup: SetupModel
 
     var body: some View {
         VStack(spacing: 0) {
-            switch queue.tab {
-            case .agents: SessionList(queue: queue, setup: setup)
-            case .todo: TodoTab(queue: queue)
+            HStack(alignment: .top, spacing: 12) {
+                SessionList(queue: queue, setup: setup)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                Rectangle().fill(.white.opacity(0.1)).frame(width: 1).padding(.vertical, 6)
+                TodoColumn(queue: queue)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             if let flash = queue.flash {
                 Text(flash)

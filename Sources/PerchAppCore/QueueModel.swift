@@ -45,8 +45,6 @@ public final class QueueModel: ObservableObject {
         didSet { chime.settings = chimes }
     }
 
-    /// The expanded notch's tab. It only changes when the panel opens (`expanded`) or someone picks one (`pick`).
-    @Published public private(set) var tab: PanelTab = .agents
     /// Todos whose circle was clicked: crossed out with an Undo until `completionDelay` passes and `done` is sent.
     /// One stays here until its item leaves (the `done` event), so the row never flickers back.
     @Published public private(set) var completing: Set<String> = []
@@ -72,7 +70,7 @@ public final class QueueModel: ObservableObject {
     @Published public private(set) var highlighted: Set<String> = []
     public var highlightDuration: TimeInterval = 1
 
-    /// Whether the notch is expanded; the app sets it. Opening picks the tab (`PanelTab.opening`).
+    /// Whether the notch is expanded; the app sets it.
     public var expanded = false {
         didSet {
             guard expanded != oldValue else { return }
@@ -81,8 +79,6 @@ public final class QueueModel: ObservableObject {
             guard expanded else { return }
             // Access may have been revoked in System Settings while nobody looked.
             remindersChanged(listChanged: false)
-            let opening = PanelTab.opening(picked: pickedTab, panel: panel)
-            if tab != opening { tab = opening }
         }
     }
 
@@ -129,8 +125,6 @@ public final class QueueModel: ObservableObject {
     /// The bridge's acks and snapshots, in order, never stuck behind this app's own todo write (which perchd may be
     /// handing back to this very app).
     private let bridgeActions = DispatchQueue(label: "dev.perch.app.bridge")
-    /// The last tab picked by hand; memory only, so a relaunch starts on Agents.
-    private var pickedTab: PanelTab = .agents
     /// Pending completions that have not sent `done` yet; cancelling one is Undo.
     private var completions: [String: DispatchWorkItem] = [:]
     private var bridge: RemindersBridge?
@@ -316,12 +310,6 @@ public final class QueueModel: ObservableObject {
     public func answerHead(_ value: String) {
         guard let head = headRequest, head.options?.contains(value) ?? false else { return }
         respond(head, value)
-    }
-
-    /// Clicking a tab's icon. Remembered (in memory) as the tab to open on next time.
-    public func pick(_ tab: PanelTab) {
-        pickedTab = tab
-        if self.tab != tab { self.tab = tab }
     }
 
     /// Clicking a todo's circle or title: crosses it out and sends `done` after `completionDelay`, unless it is clicked

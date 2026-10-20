@@ -664,6 +664,14 @@ v0.5 接更多 agent（#24）的第二个。dsh 是 DeepSeek 的 Node agent 框�
 - **实测**（隔离的 `DSH_HOME` 链接 `~/.dsh/profiles/web`，假模型，浏览器面板）：见 MILESTONES 的 M16。坑：浏览器面板里 `find` 返回的 ref 每次都会变，点之前要用这次的；`about:blank` 在浏览器面板里不能用，要"关掉"页面就导航到别的本地地址。
 - 测试里 `sameTree` 的符号链接用例原来依赖 `/tmp/perch-dsh-real` 这个目录存在（删了就失败），改成测试自己建目录。
 
+## 展开态左右分栏（#83，2026-10-20）
+
+**状态**：🚧 代码、测试和文档完成，在分支 `feat/split-panel`，等维护者在有刘海的屏上看一眼。
+
+- **起因**：维护者说展开后 Todo 和 Agents 要切 tab，不方便也不好看。讨论了三种：左右分栏、一条不分来源的"注意力"列表、保留 tab 但把开关挪到两翼；维护者选左右分栏，同意加宽。注意力列表留作以后的方向。
+- **做法**：`ExpandedPanel` 是 `HStack`（`SessionList` | 细线 | `TodoColumn`），宽 760；条带是 `ExpandedBand`（最左 Agents、最右 Todo + 摘要，避开刘海）；`PanelLayout.expandedHeight` 取两栏高的那个；`lineLength` 52 → 41（实测 41 个等宽字符正好折行）；Todo 栏的 `ScrollView` 最高只到列表的估计高度，所以 "+ Add a todo" 紧跟列表。删了 `PanelTab`、`QueueModel.tab` / `pick`、`Panel.attention`、`PERCH_PIN_TAB` 和切 tab 的高度动画。
+- **截图**（隔离 perchd + `PERCH_PIN_EXPANDED=1`，假会话，往 "Perch Dev" 加了 5 条 todo、看完删掉）：两栏、Needs you 的完整命令折行、Doing 行、胶囊、日期都放得下。这台机器当时只有无刘海的屏（胶囊样式），**刘海屏上标题避开刘海没实测**。
+
 ## 未决问题
 
 | 问题 | 影响 | 状态 |
