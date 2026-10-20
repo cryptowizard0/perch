@@ -90,3 +90,23 @@ extension ItemPriority {
         }
     }
 }
+
+/// The light that sweeps across a Doing row while the panel is open (#86): a soft white band, left to right once every
+/// `period`, the row's only motion (none under Reduce Motion). Where the band is depends only on the clock, so several
+/// Doing rows sweep together. Positions are fractions of the row's width.
+public enum DoingShimmer {
+    public static let period: TimeInterval = 3
+    /// The band's width, fading from clear at its edges to `peak` white in the middle.
+    public static let band = 0.75
+    public static let peak = 0.16
+    /// The band's middle at the start and end of a sweep: off the row on both sides, so the jump back is never seen.
+    public static let from = -0.7
+    public static let to = 1.7
+
+    /// The band's middle at `time` (seconds on any shared clock).
+    public static func center(at time: TimeInterval) -> Double {
+        var phase = time.truncatingRemainder(dividingBy: period) / period
+        if phase < 0 { phase += 1 }
+        return from + (to - from) * phase
+    }
+}
