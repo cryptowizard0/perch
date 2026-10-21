@@ -108,15 +108,15 @@ struct HooksInstallTests {
 
         let result = try cli.run("hooks", "install", "codex", "--settings", hooksFile.path, "--binary", "/opt/perch/bin/perch")
         #expect(result.status == 0, "\(result.stderr)")
-        #expect(result.stdout.contains("UserPromptSubmit, PermissionRequest, PostToolUse, Stop, Interrupt, SessionEnd"))
+        #expect(result.stdout.contains("UserPromptSubmit, PermissionRequest, PostToolUse, Stop, SubagentStart, SubagentStop, Interrupt, SessionEnd"))
         #expect(result.stdout.contains("/hooks"))  // Codex skips hooks until they are trusted
         let json = try readCodex()
         let ours = "/opt/perch/bin/perch hook codex"
         #expect(commands(json, "Stop") == [#"SUPERSET_AGENT_ID=codex "/x/notify.sh""#, ours])
         // Codex has no Notification / StopFailure / PostToolUseFailure.
         let events = Set((json["hooks"] as? [String: Any] ?? [:]).keys)
-        #expect(events == ["UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop", "Interrupt", "SessionEnd"])
-        for event in ["UserPromptSubmit", "PostToolUse", "Interrupt"] {
+        #expect(events == ["UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop", "SubagentStart", "SubagentStop", "Interrupt", "SessionEnd"])
+        for event in ["UserPromptSubmit", "PostToolUse", "SubagentStart", "SubagentStop", "Interrupt"] {
             #expect(commands(json, event) == [ours], "\(event)")
             #expect(hook(json, event)?["async"] as? Bool == true, "\(event)")
         }
@@ -136,7 +136,7 @@ struct HooksInstallTests {
         #expect(wrong.stdout.contains("no Perch hooks"))
 
         let removed = try cli.run("hooks", "uninstall", "codex", "--settings", hooksFile.path)
-        #expect(removed.stdout.contains("removed 6 Perch hooks"))
+        #expect(removed.stdout.contains("removed 8 Perch hooks"))
         #expect(commands(try readCodex(), "Stop") == [#"SUPERSET_AGENT_ID=codex "/x/notify.sh""#])
         #expect(Set((try readCodex()["hooks"] as? [String: Any] ?? [:]).keys) == ["Stop"])
         #expect(commands(try read(), "Stop") == ["/opt/perch/bin/perch hook claude-code"])

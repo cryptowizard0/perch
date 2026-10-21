@@ -34,6 +34,64 @@ import Testing
         Set(try d.client.send(Request(op: .sessions)).sessions?.map(\.id) ?? [])
     }
 
+    /// A Codex subagent that fails, is interrupted or closed reports nothing (#94): after 30 minutes without a word
+    /// it stops counting, and a session whose main turn is over finishes.
+    @Test func aSilentCodexSubagentStopsCounting() throws {
+        let clock = Clock(t0)
+        let d = try daemon(clock, Processes())
+        func send(_ kind: SessionReport.Kind, subagent: String? = nil, message: String? = nil) throws {
+            var report = SessionReport(id: "root", kind: kind, at: clock.read(), source: "codex", title: "perch", lastMessage: message)
+            report.subagent = subagent
+            #expect(try d.client.send(Request(op: .sessionReport, report: report)).ok)
+        }
+        func status() throws -> SessionStatus? {
+            try d.client.send(Request(op: .sessions)).sessions?.first { $0.id == "root" }?.status
+        }
+        try send(.prompt)
+        try send(.subagentStart, subagent: "a")
+        try send(.subagentStart, subagent: "b")
+        clock.advance(60)
+        try send(.stop, message: "Spawned A and B.")
+        #expect(try status() == .running)
+
+        // B keeps working (its tool runs); A goes quiet.
+        clock.advance(20 * 60)
+        try send(.resume, subagent: "b")
+        clock.advance(11 * 60)
+        d.daemon.reapSessions()
+        #expect(try status() == .running)
+
+        clock.advance(20 * 60)
+        d.daemon.reapSessions()
+        let s = try #require(try d.client.send(Request(op: .sessions)).sessions?.first { $0.id == "root" })
+        #expect(s.status == .done && s.lastMessage == "Spawned A and B.")
+    }
+
+    /// A spawned subagent whose first turn never starts (no SubagentStart) stops counting after 30 minutes too.
+    @Test func aSpawnThatNeverStartsStopsCounting() throws {
+        let clock = Clock(t0)
+        let d = try daemon(clock, Processes())
+        func send(_ kind: SessionReport.Kind, spawned: Bool? = nil) throws {
+            var report = SessionReport(id: "root", kind: kind, at: clock.read(), source: "codex", title: "perch",
+                                       lastMessage: kind == .stop ? "Spawned A." : nil)
+            report.spawnedSubagent = spawned
+            #expect(try d.client.send(Request(op: .sessionReport, report: report)).ok)
+        }
+        func status() throws -> SessionStatus? {
+            try d.client.send(Request(op: .sessions)).sessions?.first { $0.id == "root" }?.status
+        }
+        try send(.prompt)
+        try send(.resume, spawned: true)
+        try send(.stop)
+        #expect(try status() == .running)
+        clock.advance(29 * 60)
+        d.daemon.reapSessions()
+        #expect(try status() == .running)
+        clock.advance(2 * 60)
+        d.daemon.reapSessions()
+        #expect(try status() == .done)
+    }
+
     @Test func aSessionWhoseProcessDiesIsRemoved() throws {
         let clock = Clock(t0)
         let processes = Processes()

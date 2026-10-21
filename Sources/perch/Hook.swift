@@ -38,8 +38,10 @@ struct Hook: ParsableCommand {
         let client = PerchClient()
         let process = agentProcess(input, processes: processes)
         let link = terminalLink(for: input, client: client, process: process)
-        // The notch never answers dsh (#73): it has no PermissionRequest, and its plugin never sends one.
-        if input.event == "PermissionRequest", agent != "dsh" {
+        // The notch never answers dsh (#73): it has no PermissionRequest, and its plugin never sends one. Codex's own
+        // agents (#94) never show, not even to ask: their requests end any row they have.
+        if input.event == "PermissionRequest", agent != "dsh",
+           agent != "codex" || !HookAdapter.isCodexInternal(input, codexHome: HookAdapter.codexHome()) {
             return permission(input, link: link, process: process, client: client, now: now)
         }
         for request in HookAdapter.requests(for: input, agent: agent, link: link, now: now) {

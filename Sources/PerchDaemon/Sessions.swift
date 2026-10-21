@@ -12,6 +12,12 @@ import PerchCore
 /// ordered by turn: a turn-end report for anything but the session's current turn is late and ignored. The
 /// current turn is only kept in memory; after a restart the time rule alone decides.
 ///
+/// Codex subagents (#94) keep their session running after its main turn's stop: perchd remembers, in memory only,
+/// which ones each session has at work (counting spawns whose SubagentStart hasn't come yet) and whether the main
+/// turn is over; the last one finishing (or going silent
+/// for `subagentSilence`, since Codex says nothing when one fails or is closed) makes the session done. After a
+/// restart that is forgotten, and such a session stays running until its next prompt, Esc or end.
+///
 /// Sessions also end without an event (a closed terminal tab sends no SessionEnd): `reap()` removes those whose
 /// agent process is gone, those without a known process after `silenceLifetime` without events, and browser sessions
 /// idle for `browserIdleLifetime`.
@@ -27,6 +33,8 @@ public final class SessionRegistry {
     /// A session that lives in a browser (`dsh web`, #80) goes after this long idle: the browser never says a session
     /// is closed, and the server keeps every session loaded while it runs.
     public static let browserIdleLifetime: TimeInterval = 30 * 60
+    /// A Codex subagent not heard from for this long stops counting (#94).
+    public static let subagentSilence: TimeInterval = 30 * 60
 
     public struct Outcome {
         public var response: Response
@@ -39,6 +47,13 @@ public final class SessionRegistry {
     private var removedAt: [String: Date] = [:]
     /// Each session's current turn, for agents that name their turns (`SessionReport.turn`).
     private var turns: [String: String] = [:]
+    /// Codex subagents at work, per session: subagent id → when perchd last heard from it (#94).
+    private var subagents: [String: [String: Date]] = [:]
+    /// Codex subagents spawned but not started yet (their SubagentStart comes after the main turn's stop), per session:
+    /// when each was spawned.
+    private var pendingSpawns: [String: [Date]] = [:]
+    /// Sessions whose main turn stopped while subagents worked: the last one finishing makes them done.
+    private var awaitingSubagents: Set<String> = []
     var now: () -> Date
     let probe: ProcessProbe
 
@@ -91,12 +106,13 @@ public final class SessionRegistry {
         if let turn = report.turn, [.stop, .failure, .interrupt].contains(report.kind), let current = turns[id], current != turn {
             return ignored
         }
-        // "The agent is idle" says nothing about a session Perch never saw.
-        if report.kind == .settle, existing == nil { return ignored }
+        // "The agent is idle" says nothing about a session Perch never saw; nor does any `existing_only` report.
+        if report.kind == .settle || report.existingOnly == true, existing == nil { return ignored }
 
         if report.kind == .end {
             removedAt[id] = max(removedAt[id] ?? .distantPast, at)
             turns[id] = nil
+            forgetSubagents(of: id)
             var outcome = Outcome(response: Response(ok: true, sessions: []), resolveRequestsOf: id)
             if let existing {
                 try store.deleteSession(id: id)
@@ -104,6 +120,17 @@ public final class SessionRegistry {
                 outcome.events = [SessionEvent(type: .ended, session: existing, at: at)]
             }
             return outcome
+        }
+
+        if report.spawnedSubagent == true { pendingSpawns[id, default: []].append(now()) }
+        if let subagent = report.subagent {
+            if report.kind == .subagentStop {
+                subagents[id]?[subagent] = nil
+            } else {
+                // A subagent heard from for the first time is one of those spawned.
+                if subagents[id]?[subagent] == nil, pendingSpawns[id]?.isEmpty == false { pendingSpawns[id]?.removeFirst() }
+                subagents[id, default: [:]][subagent] = now()
+            }
         }
 
         var s = existing ?? Session(id: id, startedAt: at)
@@ -133,6 +160,7 @@ public final class SessionRegistry {
             if !keep { s.prompt = report.prompt }
             s.detail = nil
             s.error = nil
+            awaitingSubagents.remove(id)
             resolves = false
         case .waiting:
             // A late "needs your permission" notification must not replace the command it is about.
@@ -146,15 +174,28 @@ public final class SessionRegistry {
                 s.detail = nil
             }
         case .stop:
-            // Background agents still at work (#92): their completion wakes the agent for another turn.
-            enter((report.backgroundAgents ?? 0) > 0 ? .running : .done)
+            // Background agents still at work: Claude Code's completion wakes the agent for another turn (#92);
+            // Codex's subagents finish on their own, and the last one makes the session done (#94).
+            let codexSubagents = working(id)
+            enter((report.backgroundAgents ?? 0) + codexSubagents > 0 ? .running : .done)
+            if codexSubagents > 0 { awaitingSubagents.insert(id) } else { awaitingSubagents.remove(id) }
             s.lastMessage = report.lastMessage
             s.detail = nil
+        case .subagentStart:
+            resolves = false
+        case .subagentStop:
+            resolves = false
+            if awaitingSubagents.contains(id), working(id) == 0 {
+                awaitingSubagents.remove(id)
+                enter(.done)
+            }
         case .failure:
+            awaitingSubagents.remove(id)
             enter(.failed)
             s.error = report.error ?? "unknown"
             s.detail = nil
         case .interrupt:
+            forgetSubagents(of: id)
             enter(.idle)
             s.detail = nil
         case .settle:
@@ -194,6 +235,7 @@ public final class SessionRegistry {
         try store.deleteSession(id: s.id)
         removedAt[s.id] = Service.wholeSeconds(now())
         turns[s.id] = nil
+        forgetSubagents(of: s.id)
         return SessionEvent(type: .ended, session: s, at: now())
     }
 
@@ -201,14 +243,50 @@ public final class SessionRegistry {
     /// started at another time (reuse); without a pid, no events for `silenceLifetime`. Returns their end events;
     /// the caller resolves their requests.
     public func reap() -> [SessionEvent] {
-        guard let all = try? store.sessions() else { return [] }
+        let finished = finishSilentSubagents()
+        guard let all = try? store.sessions() else { return finished }
         let silentSince = now().addingTimeInterval(-Self.silenceLifetime)
         let quietSince = now().addingTimeInterval(-Self.browserIdleLifetime)
-        return all.filter { s in
+        return finished + all.filter { s in
             if s.livesInBrowser, s.status == .idle, s.statusAt <= quietSince { return true }
             guard let pid = s.pid else { return s.updatedAt < silentSince }
             return !isAlive(pid: pid, startedAt: s.pidStartedAt)
         }.compactMap { try? delete($0) }
+    }
+
+    /// Codex subagents still counted as working for this session: heard from, or spawned, within `subagentSilence`.
+    private func working(_ id: String) -> Int {
+        let since = now().addingTimeInterval(-Self.subagentSilence)
+        return (subagents[id]?.values.filter { $0 > since }.count ?? 0) + (pendingSpawns[id]?.filter { $0 > since }.count ?? 0)
+    }
+
+    private func forgetSubagents(of id: String) {
+        subagents[id] = nil
+        pendingSpawns[id] = nil
+        awaitingSubagents.remove(id)
+    }
+
+    /// Drops subagents silent for `subagentSilence`; sessions waiting on them with none left are done.
+    private func finishSilentSubagents() -> [SessionEvent] {
+        let since = now().addingTimeInterval(-Self.subagentSilence)
+        subagents = subagents.compactMapValues { agents in
+            let live = agents.filter { $0.value > since }
+            return live.isEmpty ? nil : live
+        }
+        pendingSpawns = pendingSpawns.compactMapValues { spawns in
+            let live = spawns.filter { $0 > since }
+            return live.isEmpty ? nil : live
+        }
+        var events: [SessionEvent] = []
+        for id in awaitingSubagents where working(id) == 0 {
+            awaitingSubagents.remove(id)
+            guard var s = try? store.session(id: id), s.status == .running else { continue }
+            s.status = .done
+            s.statusAt = Service.wholeSeconds(now())
+            guard (try? store.save(s)) != nil else { continue }
+            events.append(SessionEvent(type: .updated, session: s, at: now()))
+        }
+        return events
     }
 
     /// The process runs and, if we know when it started, is the same one (not a reused pid).

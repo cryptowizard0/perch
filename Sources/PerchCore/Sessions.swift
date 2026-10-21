@@ -111,6 +111,13 @@ public struct Session: Codable, Equatable, Identifiable, Sendable {
 /// | interrupt | → idle; resolves the request |
 /// | settle | running / waiting → idle, other states stay; never creates a session (Grok's `idle_prompt`) |
 /// | end | removes the session; resolves the request |
+/// | subagent_start | a Codex subagent (`subagent`) is at work; the session's state stays (#94) |
+/// | subagent_stop | that subagent finished; the last one finishing after the main turn's stop → done |
+///
+/// `subagent` (Codex, #94) names the subagent a report comes from; any report with it keeps that subagent counted as
+/// working; `spawned_subagent` counts one on its way, until a subagent perchd hasn't seen before starts. A stop while
+/// subagents work → running instead of done, as with `background_agents`. `existing_only`
+/// reports never create a session.
 ///
 /// `turn_id` names the turn a report is about, for agents that say (Grok's `promptId`). A prompt makes it the
 /// session's current turn; a stop / failure / interrupt for another turn is late (Grok reports a cancelled turn off
@@ -118,6 +125,7 @@ public struct Session: Codable, Equatable, Identifiable, Sendable {
 public struct SessionReport: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
         case prompt, waiting, resume, stop, failure, interrupt, settle, end
+        case subagentStart = "subagent_start", subagentStop = "subagent_stop"
     }
 
     public var id: String
@@ -140,6 +148,12 @@ public struct SessionReport: Codable, Equatable, Sendable {
     public var turn: String?
     /// stop: background agents still working; the session stays running until a stop without them.
     public var backgroundAgents: Int?
+    /// Codex: the subagent this report comes from (#94).
+    public var subagent: String?
+    /// Only updates a session perchd already has; never creates one (Codex: only a prompt makes a row).
+    public var existingOnly: Bool?
+    /// Codex: the main thread spawned a subagent; it counts as working until its SubagentStart names it (#94).
+    public var spawnedSubagent: Bool?
 
     public init(id: String, kind: Kind, at: Date, source: String? = nil, title: String? = nil, cwd: String? = nil,
                 link: String? = nil, prompt: String? = nil, detail: String? = nil, keepDetail: Bool? = nil,
@@ -173,6 +187,9 @@ public struct SessionReport: Codable, Equatable, Sendable {
         case transcriptPath = "transcript_path"
         case turn = "turn_id"
         case backgroundAgents = "background_agents"
+        case subagent
+        case existingOnly = "existing_only"
+        case spawnedSubagent = "spawned_subagent"
     }
 }
 
