@@ -6,13 +6,16 @@ import SwiftUI
 
 /// The todo popup's window (#43): a non-activating panel that still becomes key, so you type into it while the app
 /// you were in stays frontmost (the M2 quick-entry technique). Adding: Tab / Shift-Tab cycle the priority instead of
-/// moving focus. Editing (#53, the larger editor): Tab moves between fields, and Return saves from any of them
-/// (Shift- or Option-Return starts a new line in the notes). Esc or clicking elsewhere closes it. Always dark.
+/// moving focus, and Return adds from the title or a date field. Editing (#53, the larger editor): Tab moves between
+/// fields, and Return saves from any of them (Shift- or Option-Return starts a new line in the notes). Esc or clicking
+/// elsewhere closes it. Always dark.
 final class TodoPopupPanel: NSPanel {
     var onCancel: (() -> Void)?
     var onTab: ((_ forward: Bool) -> Void)?
-    /// Set while the larger editor shows: Return saves, Tab is left alone.
+    /// Return adds or saves, from whichever field has focus.
     var onReturn: (() -> Void)?
+    /// The larger editor: Tab moves between fields instead of cycling the priority.
+    var tabMovesFocus = false
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -43,7 +46,7 @@ final class TodoPopupPanel: NSPanel {
         if event.type == .keyDown && !composing {
             switch Int(event.keyCode) {
             case 48:  // kVK_Tab: adding cycles the priority; the larger editor moves between fields (notes included)
-                if onReturn == nil {
+                if !tabMovesFocus {
                     onTab?(!event.modifierFlags.contains(.shift))
                 } else if event.modifierFlags.contains(.shift) {
                     selectPreviousKeyView(nil)
@@ -51,7 +54,7 @@ final class TodoPopupPanel: NSPanel {
                     selectNextKeyView(nil)
                 }
                 return
-            case 36, 76:  // Return, Enter: the larger editor saves (Shift / Option: a new line in the notes)
+            case 36, 76:  // Return, Enter: add or save (Shift / Option: a new line in the larger editor's notes)
                 guard let onReturn, event.modifierFlags.isDisjoint(with: [.shift, .option]) else { break }
                 onReturn()
                 return
@@ -74,7 +77,11 @@ final class TodoPopupController {
     private let notchWindow: NotchWindowController
     private let focus = PopupFocus()
     private var cancellables: Set<AnyCancellable> = []
-    static let size = CGSize(width: 420, height: 88)
+    /// The add popup: title, then priority and due date, then the key hints.
+    static let size = CGSize(width: 460, height: 108)
+    /// The add popup with its month calendar open (#88).
+    static let calendarSize = CGSize(width: 460, height: 108 + calendarHeight + 10)
+    static let calendarHeight: CGFloat = 148
     /// The larger editor (#53), with its List row (#70).
     static let editorSize = CGSize(width: 440, height: 348)
     static let gap: CGFloat = 8
@@ -94,6 +101,12 @@ final class TodoPopupController {
                 // @Published sends before the change lands; act on the next pass.
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.show(opened) } }
             }
+            .store(in: &cancellables)
+        // The calendar opens and folds inside the popup, which grows and shrinks downward for it.
+        queue.$editor
+            .map { $0?.calendarShown == true }
+            .removeDuplicates()
+            .sink { [weak self] _ in DispatchQueue.main.async { MainActor.assumeIsolated { self?.place() } } }
             .store(in: &cancellables)
         // The panel grows and shrinks as todos come and go; the popup stays just below it.
         NotificationCenter.default.publisher(for: NSWindow.didResizeNotification, object: notchWindow.panel)
@@ -122,7 +135,11 @@ final class TodoPopupController {
             if panel.isVisible { panel.orderOut(nil) }
             return
         }
-        panel.onReturn = opened.mode == .add ? nil : { [weak queue] in queue?.submitEditor() }
+        panel.tabMovesFocus = opened.mode != .add
+        panel.onReturn = { [weak queue, focus] in
+            // Adding again starts at the title, wherever Return came from.
+            if queue?.submitEditor() == true && opened.mode == .add { focus.tick += 1 }
+        }
         place()
         panel.makeKeyAndOrderFront(nil)
         focus.tick += 1
@@ -130,7 +147,7 @@ final class TodoPopupController {
 
     private func place() {
         guard let editor = queue.editor else { return }
-        let size = editor.isLarge ? Self.editorSize : Self.size
+        let size = editor.isLarge ? Self.editorSize : editor.calendarShown ? Self.calendarSize : Self.size
         // Below the panel whenever it is expanded, even for a ⌥⇧Space popup the notch expanded under afterwards.
         guard let frame = notchWindow.popupFrame(size: size, belowPanel: editor.fromPanel || notchWindow.notch.expanded, gap: Self.gap)
         else { return }
@@ -162,7 +179,8 @@ struct TodoPopupView: View {
 }
 
 /// The add popup (#43): the title field, and the list it goes in when more than one is checked (#70), over the High /
-/// Normal / Low buttons. Everything it shows comes from `QueueModel.editor`.
+/// Normal / Low buttons and the due date (a date, then optionally a time, as in the larger editor). Everything it
+/// shows comes from `QueueModel.editor`.
 struct TodoAddView: View {
     @ObservedObject var queue: QueueModel
     @ObservedObject var focus: PopupFocus
@@ -184,7 +202,6 @@ struct TodoAddView: View {
                 .font(.system(size: 15))
                 .foregroundStyle(.white)
                 .focused($focused)
-                .onSubmit { queue.submitEditor() }
                 if queue.editorLists.count > 1 {
                     ListPicker(queue: queue, onPick: { focused = true })
                         .frame(maxWidth: 130)
@@ -205,13 +222,22 @@ struct TodoAddView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Spacer(minLength: 8)
-                Text("⇥ priority · ↩ \(editing ? "save" : "add") · esc close")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .lineLimit(1)
+                Spacer(minLength: 12)
+                DueChips(queue: queue, onTap: { focused = true })
             }
             .padding(.leading, 23)
+            .frame(height: 22)
+            if editor?.calendarShown == true {
+                HStack {
+                    Spacer(minLength: 0)
+                    DueCalendar(queue: queue)
+                }
+            }
+            Text("⇥ priority · ↩ \(editing ? "save" : "add") · esc close")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.4))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -318,6 +344,82 @@ struct TodoEditorView: View {
             trailing()
         }
         .frame(height: 22)
+    }
+}
+
+/// The add popup's due date: a Date chip, which turns the date on (today) and opens a month calendar below; then the
+/// day as the Todo rows say it ("Today", "Fri", "Oct 24"), which opens or folds the calendar, and a Time chip; then the
+/// day and the time (the next hour on today, else 09:00). × takes off the time, then the date. The same rules as the
+/// larger editor's switches (`TodoEditor.setHasDate` / `setHasTime`). The calendar is part of the popup, which grows to
+/// show it: another window would take key and close the popup.
+struct DueChips: View {
+    @ObservedObject var queue: QueueModel
+    var onTap: () -> Void
+
+    var body: some View {
+        let editor = queue.editor
+        HStack(spacing: 6) {
+            if let editor, editor.hasDate {
+                chip("calendar", Self.dayLabel(editor.date), selected: editor.calendarShown) {
+                    queue.editor?.toggleCalendar(now: Date())
+                }
+                if editor.hasTime {
+                    DatePicker("", selection: DueChips.date(queue), displayedComponents: .hourAndMinute)
+                        .labelsHidden().datePickerStyle(.field).controlSize(.small).fixedSize()
+                } else {
+                    chip("clock", "Time") { queue.editor?.setHasTime(true, now: Date()) }
+                }
+                Button {
+                    queue.editor?.clearDue(now: Date())
+                    onTap()
+                } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 12)).foregroundStyle(.white.opacity(0.4))
+                }
+                .buttonStyle(.plain)
+                .help(editor.hasTime ? "Remove the time" : "Remove the date")
+            } else {
+                chip("calendar", "Date") { queue.editor?.toggleCalendar(now: Date()) }
+            }
+        }
+    }
+
+    static func date(_ queue: QueueModel) -> Binding<Date> {
+        Binding(get: { queue.editor?.date ?? Date() }, set: { queue.editor?.date = $0 })
+    }
+
+    /// The day the way the Todo rows show it (`TodoList.dueLabel`), without the time (that has its own field).
+    static func dayLabel(_ day: Date, now: Date = Date()) -> String {
+        TodoList.dueLabel(Item(title: "", dueAt: day, dueDateOnly: true), now: now)?.text ?? ""
+    }
+
+    private func chip(_ icon: String, _ label: String, selected: Bool = false, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            onTap()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                Text(label)
+            }
+                .font(.system(size: 11.5, weight: .semibold))
+                .fixedSize()
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(selected ? 0.22 : 0.06)))
+                .foregroundStyle(.white.opacity(selected ? 1 : 0.55))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// The add popup's month calendar (#88), under the date chips while `TodoEditor.calendarShown`.
+struct DueCalendar: View {
+    @ObservedObject var queue: QueueModel
+
+    var body: some View {
+        DatePicker("", selection: DueChips.date(queue), displayedComponents: .date)
+            .labelsHidden()
+            .datePickerStyle(.graphical)
+            .fixedSize()
     }
 }
 

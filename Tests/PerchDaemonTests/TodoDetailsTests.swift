@@ -101,6 +101,51 @@ import Testing
         #expect(plain.flash == nil)
     }
 
+    /// The add popup's date and time: a whole day, or a time with its alarm; the next popup starts without a date.
+    @Test func addingWithADateOrATime() async throws {
+        let d = try TestDaemon()
+        let store = FakeRemindersStore()
+        let model = try await support.bridge(d, store)
+        defer { model.disconnect() }
+        model.openAdd(fromPanel: false)
+        model.editor?.title = "Renew the domain"
+        model.editor?.setHasDate(true, now: Date(), calendar: .current)
+        #expect(model.submitEditor())
+        #expect(model.editor?.hasDate == false && model.editor?.hasTime == false)
+        model.editor?.title = "Call Lin"
+        model.editor?.setHasTime(true, now: Date(), calendar: .current)
+        let due = try #require(model.editor?.date)
+        #expect(model.submitEditor())
+
+        try await support.until { model.todos.openCount == 2 }
+        let day = try #require(store.entry(titled: "Renew the domain"))
+        #expect(day.reminder.dueAt == Calendar.current.startOfDay(for: Date()) && day.reminder.dueDateOnly && day.alarms.isEmpty)
+        let timed = try #require(store.entry(titled: "Call Lin"))
+        #expect(timed.reminder.dueAt == Service.wholeSeconds(due) && !timed.reminder.dueDateOnly)
+        #expect(timed.alarms == [Service.wholeSeconds(due)])
+        #expect(model.todos.items.first { $0.title == "Call Lin" }?.dueAt == Service.wholeSeconds(due))
+    }
+
+    /// A plain app's add popup sends the date through perchd to the bridge.
+    @Test func aPlainAppAddsWithATime() async throws {
+        let d = try TestDaemon()
+        let store = FakeRemindersStore()
+        let bridge = try await support.bridge(d, store)
+        defer { bridge.disconnect() }
+        let (plain, _) = support.app(d, store)
+        defer { plain.disconnect() }
+        try await support.until { plain.online }
+        plain.openAdd(fromPanel: true)
+        plain.editor?.title = "Call Lin"
+        plain.editor?.setHasTime(true, now: Date(), calendar: .current)
+        let due = try #require(plain.editor?.date)
+        #expect(plain.submitEditor())
+        try await support.until { store.entry(titled: "Call Lin") != nil }
+        let entry = try #require(store.entry(titled: "Call Lin"))
+        #expect(entry.reminder.dueAt == Service.wholeSeconds(due) && !entry.reminder.dueDateOnly)
+        #expect(entry.alarms == [Service.wholeSeconds(due)])
+    }
+
     /// A double-click on a row does nothing more than its first click; a later click is Undo.
     @Test func aDoubleClickIsOneClick() async throws {
         let d = try TestDaemon()
