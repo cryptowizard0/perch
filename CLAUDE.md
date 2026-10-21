@@ -117,7 +117,7 @@ M7 起有 `sessions` 表（schema v2，字段与 `Session`（`Sources/PerchCore/
 | --- | --- | --- |
 | `UserPromptSubmit` | running（本轮 prompt 首行）；Ghostty 下记下当前聚焦的 terminal id。Claude Code 自己注入的 `<task-notification>`（后台任务跑完）也触发它：报告带 `keep_prompt`，保留人上一条 prompt，会话还在 Running / Needs you 时计时也不重置，不重新记 terminal（#32） | 否 |
 | `Notification`（matcher `permission_prompt` / `elicitation_dialog` / `agent_needs_input`；**不接 `idle_prompt`**） | waiting（agent 的原话；`permission_prompt` 不覆盖已记下的命令） | 否 |
-| `Stop` | done（`last_assistant_message` 首行） | 否 |
+| `Stop` | done（`last_assistant_message` 首行）；`background_tasks` 里还有在跑的 `subagent` / `workflow` / `teammate` 时留在 running（#92，报告带 `background_agents`），后台 shell / Monitor 不算 | 否 |
 | `StopFailure` / `Interrupt`（Codex） / `SessionEnd` | failed（记 `error`）/ idle / 移除 | 否 |
 | `PermissionRequest` | waiting（完整命令）。白名单内：发 request 等刘海（`--wait`，默认 20 秒），有回应就打印决定、会话回 running；超时或白名单外：会话写上"Answer in the terminal"，不打印任何东西，终端原生提示接管 | 是 |
 | `PostToolUse` / `PostToolUseFailure` | running（工具跑了，说明权限已在终端处理） | 否 |

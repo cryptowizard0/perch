@@ -106,7 +106,7 @@ public struct Session: Codable, Equatable, Identifiable, Sendable {
 /// | prompt | → running; `prompt`, turn start; clears detail / error. With `keep_prompt` (the agent woke itself: a background task finished), the prompt stays, and so does the turn start while the session is running / waiting |
 /// | waiting | → waiting with `detail`; with `keep_detail`, a detail already recorded while waiting stays |
 /// | resume | waiting → running (a tool ran, or the notch answered); resolves the session's request |
-/// | stop | → done with `last_message`; resolves the request |
+/// | stop | → done with `last_message`; resolves the request. With `background_agents` (Claude Code background agents still at work, #92) → running instead: the turn is over, the work is not |
 /// | failure | → failed with `error`; resolves the request |
 /// | interrupt | → idle; resolves the request |
 /// | settle | running / waiting → idle, other states stay; never creates a session (Grok's `idle_prompt`) |
@@ -138,12 +138,15 @@ public struct SessionReport: Codable, Equatable, Sendable {
     public var pidStartedAt: Date?
     public var transcriptPath: String?
     public var turn: String?
+    /// stop: background agents still working; the session stays running until a stop without them.
+    public var backgroundAgents: Int?
 
     public init(id: String, kind: Kind, at: Date, source: String? = nil, title: String? = nil, cwd: String? = nil,
                 link: String? = nil, prompt: String? = nil, detail: String? = nil, keepDetail: Bool? = nil,
                 keepPrompt: Bool? = nil, lastMessage: String? = nil, error: String? = nil, pid: Int32? = nil,
-                pidStartedAt: Date? = nil, turn: String? = nil) {
+                pidStartedAt: Date? = nil, turn: String? = nil, backgroundAgents: Int? = nil) {
         self.turn = turn
+        self.backgroundAgents = backgroundAgents
         self.id = id
         self.kind = kind
         self.at = at
@@ -169,6 +172,7 @@ public struct SessionReport: Codable, Equatable, Sendable {
         case pidStartedAt = "pid_started_at"
         case transcriptPath = "transcript_path"
         case turn = "turn_id"
+        case backgroundAgents = "background_agents"
     }
 }
 
