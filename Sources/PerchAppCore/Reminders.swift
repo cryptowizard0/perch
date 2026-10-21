@@ -276,10 +276,11 @@ public final class RemindersBridge {
         return (lists, try await store.reminders(inLists: lists.map(\.id), completedSince: since))
     }
 
-    /// A new todo from the add popup: it goes to "Perch", or the checked list `list` (#70).
-    public func add(title: String, priority: ItemPriority, list: String? = nil) throws {
+    /// A new todo from the add popup: it goes to "Perch", or the checked list `list` (#70); a time brings its alarm.
+    public func add(title: String, priority: ItemPriority, list: String? = nil, due: (at: Date, dateOnly: Bool)? = nil) throws {
         let into = try list.map(checkedList) ?? readyList()
-        _ = try store.createReminder(inList: into.id, ReminderChange(title: title, priority: priority.reminderPriority))
+        _ = try store.createReminder(inList: into.id, ReminderChange(title: title, priority: priority.reminderPriority,
+                                                                     dueAt: due?.at, dueDateOnly: due?.dateOnly))
     }
 
     /// A todo write perchd handed over (from the CLI, inbox.md or another app, #52). New reminders go to "Perch", or to

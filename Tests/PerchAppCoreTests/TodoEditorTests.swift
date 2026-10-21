@@ -88,6 +88,20 @@ import Testing
         #expect(later.hasDate && !later.hasTime && later.date == at(20))
     }
 
+    /// What adding stores, and the add popup's ×: the time goes first, then the date.
+    @Test func theDueDateAndClearingIt() {
+        var editor = TodoEditor.add(fromPanel: false)
+        #expect(editor.due(calendar: calendar) == nil)
+        editor.setHasDate(true, now: now, calendar: calendar)
+        #expect(editor.due(calendar: calendar)! == (at(16), true))
+        editor.setHasTime(true, now: now, calendar: calendar)
+        #expect(editor.due(calendar: calendar)! == (at(16, 11), false))
+        editor.clearDue(now: now, calendar: calendar)
+        #expect(editor.hasDate && !editor.hasTime && editor.due(calendar: calendar)! == (at(16), true))
+        editor.clearDue(now: now, calendar: calendar)
+        #expect(!editor.hasDate && editor.due(calendar: calendar) == nil)
+    }
+
     @Test func savingProducesTheEditedTodo() {
         let item = Item(id: "t7k2", title: "Call Lin", priority: .low, dueAt: at(20), dueDateOnly: true)
         var editor = TodoEditor.edit(item, now: now, calendar: calendar)

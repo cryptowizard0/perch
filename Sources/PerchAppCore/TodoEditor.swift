@@ -2,8 +2,9 @@ import Foundation
 import PerchCore
 
 /// The todo popup's state (#43): adding or editing, the title as typed, the chosen priority and list. `QueueModel` holds it;
-/// the popup only draws it and forwards keys. No parsing: the trimmed text is the title exactly. Editing (#53) is the
-/// larger editor, modeled on Reminders' detail view: also notes, a date with an optional time, and a URL.
+/// the popup only draws it and forwards keys. No parsing: the trimmed text is the title exactly. Both have a date with
+/// an optional time. Editing (#53) is the larger editor, modeled on Reminders' detail view: also
+/// notes and a URL.
 public struct TodoEditor: Equatable, Sendable {
     public enum Mode: Equatable, Sendable {
         case add
@@ -19,13 +20,13 @@ public struct TodoEditor: Equatable, Sendable {
     /// The checked list it goes in (#70). Adding: nil is "Perch", where every popup starts. Editing: the todo's list
     /// (nil if it isn't a checked one); another one moves it.
     public var list: ReminderList?
-    /// The larger editor's fields (unused while adding).
-    public var notes = ""
     public var hasDate = false
     /// With `hasDate`: whether there is a time too.
     public var hasTime = false
     /// The day (midnight) without a time, else the day and the time. Meaningless while `hasDate` is off.
     public var date = Date(timeIntervalSinceReferenceDate: 0)
+    /// The larger editor's fields (unused while adding).
+    public var notes = ""
     public var url = ""
 
     public init(mode: Mode, title: String, priority: ItemPriority, fromPanel: Bool) {
@@ -80,6 +81,22 @@ public struct TodoEditor: Equatable, Sendable {
         hasTime = on
     }
 
+    /// The due date it stores: none without a date, the day (midnight, `dueDateOnly`) without a time, else the day
+    /// and the time.
+    public func due(calendar: Calendar = .current) -> (at: Date, dateOnly: Bool)? {
+        guard hasDate else { return nil }
+        return hasTime ? (date, false) : (calendar.startOfDay(for: date), true)
+    }
+
+    /// The popup's ×: takes off the time if there is one, else the date.
+    public mutating func clearDue(now: Date, calendar: Calendar = .current) {
+        if hasTime {
+            setHasTime(false, now: now, calendar: calendar)
+        } else {
+            setHasDate(false, now: now, calendar: calendar)
+        }
+    }
+
     /// `item` as saving would leave it: title, priority, notes, due date, URL and list from the editor, everything else
     /// as it was. Nil while the title is blank.
     public func edited(_ item: Item, calendar: Calendar = .current) -> Item? {
@@ -88,8 +105,9 @@ public struct TodoEditor: Equatable, Sendable {
         edited.title = title
         edited.priority = priority
         edited.notes = notes
-        edited.dueAt = hasDate ? (hasTime ? date : calendar.startOfDay(for: date)) : nil
-        edited.dueDateOnly = hasDate && !hasTime
+        let due = due(calendar: calendar)
+        edited.dueAt = due?.at
+        edited.dueDateOnly = due?.dateOnly ?? false
         let link = url.trimmingCharacters(in: .whitespacesAndNewlines)
         edited.link = link.isEmpty ? nil : link
         if let list, list.id != item.listID {

@@ -374,8 +374,8 @@ public final class QueueModel: ObservableObject {
         if editor != nil { editor = nil }
     }
 
-    /// Return. Adding: `add` (source human, the chosen priority, into the chosen list); the popup stays open for the
-    /// next one, empty and back on Normal, in the same list. Editing: what changed of the title, notes, due date,
+    /// Return. Adding: `add` (source human, the chosen priority and due date, into the chosen list); the popup stays
+    /// open for the next one, empty, back on Normal and without a date, in the same list. Editing: what changed of the title, notes, due date,
     /// priority, URL and list, then the editor closes. False (and nothing sent) while the title is blank.
     @discardableResult
     public func submitEditor() -> Bool {
@@ -384,9 +384,11 @@ public final class QueueModel: ObservableObject {
         case .add:
             // "Perch" goes as no list at all, as from the CLI.
             let list = editorList.flatMap { $0.id == perchList?.id ? nil : $0 }
-            write(Request(op: .add, item: Item(title: title, kind: .task, priority: editor.priority, source: "human"),
+            let due = editor.due()
+            write(Request(op: .add, item: Item(title: title, kind: .task, priority: editor.priority, source: "human",
+                                               dueAt: due?.at, dueDateOnly: due?.dateOnly ?? false),
                           list: list?.title)) {
-                try $0.add(title: title, priority: editor.priority, list: list?.id)
+                try $0.add(title: title, priority: editor.priority, list: list?.id, due: due)
             }
             var next = TodoEditor.add(fromPanel: editor.fromPanel)
             next.list = editor.list
