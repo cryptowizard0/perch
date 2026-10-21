@@ -19,28 +19,41 @@ struct NotchView: View {
     var menu: NotchMenu
 
     var body: some View {
-        ZStack(alignment: .top) {
+        GeometryReader { proxy in
             let notchWidth = notch.geometry?.notch?.width ?? 0
-            NotchShape(hasNotch: notch.geometry?.hasNotch ?? true, expanded: notch.expanded)
-                .fill(Color.black)
-                // Collapsed, the window may be wider than the band while the right wing shrinks back.
-                .frame(width: notch.expanded ? nil : notch.leftWing + notchWidth + notch.rightWing)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            VStack(spacing: 0) {
-                Group {
-                    if notch.expanded {
-                        ExpandedBand(queue: queue)
-                    } else {
-                        CollapsedBar(queue: queue, gaze: gaze, notchWidth: notchWidth, leftWing: notch.leftWing, rightWing: notch.rightWing)
+            let band = notch.geometry?.bandHeight ?? NotchGeometry.capsuleHeight
+            let hasNotch = notch.geometry?.hasNotch ?? true
+            // Open, the whole panel; folded, the band (the window may be wider: a wing shrinking back, a close running).
+            let shape = notch.isOpen
+                ? NotchShape(hasNotch: hasNotch, frame: CGRect(x: 0, y: 0, width: proxy.size.width, height: notch.openHeight),
+                             radius: NotchShape.openRadius)
+                : NotchShape(hasNotch: hasNotch,
+                             frame: CGRect(x: notch.bandX, y: 0, width: notch.leftWing + notchWidth + notch.rightWing, height: band),
+                             radius: hasNotch ? NotchShape.bandRadius : band / 2)
+            ZStack(alignment: .topLeading) {
+                shape.fill(Color.black)
+                // Always there, so the mask follows the shape while the content fades in and out.
+                ZStack(alignment: .topLeading) {
+                    if notch.isOpen {
+                        VStack(spacing: 0) {
+                            ExpandedBand(queue: queue)
+                                .frame(height: band)
+                            ExpandedPanel(queue: queue, setup: setup)
+                        }
+                        .frame(width: proxy.size.width, height: notch.openHeight, alignment: .top)
+                        .transition(.unfold)
                     }
                 }
-                .frame(height: notch.geometry?.bandHeight ?? NotchGeometry.capsuleHeight)
-                if notch.expanded {
-                    ExpandedPanel(queue: queue, setup: setup)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .mask(alignment: .topLeading) { shape }
+                if !notch.isOpen {
+                    CollapsedBar(queue: queue, gaze: gaze, notchWidth: notchWidth, leftWing: notch.leftWing, rightWing: notch.rightWing)
+                        .frame(height: band)
+                        .padding(.leading, notch.bandX)
+                        .transition(.foldedBand)
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contextMenu {
             // Only with Reminders access (#70): without it there are no lists to choose.
             if queue.choosesLists {
@@ -218,16 +231,59 @@ extension SessionStatus {
     }
 }
 
-/// Flush with the top edge and rounded below when it hangs from the notch; a capsule otherwise.
+/// Flush with the top edge and rounded below when it hangs from the notch; a capsule (a rounded panel when open)
+/// otherwise. Drawn at `frame` inside the window, so opening and closing animate its place, size and corners.
 struct NotchShape: Shape {
     var hasNotch: Bool
-    var expanded: Bool
+    var frame: CGRect
+    var radius: CGFloat
+    static let bandRadius: CGFloat = 10
+    static let openRadius: CGFloat = 18
+
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(AnimatablePair(frame.minX, frame.width), AnimatablePair(frame.height, radius)) }
+        set {
+            frame = CGRect(x: newValue.first.first, y: frame.minY, width: newValue.first.second, height: newValue.second.first)
+            radius = newValue.second.second
+        }
+    }
 
     func path(in rect: CGRect) -> Path {
-        if !hasNotch && !expanded { return Capsule().path(in: rect) }
-        let radius: CGFloat = expanded ? 18 : 10
-        if !hasNotch { return RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect) }
+        let radius = max(0, min(radius, frame.height / 2, frame.width / 2))
+        if !hasNotch { return RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: frame) }
         return UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
-            .path(in: rect)
+            .path(in: frame)
+    }
+}
+
+extension AnyTransition {
+    /// The open panel's content: comes into focus and settles down a touch as the shape uncovers it; gone quickly on
+    /// the way out, before the shape has shrunk much.
+    static var unfold: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(active: Unfold(shown: false), identity: Unfold(shown: true))
+                .animation(.easeOut(duration: 0.28).delay(0.06)),
+            removal: .modifier(active: Unfold(shown: false), identity: Unfold(shown: true))
+                .animation(.easeIn(duration: 0.12))
+        )
+    }
+
+    /// The folded band: out at once when it opens; back once the closing shape is nearly on it.
+    static var foldedBand: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.animation(.easeOut(duration: 0.14).delay(NotchMotion.closeDuration * 0.55)),
+            removal: .opacity.animation(.easeOut(duration: 0.08))
+        )
+    }
+}
+
+private struct Unfold: ViewModifier {
+    var shown: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .scaleEffect(shown ? 1 : 0.96, anchor: .top)
+            .blur(radius: shown ? 0 : 6)
     }
 }

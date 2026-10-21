@@ -255,6 +255,8 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 
 ### 展开态（悬停触发）
 
+**展开和收起是动画，不是一下跳出来**（2026-10-21，#90）：黑色的形状从收起的带子长成整个面板（宽、高、圆角一起变，约 0.4 秒，不弹），内容跟着淡入、从略小略虚变清楚；收起反过来，内容先淡出，形状缩回带子，小怪物和数字在快缩回时淡入。展开着时行增减，面板高度也是动画。"减少动态效果"下直接切换。
+
 按状态分组，组标题带数量（`Needs you 1` / `Failed 1` / `Running 3` / `Done 2` / `Idle 1`），空组不显示。组内排序：Needs you 等得最久的在前；Running 按本轮开始时间；Done / Idle 最近的在前。展开态上方、刘海左边的条带是 tab 栏：Agents 和 Todo 两个图标（#41，见"Todo tab"）。
 
 每行两行字：
