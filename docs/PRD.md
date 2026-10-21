@@ -234,9 +234,11 @@ Sources：[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) �
 | --- | --- | --- | --- |
 | **Needs you** | PermissionRequest / Notification（权限、提问） | PostToolUse(Failure)、刘海 Allow / Deny、UserPromptSubmit、Stop / StopFailure | 🟠 橙，进入时脉冲 |
 | **Failed** | StopFailure（API 报错、限流等） | 下一次 UserPromptSubmit | 🔴 红，进入时脉冲 |
-| **Running** | UserPromptSubmit；等你之后工具跑了 | Stop / StopFailure / 等你 | 🟢 绿，呼吸动画 |
-| **Done** | Stop | 10 分钟后，或从刘海跳回那个终端 → Idle；下一次 UserPromptSubmit → Running | 🔵 蓝，静止，进入时脉冲一次 |
+| **Running** | UserPromptSubmit；等你之后工具跑了；Claude Code 的 Stop 时还有后台 agent 在跑（#92） | Stop / StopFailure / 等你 | 🟢 绿，呼吸动画 |
+| **Done** | Stop（Claude Code：没有还在跑的后台 subagent / workflow / teammate） | 10 分钟后，或从刘海跳回那个终端 → Idle；下一次 UserPromptSubmit → Running | 🔵 蓝，静止，进入时脉冲一次 |
 | **Idle** | Done 过期或已看过；Codex 的 Interrupt（Esc） | 下一次 UserPromptSubmit | ⚪ 灰 |
+
+**后台 agent**（#92，2026-10-21）：Claude Code 的 subagent 默认在后台跑，主 agent 这一轮一停 Stop 就来了，但活还没干完。Stop 的 `background_tasks` 里还有在跑的 `subagent` / `workflow` / `teammate` 时会话留在 Running（行上还是人那条 prompt，计时照旧，没有 Done 的脉冲、声音、横幅）；后台 agent 跑完，Claude Code 用 `<task-notification>` 叫醒模型（#32），那一轮的 Stop 没有剩下的才是 Done。后台 shell 和 Monitor 不算：dev server、watch 可能一直开着，会话就永远到不了 Done。
 
 "等审批"和"等回答"合成一种 Needs you，行内文字区分。优先级：**Needs you > Failed > Running > Done > Idle**。
 

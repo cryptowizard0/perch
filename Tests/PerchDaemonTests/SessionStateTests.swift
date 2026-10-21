@@ -76,6 +76,27 @@ struct SessionStateTests {
         #expect(try session(d, "s1") == nil)
     }
 
+    /// The main agent's turn ends while a background subagent still works: Running, not Done, until the
+    /// subagent's completion wakes the model and its turn ends with nothing left in flight (#92).
+    @Test func claudeCodeStaysRunningWhileBackgroundAgentsWork() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let subagent = #"[{"id":"a1","type":"subagent","status":"running","description":"Explore the hooks","agent_type":"Explore"}]"#
+
+        try hook(cli, "claude-code", claude("UserPromptSubmit", #","prompt":"Survey the hooks""#))
+        let started = try #require(try session(d, "s1"))
+
+        try hook(cli, "claude-code", claude("Stop", #","last_assistant_message":"Started a subagent.","background_tasks":\#(subagent)"#))
+        var s = try #require(try session(d, "s1"))
+        #expect(s.status == .running && s.prompt == "Survey the hooks" && s.turnStartedAt == started.turnStartedAt)
+
+        // A background shell alone does not hold the session.
+        try hook(cli, "claude-code", claude("UserPromptSubmit", #","prompt":"<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n</task-notification>""#))
+        try hook(cli, "claude-code", claude("Stop", #","last_assistant_message":"All done.","background_tasks":[{"id":"b1","type":"shell","status":"running","description":"npm run dev"}]"#))
+        s = try #require(try session(d, "s1"))
+        #expect(s.status == .done && s.lastMessage == "All done." && s.prompt == "Survey the hooks")
+    }
+
     @Test func codexWalksThroughEveryState() throws {
         let d = try TestDaemon()
         let cli = CLI(home: d.home)

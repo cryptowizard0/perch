@@ -146,7 +146,8 @@ public final class SessionRegistry {
                 s.detail = nil
             }
         case .stop:
-            enter(.done)
+            // Background agents still at work (#92): their completion wakes the agent for another turn.
+            enter((report.backgroundAgents ?? 0) > 0 ? .running : .done)
             s.lastMessage = report.lastMessage
             s.detail = nil
         case .failure:

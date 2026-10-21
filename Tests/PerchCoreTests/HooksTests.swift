@@ -61,6 +61,39 @@ import Testing
         #expect(r[0].report?.kind == .stop && r[0].report?.lastMessage == "Done" && r[0].report?.at == now)
     }
 
+    /// Claude Code's Stop lists the background work still in flight (#92): background agents keep the session
+    /// running; background shells, monitors and the rest do not.
+    @Test func stopCountsTheBackgroundAgentsStillWorking() throws {
+        func stop(_ tasks: String?) throws -> SessionReport? {
+            let field = tasks.map { #","background_tasks":\#($0)"# } ?? ""
+            let json = #"{"session_id":"abc","hook_event_name":"Stop","last_assistant_message":"Launched it"\#(field)}"#
+            return requests(try JSONDecoder().decode(HookInput.self, from: Data(json.utf8))).first?.report
+        }
+        let agents = #"""
+        [{"id":"a1","type":"subagent","status":"running","description":"Explore","agent_type":"Explore"},
+         {"id":"w1","type":"workflow","status":"pending","description":"review","name":"review"},
+         {"id":"t1","type":"teammate","status":"running","description":"helper"},
+         {"id":"b1","type":"shell","status":"running","description":"npm run dev","command":"npm run dev"}]
+        """#
+        let report = try #require(try stop(agents))
+        #expect(report.kind == .stop && report.lastMessage == "Launched it" && report.backgroundAgents == 3)
+
+        let others = #"""
+        [{"id":"b1","type":"shell","status":"running","description":"npm run dev"},
+         {"id":"m1","type":"monitor","status":"running","description":"logs"},
+         {"id":"x1","type":"MCP task","status":"running","description":"x"},
+         {"id":"c1","type":"cloud session","status":"running","description":"x"},
+         {"id":"d1","type":"dream","status":"running","description":"x"},
+         {"id":"a2","type":"subagent","status":"completed","description":"finished already"}]
+        """#
+        #expect(try stop(others)?.backgroundAgents == nil)
+        #expect(try stop("[]")?.backgroundAgents == nil)
+        #expect(try stop(nil)?.backgroundAgents == nil)
+        // An unexpected shape never breaks decoding: the turn is just over.
+        #expect(try stop(#"{"x":1}"#)?.kind == .stop)
+        #expect(try stop(#"{"x":1}"#)?.backgroundAgents == nil)
+    }
+
     @Test func summaries() {
         #expect(HookAdapter.summary(nil) == "finished")
         #expect(HookAdapter.summary("\n\n  ") == "finished")

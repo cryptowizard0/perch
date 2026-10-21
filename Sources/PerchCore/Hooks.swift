@@ -46,6 +46,20 @@ public struct HookInput: Decodable, Equatable, Sendable {
     public var surface: String?
     /// dsh web: the address dsh web advertises (`http://127.0.0.1:3080/`), without its sign-in token.
     public var url: String?
+    /// Claude Code Stop: the background work still in flight (#92).
+    public var backgroundTasks: [BackgroundTask]?
+
+    /// One of Claude Code's `background_tasks` (the fields Perch reads).
+    public struct BackgroundTask: Decodable, Equatable, Sendable {
+        /// `subagent`, `workflow`, `teammate`, `shell`, `monitor`, `MCP task`, `cloud session`, …
+        public var type: String?
+        public var status: String?
+
+        public init(type: String? = nil, status: String? = nil) {
+            self.type = type
+            self.status = status
+        }
+    }
 
     /// One of dsh's `ask_user_question` questions (its options are left out).
     public struct Question: Decodable, Equatable, Sendable {
@@ -104,6 +118,7 @@ public struct HookInput: Decodable, Equatable, Sendable {
         case promptID = "promptId", cancelledBy, subagentType
         case at, pid, turn, questions, surface, url
         case keepPrompt = "keep_prompt"
+        case backgroundTasks = "background_tasks"
     }
 
     public init(from decoder: Decoder) throws {
@@ -141,6 +156,7 @@ public struct HookInput: Decodable, Equatable, Sendable {
         questions = (try? c.decodeIfPresent([Question].self, forKey: .questions)).flatMap { $0 }
         surface = (try? c.decodeIfPresent(String.self, forKey: .surface)).flatMap { $0 }
         url = (try? c.decodeIfPresent(String.self, forKey: .url)).flatMap { $0 }
+        backgroundTasks = (try? c.decodeIfPresent([BackgroundTask].self, forKey: .backgroundTasks)).flatMap { $0 }
     }
 
     /// An object, or the JSON text of one (dsh keeps a tool call's arguments as a string); nil for anything else.
@@ -155,7 +171,9 @@ public struct HookInput: Decodable, Equatable, Sendable {
                 toolInput: [String: JSONValue]? = nil, extra: Extra? = nil, prompt: String? = nil, error: JSONValue? = nil,
                 transcriptPath: String? = nil, promptID: String? = nil, reason: String? = nil, cancelledBy: String? = nil,
                 subagentType: String? = nil, at: Date? = nil, pid: Int32? = nil, turn: String? = nil, keepPrompt: Bool? = nil,
-                questions: [Question]? = nil, surface: String? = nil, url: String? = nil) {
+                questions: [Question]? = nil, surface: String? = nil, url: String? = nil,
+                backgroundTasks: [BackgroundTask]? = nil) {
+        self.backgroundTasks = backgroundTasks
         self.surface = surface
         self.url = url
         self.at = at
@@ -198,7 +216,7 @@ public struct HookInput: Decodable, Equatable, Sendable {
 /// | Notification (needs you) | waiting with the message (a recorded command stays) |
 /// | PermissionRequest | waiting with the full command; see `permission(for:…)`, handled by `perch hook` itself (request if allowlisted) |
 /// | PostToolUse / PostToolUseFailure | resume → running; resolves the session's request |
-/// | Stop | stop → done with the last reply's first line |
+/// | Stop | stop → done with the last reply's first line; running while background agents still work (`background_agents`) |
 /// | StopFailure | failure → failed with the error type |
 /// | Interrupt (Codex) | interrupt → idle |
 /// | SessionEnd | end → removed |
@@ -248,6 +266,20 @@ public enum HookAdapter {
         input.keepPrompt == true || isInjected(input.prompt ?? "") ? true : nil
     }
 
+    /// Background work that keeps a Claude Code session running after its turn ends (#92). Shells and monitors are
+    /// left out: a dev server or a watch can run forever, and the session would never be done.
+    static let backgroundAgentTypes: Set<String> = ["subagent", "workflow", "teammate"]
+    /// Claude Code lists only work in flight; a finished entry is skipped all the same.
+    static let finishedTaskStatuses: Set<String> = ["completed", "failed", "killed"]
+
+    /// How many background agents a Stop says are still working; nil when none.
+    static func backgroundAgents(_ input: HookInput) -> Int? {
+        let working = (input.backgroundTasks ?? []).filter {
+            backgroundAgentTypes.contains($0.type ?? "") && !finishedTaskStatuses.contains($0.status ?? "")
+        }
+        return working.isEmpty ? nil : working.count
+    }
+
     /// A prompt the agent sent itself rather than the human: Claude Code's `<task-notification>`, which wakes the model
     /// when a background command or agent finishes.
     static func isInjected(_ prompt: String) -> Bool {
@@ -282,7 +314,10 @@ public enum HookAdapter {
                 $0.keepDetail = type == "permission_prompt"
             }
         case "Stop":
-            return report(.stop) { $0.lastMessage = oneLine(input.lastAssistantMessage ?? "") }
+            return report(.stop) {
+                $0.lastMessage = oneLine(input.lastAssistantMessage ?? "")
+                $0.backgroundAgents = backgroundAgents(input)
+            }
         case "StopFailure":
             return report(.failure) { $0.error = input.errorType }
         case "Interrupt":
