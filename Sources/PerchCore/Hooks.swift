@@ -48,6 +48,10 @@ public struct HookInput: Decodable, Equatable, Sendable {
     public var url: String?
     /// Claude Code Stop: the background work still in flight (#92).
     public var backgroundTasks: [BackgroundTask]?
+    /// Codex: the subagent (its thread id) a hook fires in; absent in the main thread (#94).
+    public var agentID: String?
+    /// PostToolUse: what the tool returned (Codex's spawn_agent: `{"task_name":"/root/agent_a"}`).
+    public var toolResponse: JSONValue?
 
     /// One of Claude Code's `background_tasks` (the fields Perch reads).
     public struct BackgroundTask: Decodable, Equatable, Sendable {
@@ -119,6 +123,8 @@ public struct HookInput: Decodable, Equatable, Sendable {
         case at, pid, turn, questions, surface, url
         case keepPrompt = "keep_prompt"
         case backgroundTasks = "background_tasks"
+        case agentID = "agent_id"
+        case toolResponse = "tool_response"
     }
 
     public init(from decoder: Decoder) throws {
@@ -157,6 +163,8 @@ public struct HookInput: Decodable, Equatable, Sendable {
         surface = (try? c.decodeIfPresent(String.self, forKey: .surface)).flatMap { $0 }
         url = (try? c.decodeIfPresent(String.self, forKey: .url)).flatMap { $0 }
         backgroundTasks = (try? c.decodeIfPresent([BackgroundTask].self, forKey: .backgroundTasks)).flatMap { $0 }
+        agentID = (try? c.decodeIfPresent(String.self, forKey: .agentID)).flatMap { $0 }
+        toolResponse = (try? c.decodeIfPresent(JSONValue.self, forKey: .toolResponse)).flatMap { $0 }
     }
 
     /// An object, or the JSON text of one (dsh keeps a tool call's arguments as a string); nil for anything else.
@@ -172,8 +180,10 @@ public struct HookInput: Decodable, Equatable, Sendable {
                 transcriptPath: String? = nil, promptID: String? = nil, reason: String? = nil, cancelledBy: String? = nil,
                 subagentType: String? = nil, at: Date? = nil, pid: Int32? = nil, turn: String? = nil, keepPrompt: Bool? = nil,
                 questions: [Question]? = nil, surface: String? = nil, url: String? = nil,
-                backgroundTasks: [BackgroundTask]? = nil) {
+                backgroundTasks: [BackgroundTask]? = nil, agentID: String? = nil, toolResponse: JSONValue? = nil) {
+        self.toolResponse = toolResponse
         self.backgroundTasks = backgroundTasks
+        self.agentID = agentID
         self.surface = surface
         self.url = url
         self.at = at
@@ -223,6 +233,15 @@ public struct HookInput: Decodable, Equatable, Sendable {
 ///
 /// Codex sends the same JSON for the events it has. It has no Notification, StopFailure or PostToolUseFailure
 /// (it needs you only through PermissionRequest), and adds Interrupt (Esc on a running turn, no Stop).
+///
+/// Codex subagents (#94): hooks inside one carry the main session's `session_id` plus `agent_id`, and its turns end
+/// with SubagentStop, never Stop. Every report from inside one names it (`subagent`), so perchd keeps the session
+/// running until the last one finishes: SubagentStart (and a prompt inside a subagent) → `subagent_start`,
+/// SubagentStop → `subagent_stop`; its tool runs and permission prompts act as usual. Codex starts a subagent's
+/// first turn (and SubagentStart) only after the main turn ended, so a successful spawn_agent run, which comes
+/// before the main Stop, is reported too (`spawned_subagent`): one subagent on its way. Only a main-thread prompt makes
+/// a Codex row (`existing_only` on everything else), and Codex's own agents (memory consolidation, the desktop app's
+/// suggestions) end any row they have instead (see `isCodexInternal`).
 ///
 /// Hermes Agent (shell hooks, snake_case events; details in `extra`):
 ///
@@ -297,15 +316,25 @@ public enum HookAdapter {
         return ["claude-code", "codex"].contains(agent) && AgentProcess.insideDsh(agent: agent, from: pid, in: processes)
     }
 
-    public static func requests(for input: HookInput, agent: String, link: String?, now: Date) -> [Request] {
+    public static func requests(for input: HookInput, agent: String, link: String?, now: Date,
+                                codexHome: String = codexHome()) -> [Request] {
         if agent == "grok" { return grok(input, link: link, now: now) }
         if agent == "dsh" { return dsh(input, link: link, now: now) }
         func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> [Request] {
             [Request(op: .sessionReport, report: sessionReport(input, kind, agent: agent, link: link, now: now, fill))]
         }
+        if agent == "codex", isCodexInternal(input, codexHome: codexHome) {
+            return [Request(op: .sessionReport, report: SessionReport(id: input.sessionID, kind: .end, at: now))]
+        }
         switch input.event {
+        case "UserPromptSubmit" where agent == "codex" && input.agentID != nil:
+            return report(.subagentStart)
         case "UserPromptSubmit":
             return report(.prompt) { $0.prompt = promptLine(input.prompt ?? ""); $0.keepPrompt = keepsPrompt(input) }
+        case "SubagentStart" where agent == "codex":
+            return report(.subagentStart)
+        case "SubagentStop" where agent == "codex":
+            return report(.subagentStop)
         case "Notification":
             guard let type = input.notificationType, waitingNotifications.contains(type) else { return [] }
             // A late `permission_prompt` keeps the full command PermissionRequest recorded (keep_detail).
@@ -345,8 +374,45 @@ public enum HookAdapter {
         var report = SessionReport(id: input.sessionID, kind: kind, at: now, source: agent, title: projectName(input.cwd),
                                    cwd: input.cwd, link: link)
         if agent == "claude-code" { report.transcriptPath = input.transcriptPath.flatMap { $0.isEmpty ? nil : $0 } }
+        if agent == "codex" {
+            report.subagent = input.agentID.flatMap { $0.isEmpty ? nil : $0 }
+            if kind != .prompt { report.existingOnly = true }
+            if input.event == "PostToolUse", spawnsSubagent(input) { report.spawnedSubagent = true }
+        }
         fill(&report)
         return report
+    }
+
+    /// A Codex spawn_agent run that started a subagent (the tool is `collaborationspawn_agent` in Codex 0.163); its
+    /// output names the new task, a failed spawn's does not.
+    static func spawnsSubagent(_ input: HookInput) -> Bool {
+        guard input.toolName?.hasSuffix("spawn_agent") == true else { return false }
+        switch input.toolResponse {
+        case .string(let text): return text.contains("\"task_name\"")
+        case .object(let object): return object["task_name"] != nil
+        default: return false
+        }
+    }
+
+    /// Where Codex keeps its state: `$CODEX_HOME`, or `~/.codex`.
+    public static func codexHome(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                 home: String = NSHomeDirectory()) -> String {
+        environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? (home as NSString).appendingPathComponent(".codex")
+    }
+
+    /// One of Codex's own agents, which nobody asked for (#94). No hook field says so: the memory consolidation agent
+    /// works in `$CODEX_HOME/memories` (every event), and the desktop app's ambient-suggestions agent is known by its
+    /// prompt (the rest of its events never make a row: only a prompt does).
+    public static func isCodexInternal(_ input: HookInput, codexHome: String) -> Bool {
+        if let cwd = input.cwd, !cwd.isEmpty {
+            let memories = ((codexHome as NSString).appendingPathComponent("memories") as NSString).standardizingPath
+            let path = (cwd as NSString).standardizingPath
+            if path == memories || path.hasPrefix(memories + "/") { return true }
+        }
+        guard input.event == "UserPromptSubmit", let prompt = input.prompt else { return false }
+        let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.hasPrefix("Memory Writing Agent:")
+            || text.hasPrefix("# Overview") && text.contains("suggestions for what this user can do with Codex")
     }
 
     // MARK: - Grok

@@ -126,6 +126,96 @@ struct SessionStateTests {
         #expect(try session(d, "019a") == nil)
     }
 
+    func codexIn(_ name: String, _ extra: String = "", session: String = "root") -> String {
+        #"{"session_id":"\#(session)","turn_id":"t1","transcript_path":"/c/root.jsonl","cwd":"/w/perch","model":"gpt-6","permission_mode":"default","hook_event_name":"\#(name)"\#(extra)}"#
+    }
+
+    func subagent(_ name: String, _ agent: String, _ extra: String = "") -> String {
+        codexIn(name, #","agent_id":"\#(agent)","agent_type":"default"\#(extra)"#)
+    }
+
+    func spawn(_ task: String) -> String {
+        codexIn("PostToolUse", #","tool_name":"collaborationspawn_agent","tool_input":{"task_name":"\#(task)"},"tool_response":"{\"task_name\":\"/root/\#(task)\"}""#)
+    }
+
+    /// The main turn ends while its subagents work: Running until the last one finishes, then Done once with the
+    /// main reply (#94). Nothing wakes the main thread afterwards, so the last SubagentStop is what finishes it.
+    /// The order is Codex's (recorded 2026-10-21): the spawns, the main Stop, and only then each SubagentStart.
+    @Test func codexStaysRunningUntilTheLastSubagentFinishes() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        try hook(cli, "codex", codexIn("UserPromptSubmit", #","prompt":"Spawn A and B""#))
+        let started = try #require(try session(d, "root"))
+        try hook(cli, "codex", spawn("agent_a"))
+        try hook(cli, "codex", spawn("agent_b"))
+        try hook(cli, "codex", codexIn("Stop", #","stop_hook_active":false,"last_assistant_message":"Spawned A and B.""#))
+        var s = try #require(try session(d, "root"))
+        #expect(s.status == .running && s.prompt == "Spawn A and B" && s.turnStartedAt == started.turnStartedAt)
+        try hook(cli, "codex", subagent("SubagentStart", "a"))
+        try hook(cli, "codex", subagent("SubagentStart", "b"))
+        #expect(try session(d, "root")?.status == .running)
+
+        // A subagent's tool run is not the main prompt, and A finishing leaves B.
+        try hook(cli, "codex", subagent("PostToolUse", "a", #","tool_name":"Bash","tool_input":{"command":"sleep 20"}"#))
+        try hook(cli, "codex", subagent("SubagentStop", "a", #","stop_hook_active":false,"last_assistant_message":"A done""#))
+        s = try #require(try session(d, "root"))
+        #expect(s.status == .running && s.prompt == "Spawn A and B")
+
+        try hook(cli, "codex", subagent("SubagentStop", "b", #","stop_hook_active":false,"last_assistant_message":"B done""#))
+        s = try #require(try session(d, "root"))
+        #expect(s.status == .done && s.lastMessage == "Spawned A and B." && s.prompt == "Spawn A and B")
+    }
+
+    /// A main turn that waits for its subagents ends with its own Stop, as before.
+    @Test func codexTurnThatWaitsIsDoneAtItsStop() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        try hook(cli, "codex", codexIn("UserPromptSubmit", #","prompt":"Spawn A and wait""#))
+        try hook(cli, "codex", spawn("agent_a"))
+        try hook(cli, "codex", subagent("SubagentStart", "a"))
+        try hook(cli, "codex", subagent("SubagentStop", "a", #","last_assistant_message":"A done""#))
+        #expect(try session(d, "root")?.status == .running)
+        try hook(cli, "codex", codexIn("Stop", #","last_assistant_message":"A reported back.""#))
+        let s = try #require(try session(d, "root"))
+        #expect(s.status == .done && s.lastMessage == "A reported back.")
+    }
+
+    /// Esc on the main turn forgets its subagents: one finishing later does not bring back a Done.
+    @Test func codexInterruptForgetsSubagents() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        try hook(cli, "codex", codexIn("UserPromptSubmit", #","prompt":"Spawn A""#))
+        try hook(cli, "codex", spawn("agent_a"))
+        try hook(cli, "codex", codexIn("Stop", #","last_assistant_message":"Spawned A.""#))
+        #expect(try session(d, "root")?.status == .running)
+        try hook(cli, "codex", codexIn("Interrupt"))
+        #expect(try session(d, "root")?.status == .idle)
+        try hook(cli, "codex", subagent("SubagentStart", "a"))
+        try hook(cli, "codex", subagent("SubagentStop", "a", #","last_assistant_message":"A done""#))
+        #expect(try session(d, "root")?.status == .idle)
+    }
+
+    /// A spawn that failed (no task in its output) is no subagent to wait for.
+    @Test func codexFailedSpawnIsNotWaitedFor() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        try hook(cli, "codex", codexIn("UserPromptSubmit", #","prompt":"Spawn A""#))
+        try hook(cli, "codex", codexIn("PostToolUse", #","tool_name":"collaborationspawn_agent","tool_input":{},"tool_response":"agent limit reached""#))
+        try hook(cli, "codex", codexIn("Stop", #","last_assistant_message":"Could not spawn A.""#))
+        #expect(try session(d, "root")?.status == .done)
+    }
+
+    /// Codex's ambient-suggestions agent never makes a row: its prompt is dropped, and nothing but a prompt makes one.
+    @Test func codexSuggestionsAgentNeverShows() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+        let prompt = #","prompt":"\n# Overview\n\nGenerate 0 to 3 hyperpersonalized suggestions for what this user can do with Codex in this local project: /w/perch\n""#
+        try hook(cli, "codex", codexIn("UserPromptSubmit", prompt, session: "ov"))
+        try hook(cli, "codex", codexIn("PostToolUse", #","tool_name":"Bash","tool_input":{}"#, session: "ov"))
+        try hook(cli, "codex", codexIn("Stop", #","last_assistant_message":"{\"suggestions\":[]}""#, session: "ov"))
+        #expect(try session(d, "ov") == nil)
+    }
+
     func grok(_ name: String, _ extra: String = "") -> String {
         #"{"hookEventName":"x","sessionId":"g1","session_id":"g1","hook_event_name":"\#(name)","cwd":"/w/perch","workspaceRoot":"/w/perch","permissionMode":"default"\#(extra)}"#
     }

@@ -224,7 +224,7 @@ struct SetupCLITests {
         try fm.createDirectory(at: codex.deletingLastPathComponent(), withIntermediateDirectories: true)
         #expect(try perch("setup").status == 0)
 
-        #expect(try perch("hooks", "uninstall", "codex").stdout.contains("removed 6 Perch hooks"))
+        #expect(try perch("hooks", "uninstall", "codex").stdout.contains("removed 8 Perch hooks"))
         #expect(try agents()["codex"]?["status"] as? String == "off")
 
         let result = try perch("setup", "--json")
@@ -341,7 +341,7 @@ struct SetupCLITests {
         #expect(output["purged"] as? Bool == false)
         let removals = try #require(output["agents"] as? [[String: Any]])
         #expect(removals.map { $0["agent"] as? String } == ["claude-code", "codex"])
-        #expect(removals.map { $0["removed"] as? Int } == [8, 6])
+        #expect(removals.map { $0["removed"] as? Int } == [8, 8])
 
         #expect(try commands(claude) == ["Stop": ["other-tool notify"]])
         #expect(try json(claude)["model"] as? String == "opus")

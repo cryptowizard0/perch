@@ -166,12 +166,15 @@ public struct HookSettings: HookFile {
     }
 
     /// Codex has no Notification / StopFailure / PostToolUseFailure; Interrupt covers Esc (no Stop follows).
+    /// SubagentStart / SubagentStop keep a session running while its subagents work (#94).
     public static var codex: HookSettings {
         HookSettings(agent: "codex", events: [
             HookEvent(name: "UserPromptSubmit"),
             HookEvent(name: "PermissionRequest", mode: .blocking),
             HookEvent(name: "PostToolUse"),
             HookEvent(name: "Stop"),
+            HookEvent(name: "SubagentStart"),
+            HookEvent(name: "SubagentStop"),
             HookEvent(name: "Interrupt", mode: .async(timeout: 3)),
             HookEvent(name: "SessionEnd", mode: .sync(timeout: 3)),
         ], location: ConfigLocation(dirVariable: "CODEX_HOME", defaultDir: ".codex", file: "hooks.json"),

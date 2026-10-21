@@ -294,15 +294,16 @@ public final class Daemon {
         _ = applySession(Request(op: .sessionReport, report: SessionReport(id: id, kind: .interrupt, at: at)))
     }
 
-    /// Removes sessions whose agent is gone (see `SessionRegistry.reap`), as the liveness timer does.
+    /// Removes sessions whose agent is gone and finishes those whose Codex subagents went silent (see
+    /// `SessionRegistry.reap`), as the liveness timer does.
     func reapSessions() {
         queue.sync { reapOnQueue() }
     }
 
     private func reapOnQueue() {
-        let ended = sessions.reap()
-        publish(sessionEvents: ended)
-        afterChange(ended.flatMap { service.resolveRequests(session: $0.session.id) })
+        let events = sessions.reap()
+        publish(sessionEvents: events)
+        afterChange(events.filter { $0.type == .ended }.flatMap { service.resolveRequests(session: $0.session.id) })
     }
 
     /// Registers a watcher. `sink` first receives the `{"ok":true}` acknowledgement (with the watcher's id), then one

@@ -714,3 +714,87 @@ import Testing
         }
     }
 }
+
+/// Codex subagents and internal agents (#94). Hooks inside a subagent carry the root `session_id` plus `agent_id`;
+/// the memory consolidation and ambient-suggestions agents carry no marker at all.
+@Suite struct CodexSubagentTests {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let home = "/Users/me/.codex"
+
+    func requests(_ json: String, agent: String = "codex") throws -> [Request] {
+        let input = try JSONDecoder().decode(HookInput.self, from: Data(json.utf8))
+        return HookAdapter.requests(for: input, agent: agent, link: nil, now: now, codexHome: home)
+    }
+
+    func report(_ json: String, agent: String = "codex") throws -> SessionReport? {
+        try requests(json, agent: agent).first?.report
+    }
+
+    func codex(_ event: String, _ extra: String = "", cwd: String = "/w/perch") -> String {
+        #"{"session_id":"root","turn_id":"t1","cwd":"\#(cwd)","hook_event_name":"\#(event)","model":"gpt-6","permission_mode":"default"\#(extra)}"#
+    }
+
+    @Test func subagentEventsNameTheSubagent() throws {
+        let start = try #require(try report(codex("SubagentStart", #","agent_id":"a1","agent_type":"default""#)))
+        #expect(start.id == "root" && start.kind == .subagentStart && start.subagent == "a1" && start.existingOnly == true)
+
+        let stop = try #require(try report(codex("SubagentStop", #","agent_id":"a1","agent_type":"default","stop_hook_active":false,"last_assistant_message":"A done","agent_transcript_path":"/x.jsonl""#)))
+        #expect(stop.kind == .subagentStop && stop.subagent == "a1" && stop.existingOnly == true)
+
+        // A tool run inside the subagent: the root session, the usual effect, and the subagent is still at work.
+        let tool = try #require(try report(codex("PostToolUse", #","agent_id":"a1","agent_type":"default","tool_name":"Bash","tool_input":{}"#)))
+        #expect(tool.id == "root" && tool.kind == .resume && tool.subagent == "a1" && tool.existingOnly == true)
+    }
+
+    @Test func rootEventsNameNoSubagent() throws {
+        let prompt = try #require(try report(codex("UserPromptSubmit", #","prompt":"Spawn two agents""#)))
+        #expect(prompt.kind == .prompt && prompt.subagent == nil && prompt.existingOnly == nil)
+        // Only a prompt makes a Codex row: everything else updates a session Perch already shows.
+        let tool = try #require(try report(codex("PostToolUse", #","tool_name":"collaborationspawn_agent","tool_input":{}"#)))
+        #expect(tool.subagent == nil && tool.existingOnly == true)
+        let stop = try #require(try report(codex("Stop", #","stop_hook_active":false,"last_assistant_message":"Spawned A and B.""#)))
+        #expect(stop.kind == .stop && stop.existingOnly == true)
+    }
+
+    /// Codex starts a subagent's first turn (and so SubagentStart) only after the main turn ended; the main thread's
+    /// spawn_agent run, which comes before its Stop, is what says one is coming. Recorded 2026-10-21.
+    @Test func spawnRunsAreCounted() throws {
+        let spawned = try #require(try report(codex("PostToolUse", #","tool_name":"collaborationspawn_agent","tool_input":{"task_name":"agent_a","fork_turns":"none"},"tool_response":"{\"task_name\":\"/root/agent_a\"}""#)))
+        #expect(spawned.kind == .resume && spawned.spawnedSubagent == true && spawned.subagent == nil)
+        #expect(try report(codex("PostToolUse", #","tool_name":"spawn_agent","tool_response":{"task_name":"/root/b"}"#))?.spawnedSubagent == true)
+        // A spawn that failed names no task; another tool spawns nothing.
+        #expect(try report(codex("PostToolUse", #","tool_name":"collaborationspawn_agent","tool_response":"error: too many agents""#))?.spawnedSubagent == nil)
+        #expect(try report(codex("PostToolUse", #","tool_name":"Bash","tool_response":"{\"task_name\":\"x\"}""#))?.spawnedSubagent == nil)
+        #expect(try report(codex("PostToolUse", #","tool_name":"collaborationspawn_agent","tool_response":"{\"task_name\":\"/root/a\"}""#), agent: "claude-code")?.spawnedSubagent == nil)
+    }
+
+    @Test func claudeCodeIsUnchanged() throws {
+        let tool = try #require(try report(codex("PostToolUse", #","agent_id":"a1","agent_type":"Explore","tool_name":"Bash","tool_input":{}"#), agent: "claude-code"))
+        #expect(tool.subagent == nil && tool.existingOnly == nil)
+        #expect(try requests(codex("SubagentStart", #","agent_id":"a1""#), agent: "claude-code").isEmpty)
+    }
+
+    /// Codex's own agents end any row they have and never make one.
+    @Test func internalAgentsNeverShow() throws {
+        let memory = home + "/memories"
+        for event in ["UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd"] {
+            let r = try requests(codex(event, #","prompt":"Memory Writing Agent: Phase 2 (Consolidation)""#, cwd: memory))
+            #expect(r.count == 1 && r[0].report?.kind == .end && r[0].report?.id == "root")
+        }
+        #expect(try report(codex("PostToolUse", cwd: memory + "/rollout_summaries"))?.kind == .end)
+        #expect(try report(codex("PostToolUse", cwd: "/Users/me/.codex/memories-old"))?.kind == .resume)
+
+        let suggestions = "\n# Overview\n\nGenerate 0 to 3 hyperpersonalized suggestions for what this user can do with Codex in this local project: /w/perch\n"
+        let prompt = try JSONEncoder().encode(["prompt": suggestions])
+        let field = "," + String(decoding: prompt, as: UTF8.self).dropFirst().dropLast()
+        #expect(try report(codex("UserPromptSubmit", field))?.kind == .end)
+
+        // A human's own "# Overview" prompt is theirs.
+        #expect(try report(codex("UserPromptSubmit", ##","prompt":"# Overview\n\nWrite the overview section""##))?.kind == .prompt)
+    }
+
+    @Test func defaultCodexHome() {
+        #expect(HookAdapter.codexHome(environment: ["CODEX_HOME": "/x/codex"], home: "/Users/me") == "/x/codex")
+        #expect(HookAdapter.codexHome(environment: [:], home: "/Users/me") == "/Users/me/.codex")
+    }
+}
