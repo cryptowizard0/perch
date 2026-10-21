@@ -102,6 +102,22 @@ import Testing
         #expect(!editor.hasDate && editor.due(calendar: calendar) == nil)
     }
 
+    /// The add popup's calendar: Date turns the date on (today) with it open; the day chip folds and opens it; taking
+    /// the date off folds it, taking only the time off doesn't.
+    @Test func theCalendarGoesWithTheDate() {
+        var editor = TodoEditor.add(fromPanel: false)
+        editor.toggleCalendar(now: now, calendar: calendar)
+        #expect(editor.hasDate && editor.calendarShown && editor.date == at(16))
+        editor.toggleCalendar(now: now, calendar: calendar)
+        #expect(editor.hasDate && !editor.calendarShown)
+        editor.toggleCalendar(now: now, calendar: calendar)
+        editor.setHasTime(true, now: now, calendar: calendar)
+        editor.clearDue(now: now, calendar: calendar)
+        #expect(editor.hasDate && editor.calendarShown)
+        editor.clearDue(now: now, calendar: calendar)
+        #expect(!editor.hasDate && !editor.calendarShown)
+    }
+
     @Test func savingProducesTheEditedTodo() {
         let item = Item(id: "t7k2", title: "Call Lin", priority: .low, dueAt: at(20), dueDateOnly: true)
         var editor = TodoEditor.edit(item, now: now, calendar: calendar)

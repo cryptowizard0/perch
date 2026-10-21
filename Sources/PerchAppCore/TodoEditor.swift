@@ -25,6 +25,8 @@ public struct TodoEditor: Equatable, Sendable {
     public var hasTime = false
     /// The day (midnight) without a time, else the day and the time. Meaningless while `hasDate` is off.
     public var date = Date(timeIntervalSinceReferenceDate: 0)
+    /// The add popup's month calendar is open below the chips (#88). Goes with the date.
+    public var calendarShown = false
     /// The larger editor's fields (unused while adding).
     public var notes = ""
     public var url = ""
@@ -60,7 +62,10 @@ public struct TodoEditor: Equatable, Sendable {
     public mutating func setHasDate(_ on: Bool, now: Date, calendar: Calendar = .current) {
         if on && !hasDate { date = calendar.startOfDay(for: now) }
         hasDate = on
-        if !on { hasTime = false }
+        if !on {
+            hasTime = false
+            calendarShown = false
+        }
     }
 
     /// The time switch, like Reminders: on starts at the next hour when the day is today, 09:00 on another day (and
@@ -88,7 +93,18 @@ public struct TodoEditor: Equatable, Sendable {
         return hasTime ? (date, false) : (calendar.startOfDay(for: date), true)
     }
 
-    /// The popup's ×: takes off the time if there is one, else the date.
+    /// The add popup's date chip: Date turns the date on (today) with the calendar open; the chip with a date opens or
+    /// folds the calendar.
+    public mutating func toggleCalendar(now: Date, calendar: Calendar = .current) {
+        if hasDate {
+            calendarShown.toggle()
+        } else {
+            setHasDate(true, now: now, calendar: calendar)
+            calendarShown = true
+        }
+    }
+
+    /// The popup's ×: takes off the time if there is one, else the date (and its calendar).
     public mutating func clearDue(now: Date, calendar: Calendar = .current) {
         if hasTime {
             setHasTime(false, now: now, calendar: calendar)
