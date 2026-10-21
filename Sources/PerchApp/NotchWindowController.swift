@@ -16,6 +16,13 @@ final class NotchModel: ObservableObject {
     /// keeping the window wide enough for the black shape to grow and shrink inside it.
     @Published var leftWing: CGFloat = 26
     @Published var rightWing: CGFloat = 26
+    /// Drawn open: the black shape at the panel's size, the panel's content in it. Lags `expanded` by the open and close
+    /// animations (`NotchMotion`); the controller sets it.
+    @Published var isOpen = false
+    /// The open shape's height, band included; animates as rows come and go.
+    @Published var openHeight: CGFloat = 0
+    /// Where the band starts in the window: 0 while the window is the band, more while it is the expanded frame.
+    @Published var bandX: CGFloat = 0
     /// Kept expanded while the todo popup opened from the panel is up (#43); hover-collapse resumes when it closes.
     var held = false {
         didSet {
@@ -76,6 +83,12 @@ final class NotchWindowController {
     private var shrinkingFrom: CGFloat?
     private var shrinkDone: DispatchWorkItem?
     static let wingAnimation = 0.3
+    /// Opening and closing: the shape grows out of the band and shrinks back onto it.
+    private var motion = NotchMotion()
+    private var motionDone: DispatchWorkItem?
+    static let openAnimation = Animation.spring(response: NotchMotion.openDuration, dampingFraction: 0.9)
+    static let closeAnimation = Animation.timingCurve(0.4, 0, 0.2, 1, duration: NotchMotion.closeDuration)
+    static let resizeAnimation = Animation.easeInOut(duration: NotchMotion.resizeDuration)
     /// Agents and Todo side by side (#83), split under the notch.
     static let expandedWidth: CGFloat = 760
 
@@ -133,7 +146,9 @@ final class NotchWindowController {
     func popupFrame(size: CGSize, belowPanel: Bool, gap: CGFloat) -> CGRect? {
         if belowPanel {
             let notch = panel.frame
-            return CGRect(x: notch.midX - size.width / 2, y: notch.minY - gap - size.height, width: size.width, height: size.height).integral
+            // The window may still be taller than the panel drawn in it (`NotchMotion`).
+            let bottom = motion.phase == .collapsed ? notch.minY : notch.maxY - motion.height
+            return CGRect(x: notch.midX - size.width / 2, y: bottom - gap - size.height, width: size.width, height: size.height).integral
         }
         guard let geometry = notch.geometry else { return nil }
         var frame = geometry.expandedFrame(size: size)
@@ -184,11 +199,44 @@ final class NotchWindowController {
                 endShrink()
             }
         }
-        let frame = notch.expanded
-            ? geometry.expandedFrame(size: CGSize(width: Self.expandedWidth, height: expandedHeight(band: geometry.bandHeight)))
-            : geometry.collapsedFrame(leftWing: left, rightWing: max(right, shrinkingFrom ?? 0))
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let step = motion.update(expanded: notch.expanded,
+                                 height: notch.expanded ? expandedHeight(band: geometry.bandHeight) : 0, reduceMotion: reduceMotion)
+        let band = geometry.collapsedFrame(leftWing: left, rightWing: max(right, shrinkingFrom ?? 0))
+        let frame = motion.windowHeight.map {
+            geometry.expandedFrame(size: CGSize(width: Self.expandedWidth, height: $0))
+        } ?? band
+        if notch.bandX != band.minX - frame.minX { notch.bandX = band.minX - frame.minX }
+        // Growing out of the band: the window takes the expanded frame (the band drawn where it was) before it starts.
+        var growFromBand = false
+        switch step {
+        case .none:
+            break
+        case .open(let fromBand):
+            if fromBand && !reduceMotion {
+                notch.openHeight = motion.height
+                growFromBand = true
+            } else {
+                withAnimation(reduceMotion ? nil : Self.openAnimation) {
+                    notch.isOpen = true
+                    notch.openHeight = motion.height
+                }
+            }
+        case .close:
+            withAnimation(reduceMotion ? nil : Self.closeAnimation) { notch.isOpen = false }
+        case .resize:
+            withAnimation(reduceMotion ? nil : Self.resizeAnimation) { notch.openHeight = motion.height }
+        }
+        if step != .none { scheduleSettle(after: step.duration) }
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         if !panel.isVisible { panel.orderFrontRegardless() }
+        if growFromBand {
+            panel.contentView?.layoutSubtreeIfNeeded()
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.motion.phase == .open, !self.notch.isOpen else { return }
+                withAnimation(Self.openAnimation) { self.notch.isOpen = true }
+            }
+        }
         // The mascot may have moved, appeared (folded) or gone (expanded).
         gaze.refresh()
     }
@@ -197,8 +245,23 @@ final class NotchWindowController {
     private func mascotSpot() -> (center: CGPoint, screen: CGRect)? {
         guard !notch.expanded, panel.isVisible, let geometry = notch.geometry else { return nil }
         let frame = panel.frame
-        let center = CGPoint(x: frame.minX + NotchGeometry.collapsedInset + CGFloat(Mascot.width) / 2, y: frame.midY)
+        let center = CGPoint(x: frame.minX + notch.bandX + NotchGeometry.collapsedInset + CGFloat(Mascot.width) / 2, y: frame.midY)
         return (center, geometry.screenFrame)
+    }
+
+    /// Once the step's animation is over, the window may shrink to what is drawn.
+    private func scheduleSettle(after duration: Double) {
+        motionDone?.cancel()
+        motionDone = nil
+        guard motion.settling else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.motion.settle()
+                self?.layout()
+            }
+        }
+        motionDone = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.05, execute: work)
     }
 
     private func endShrink() {
