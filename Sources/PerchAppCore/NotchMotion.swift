@@ -45,6 +45,13 @@ public struct NotchMotion: Equatable, Sendable {
         phase == .collapsed ? nil : max(height, held ?? 0)
     }
 
+    /// Where the pointer counts as on the notch, from the window's top-left: the drawn panel while open, else the band
+    /// (`band`, in the window). Closing, the window is still the panel's frame for a moment; only the band counts then, so
+    /// brushing the top of the screen while it shrinks does not open it again.
+    public func hoverZone(band: CGRect, windowWidth: CGFloat) -> CGRect {
+        phase == .open ? CGRect(x: 0, y: 0, width: windowWidth, height: height) : band
+    }
+
     /// Something is still animating and `settle` should follow.
     public var settling: Bool { phase == .closing || held != nil }
 

@@ -91,6 +91,22 @@ import Testing
         #expect(!motion.settling)
     }
 
+    @Test func onlyTheBandCountsForHoverUnlessDrawnOpen() {
+        var motion = NotchMotion()
+        let band = CGRect(x: 0, y: 0, width: 300, height: 32)
+        #expect(motion.hoverZone(band: band, windowWidth: 300) == band)
+        _ = motion.update(expanded: true, height: 300, reduceMotion: false)
+        let inWindow = CGRect(x: 230, y: 0, width: 300, height: 32)
+        #expect(motion.hoverZone(band: inWindow, windowWidth: 760) == CGRect(x: 0, y: 0, width: 760, height: 300))
+        // Closing, the window is still the panel's frame, but passing over it must not open it again.
+        _ = motion.update(expanded: false, height: 0, reduceMotion: false)
+        #expect(motion.hoverZone(band: inWindow, windowWidth: 760) == inWindow)
+        // Open while taller rows go: only the drawn panel, not the window held around it.
+        _ = motion.update(expanded: true, height: 300, reduceMotion: false)
+        _ = motion.update(expanded: true, height: 200, reduceMotion: false)
+        #expect(motion.hoverZone(band: inWindow, windowWidth: 760) == CGRect(x: 0, y: 0, width: 760, height: 200))
+    }
+
     @Test func collapsedAndNotExpandingDoesNothing() {
         var motion = NotchMotion()
         #expect(motion.update(expanded: false, height: 0, reduceMotion: false) == .none)

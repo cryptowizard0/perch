@@ -72,6 +72,7 @@ final class NotchModel: ObservableObject {
 @MainActor
 final class NotchWindowController {
     let panel = NotchPanel()
+    private let host: NotchHostingView<NotchView>
     let notch: NotchModel
     let queue: QueueModel
     let setup: SetupModel
@@ -96,7 +97,7 @@ final class NotchWindowController {
         self.notch = notch
         self.queue = queue
         self.setup = setup
-        let host = NotchHostingView(rootView: NotchView(notch: notch, queue: queue, setup: setup, gaze: gaze, menu: menu))
+        host = NotchHostingView(rootView: NotchView(notch: notch, queue: queue, setup: setup, gaze: gaze, menu: menu))
         host.sizingOptions = []
         host.onHover = { [weak notch] inside in notch?.hover(inside) }
         panel.contentView = host
@@ -230,6 +231,8 @@ final class NotchWindowController {
         if step != .none { scheduleSettle(after: step.duration) }
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         if !panel.isVisible { panel.orderFrontRegardless() }
+        let bandInWindow = CGRect(x: notch.bandX, y: 0, width: band.width, height: band.height)
+        host.setHoverZone(motion.hoverZone(band: bandInWindow, windowWidth: frame.width))
         if growFromBand {
             panel.contentView?.layoutSubtreeIfNeeded()
             DispatchQueue.main.async { [weak self] in
@@ -282,25 +285,48 @@ final class NotchWindowController {
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
     var onHover: ((Bool) -> Void)?
     private var tracking: NSTrackingArea?
+    /// Where hovering counts, from the window's top-left (`NotchMotion.hoverZone`); nil for the whole view.
+    private var zone: CGRect?
+    private var inside = false
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    func setHoverZone(_ zone: CGRect) {
+        if zone != self.zone {
+            self.zone = zone
+            updateTrackingAreas()
+        }
+        // A zone that grew or shrank under a still pointer sends no enter or exit.
+        guard let window else { return }
+        report(zoneRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)))
+    }
+
+    private var zoneRect: CGRect {
+        guard let zone else { return bounds }
+        return isFlipped ? zone : CGRect(x: zone.minX, y: bounds.height - zone.maxY, width: zone.width, height: zone.height)
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                                  owner: self, userInfo: nil)
+        let area = NSTrackingArea(rect: zoneRect, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
         addTrackingArea(area)
         tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        onHover?(true)
+        report(true)
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        onHover?(false)
+        report(false)
+    }
+
+    private func report(_ now: Bool) {
+        guard now != inside else { return }
+        inside = now
+        onHover?(now)
     }
 }
