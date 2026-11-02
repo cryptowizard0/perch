@@ -40,6 +40,20 @@ final class TodoPopupPanel: NSPanel {
         onCancel?()
     }
 
+    /// There's no Edit menu to turn ⌘C / ⌘V / … into actions, so send them to the focused field ourselves.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags
+        if event.type == .keyDown,
+            let command = EditCommand(
+                key: event.charactersIgnoringModifiers ?? "", command: flags.contains(.command),
+                shift: flags.contains(.shift), option: flags.contains(.option), control: flags.contains(.control)),
+            NSApp.sendAction(NSSelectorFromString(command.selector), to: nil, from: self)
+        {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func sendEvent(_ event: NSEvent) {
         // Before the text field sees them; an input method composing text keeps its keys.
         let composing = (firstResponder as? NSTextView)?.hasMarkedText() ?? false
