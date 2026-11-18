@@ -52,6 +52,12 @@ public struct HookInput: Decodable, Equatable, Sendable {
     public var agentID: String?
     /// PostToolUse: what the tool returned (Codex's spawn_agent: `{"task_name":"/root/agent_a"}`).
     public var toolResponse: JSONValue?
+    /// Cursor: the folders open in the window (its events carry no `cwd`, except tool events).
+    public var workspaceRoots: [String]?
+    /// Cursor stop: `completed`, `aborted` or `error`.
+    public var status: String?
+    /// Cursor afterAgentResponse: the reply.
+    public var text: String?
 
     /// One of Claude Code's `background_tasks` (the fields Perch reads).
     public struct BackgroundTask: Decodable, Equatable, Sendable {
@@ -125,6 +131,9 @@ public struct HookInput: Decodable, Equatable, Sendable {
         case backgroundTasks = "background_tasks"
         case agentID = "agent_id"
         case toolResponse = "tool_response"
+        case conversationID = "conversation_id"
+        case workspaceRoots = "workspace_roots"
+        case status, text
     }
 
     public init(from decoder: Decoder) throws {
@@ -132,7 +141,8 @@ public struct HookInput: Decodable, Equatable, Sendable {
         func string(_ key: CodingKeys, _ camel: CodingKeys) throws -> String? {
             try c.decodeIfPresent(String.self, forKey: key) ?? c.decodeIfPresent(String.self, forKey: camel)
         }
-        if let id = try string(.sessionID, .sessionIDCamel) {
+        // Cursor names a chat by `conversation_id`; its session events carry the same value as `session_id`.
+        if let id = try string(.sessionID, .sessionIDCamel) ?? (try? c.decodeIfPresent(String.self, forKey: .conversationID)).flatMap({ $0 }) {
             sessionID = id
         } else {
             throw DecodingError.keyNotFound(CodingKeys.sessionID, .init(codingPath: c.codingPath, debugDescription: "no session_id"))
@@ -165,6 +175,11 @@ public struct HookInput: Decodable, Equatable, Sendable {
         backgroundTasks = (try? c.decodeIfPresent([BackgroundTask].self, forKey: .backgroundTasks)).flatMap { $0 }
         agentID = (try? c.decodeIfPresent(String.self, forKey: .agentID)).flatMap { $0 }
         toolResponse = (try? c.decodeIfPresent(JSONValue.self, forKey: .toolResponse)).flatMap { $0 }
+        // Cursor's fields, just as tolerant. Its tool events have a `cwd`; the others only the workspace.
+        workspaceRoots = (try? c.decodeIfPresent([String].self, forKey: .workspaceRoots)).flatMap { $0 }
+        status = (try? c.decodeIfPresent(String.self, forKey: .status)).flatMap { $0 }
+        text = (try? c.decodeIfPresent(String.self, forKey: .text)).flatMap { $0 }
+        if cwd?.isEmpty != false, let root = workspaceRoots?.first(where: { !$0.isEmpty }) { cwd = root }
     }
 
     /// An object, or the JSON text of one (dsh keeps a tool call's arguments as a string); nil for anything else.
@@ -180,7 +195,10 @@ public struct HookInput: Decodable, Equatable, Sendable {
                 transcriptPath: String? = nil, promptID: String? = nil, reason: String? = nil, cancelledBy: String? = nil,
                 subagentType: String? = nil, at: Date? = nil, pid: Int32? = nil, turn: String? = nil, keepPrompt: Bool? = nil,
                 questions: [Question]? = nil, surface: String? = nil, url: String? = nil,
-                backgroundTasks: [BackgroundTask]? = nil, agentID: String? = nil, toolResponse: JSONValue? = nil) {
+                backgroundTasks: [BackgroundTask]? = nil, agentID: String? = nil, toolResponse: JSONValue? = nil,
+                status: String? = nil, text: String? = nil) {
+        self.status = status
+        self.text = text
         self.toolResponse = toolResponse
         self.backgroundTasks = backgroundTasks
         self.agentID = agentID
@@ -271,7 +289,7 @@ public enum HookAdapter {
     public static func waitingKey(agent: String, session: String) -> String { "\(agent):\(session)" }
     public static func noticeKey(agent: String, session: String) -> String { "\(agent):\(session):done" }
     /// Events that start a turn: the human just typed, so that terminal has focus.
-    static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call", "Prompt"]
+    static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call", "Prompt", "beforeSubmitPrompt"]
 
     /// Whether the human just typed into this event's terminal. A prompt Claude Code injects on its own (a background
     /// task finishing) fires UserPromptSubmit too, while focus may be anywhere; so does a dsh turn its plugin marks
@@ -309,17 +327,22 @@ public enum HookAdapter {
     /// (`[compat.claude] hooks`); its own `perch hook grok` reports its sessions, so the borrowed call says nothing.
     /// Grok sets `GROK_HOOK_EVENT` for every hook it runs. dsh's Claude Code / Codex hooks bridges (not mounted by
     /// default) run those files too, with no such variable, so for them it is the process chain: `processes` are
-    /// `pid`'s ancestors (see `AgentProcess.insideDsh`).
+    /// `pid`'s ancestors (see `AgentProcess.insideDsh`). Cursor runs ~/.claude/settings.json hooks by default too (Third-Party
+    /// Imports, #98) and sets `CURSOR_VERSION` for every hook; a Claude Code started in Cursor's terminal still has its
+    /// own `claude` above the hook, so only a call with no such ancestor is Cursor's.
     public static func isForeign(agent: String, environment: [String: String], processes: [Int32: ProcessEntry] = [:],
                                  from pid: Int32 = 0) -> Bool {
         if agent != "grok", environment["GROK_HOOK_EVENT"] != nil { return true }
-        return ["claude-code", "codex"].contains(agent) && AgentProcess.insideDsh(agent: agent, from: pid, in: processes)
+        guard ["claude-code", "codex"].contains(agent) else { return false }
+        if environment["CURSOR_VERSION"] != nil, AgentProcess.find(agent: agent, from: pid, in: processes) == nil { return true }
+        return AgentProcess.insideDsh(agent: agent, from: pid, in: processes)
     }
 
     public static func requests(for input: HookInput, agent: String, link: String?, now: Date,
                                 codexHome: String = codexHome()) -> [Request] {
         if agent == "grok" { return grok(input, link: link, now: now) }
         if agent == "dsh" { return dsh(input, link: link, now: now) }
+        if agent == "cursor" { return cursor(input, link: link, now: now) }
         func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> [Request] {
             [Request(op: .sessionReport, report: sessionReport(input, kind, agent: agent, link: link, now: now, fill))]
         }
@@ -462,6 +485,46 @@ public enum HookAdapter {
             guard input.cancelledBy == "runtime" else { return report(.interrupt) }
             return report(.failure) { $0.error = input.reason.flatMap { $0.nilIfEmpty } ?? "unknown" }
         case "SessionEnd":
+            return report(.end)
+        default:
+            return []
+        }
+    }
+
+    // MARK: - Cursor
+
+    /// Cursor's hooks (#98; the IDE's Agent panel and the `cursor-agent` CLI share ~/.cursor/hooks.json). Built from
+    /// Cursor's docs (3.24): no turns were seen on a real install yet.
+    ///
+    /// | event | session report |
+    /// | --- | --- |
+    /// | beforeSubmitPrompt | prompt → running |
+    /// | afterAgentResponse | reply: the reply's first line, for the stop (which carries none) |
+    /// | stop `completed` (or no status) | stop → done with that reply |
+    /// | stop `error` | failure → failed ("error": Cursor's stop says nothing more) |
+    /// | stop `aborted` | interrupt → idle |
+    /// | sessionEnd | end → removed |
+    ///
+    /// Cursor never says it waits for you (no Notification, no PermissionRequest), and `beforeShellExecution` fires
+    /// for every command whether or not Cursor will ask, so Cursor sessions never need you and the notch never answers
+    /// Cursor. `sessionStart` is not used: an empty Agent pane fires it (`conversation_id: "empty-state-draft"`).
+    static func cursor(_ input: HookInput, link: String?, now: Date) -> [Request] {
+        func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> [Request] {
+            [Request(op: .sessionReport, report: sessionReport(input, kind, agent: "cursor", link: link, now: now, fill))]
+        }
+        switch input.event {
+        case "beforeSubmitPrompt":
+            return report(.prompt) { $0.prompt = promptLine(input.prompt ?? "") }
+        case "afterAgentResponse":
+            guard let line = oneLine(input.text ?? "") else { return [] }
+            return report(.reply) { $0.lastMessage = line }
+        case "stop":
+            switch input.status {
+            case "error": return report(.failure) { $0.error = "error" }
+            case "aborted": return report(.interrupt)
+            default: return report(.stop)
+            }
+        case "sessionEnd":
             return report(.end)
         default:
             return []

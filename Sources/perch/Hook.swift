@@ -4,7 +4,7 @@ import PerchClient
 import PerchCore
 import PerchSetup
 
-/// `perch hook <agent>` — the hook adapter. Claude Code / Codex / Grok / Hermes run it with the hook JSON on stdin, and
+/// `perch hook <agent>` — the hook adapter. Claude Code / Codex / Grok / Cursor / Hermes run it with the hook JSON on stdin, and
 /// Perch's dsh plugin with its own normalised events (see HookAdapter).
 /// Contract with the agent: print nothing (SessionStart / UserPromptSubmit stdout would be added to the
 /// model's context) except a PermissionRequest decision, always exit 0, never block for long (PermissionRequest:
@@ -18,7 +18,7 @@ struct Hook: ParsableCommand {
     /// The agents setup knows (dsh's "hook file" is the patch row that mounts its plugin, which runs `perch hook dsh`).
     static let agents = HookFiles.all.map(\.agent)
 
-    @Argument(help: "claude-code | codex | grok | hermes | dsh") var agent: String
+    @Argument(help: "claude-code | codex | grok | cursor | hermes | dsh") var agent: String
     @Option(help: "PermissionRequest: seconds to wait for Allow / Deny in the notch before the terminal asks.")
     var wait: Double = HookAdapter.permissionWait
 
@@ -110,6 +110,13 @@ struct Hook: ParsableCommand {
         // A `dsh web` session lives in the browser (#80), whichever terminal started the server.
         if agent == "dsh", input.surface == "web" { return HookAdapter.dshWebLink(input) }
         let env = ProcessInfo.processInfo.environment
+        // A chat in Cursor's IDE (#98): the jump brings Cursor forward on that workspace, whatever TERM_PROGRAM Cursor
+        // inherited from a shell that started it.
+        if agent == "cursor", let process, process.name == AgentProcess.cursorApp {
+            let app = SystemProcesses.executablePath(of: process.pid).flatMap(TerminalLink.hostApp(executable:))
+            let bundle = app.flatMap { Bundle(path: $0)?.bundleIdentifier } ?? env["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
+            return TerminalLink(app: TerminalLink.cursorApp, cwd: input.cwd, bundleID: bundle).string
+        }
         let program = env["TERM_PROGRAM"].flatMap { $0.isEmpty ? nil : $0.lowercased() }
         var bundle = env["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
         // No terminal and no launching app said (Codex's desktop app): the app the agent process lives in.

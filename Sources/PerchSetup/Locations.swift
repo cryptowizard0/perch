@@ -1,13 +1,14 @@
 import Foundation
 import PerchCore
 
-/// Where an agent keeps its hook file: `$<dirVariable>/<file>`, else `~/<defaultDir>/<file>`.
+/// Where an agent keeps its hook file: `$<dirVariable>/<file>`, else `~/<defaultDir>/<file>`. Cursor has no such
+/// variable (`dirVariable` nil).
 public struct ConfigLocation: Equatable, Sendable {
-    public let dirVariable: String
+    public let dirVariable: String?
     public let defaultDir: String
     public let file: String
 
-    public init(dirVariable: String, defaultDir: String, file: String) {
+    public init(dirVariable: String?, defaultDir: String, file: String) {
         self.dirVariable = dirVariable
         self.defaultDir = defaultDir
         self.file = file
@@ -18,7 +19,7 @@ public struct ConfigLocation: Equatable, Sendable {
     public func candidates(recorded: String?, environment: [String: String], userHome: String) -> [String] {
         var paths: [String] = []
         if let recorded, !recorded.isEmpty { paths.append(recorded) }
-        if let dir = environment[dirVariable], !dir.isEmpty {
+        if let dirVariable, let dir = environment[dirVariable], !dir.isEmpty {
             paths.append(URL(fileURLWithPath: dir).appendingPathComponent(file).path)
         }
         paths.append(URL(fileURLWithPath: userHome).appendingPathComponent(defaultDir).appendingPathComponent(file).path)

@@ -5,6 +5,9 @@ import Foundation
 /// anything else: bring the app with `bundle` id to the front).
 public struct TerminalLink: Equatable, Sendable {
     public static let scheme = "perch-terminal"
+    /// The `app` of a link to a chat in Cursor's IDE (#98): not a terminal; the jump opens `cwd` in Cursor, which
+    /// brings forward the window that has it.
+    public static let cursorApp = "cursor"
 
     /// Terminal program, lowercased `TERM_PROGRAM` ("ghostty", "iterm.app", …).
     public var app: String

@@ -343,6 +343,57 @@ struct SessionStateTests {
         #expect(JumpTarget(link: s.link) == .open(URL(string: "http://127.0.0.1:3080/")!))
     }
 
+    func cursor(_ name: String, _ extra: String = "", conversation: String = "c-1") -> String {
+        #"{"conversation_id":"\#(conversation)","generation_id":"g-1","hook_event_name":"\#(name)","cursor_version":"3.24.18","workspace_roots":["/w/perch"],"transcript_path":null\#(extra)}"#
+    }
+
+    /// Cursor (#98): its stop carries no reply, so the one `afterAgentResponse` reported makes the Done line.
+    @Test func cursorWalksThroughEveryState() throws {
+        let d = try TestDaemon()
+        let cli = CLI(home: d.home)
+
+        // A reply for a session Perch never saw does not make a row.
+        try hook(cli, "cursor", cursor("afterAgentResponse", #","text":"hello""#))
+        #expect(try session(d, "c-1") == nil)
+
+        try hook(cli, "cursor", cursor("beforeSubmitPrompt", #","prompt":"Fix the build\nplease","attachments":[]"#))
+        var s = try #require(try session(d, "c-1"))
+        #expect(s.status == .running && s.source == "cursor" && s.title == "perch" && s.cwd == "/w/perch")
+        #expect(s.prompt == "Fix the build")
+
+        try hook(cli, "cursor", cursor("afterAgentResponse", #","text":"Looking at the build first.""#))
+        try hook(cli, "cursor", cursor("afterAgentResponse", ###","text":"## Fixed\nThe build passes.""###))
+        s = try #require(try session(d, "c-1"))
+        #expect(s.status == .running && s.lastMessage == nil)
+
+        try hook(cli, "cursor", cursor("stop", #","status":"completed","loop_count":0"#))
+        s = try #require(try session(d, "c-1"))
+        #expect(s.status == .done && s.lastMessage == "Fixed")
+
+        // A new turn forgets the old reply; a reply right after the stop fills the empty Done line.
+        try hook(cli, "cursor", cursor("beforeSubmitPrompt", #","prompt":"again""#))
+        try hook(cli, "cursor", cursor("stop", #","status":"completed","loop_count":0"#))
+        s = try #require(try session(d, "c-1"))
+        #expect(s.status == .done && s.lastMessage == nil)
+        try hook(cli, "cursor", cursor("afterAgentResponse", #","text":"Late reply""#))
+        #expect(try session(d, "c-1")?.lastMessage == "Late reply")
+        // ...but never replaces one.
+        try hook(cli, "cursor", cursor("afterAgentResponse", #","text":"Later still""#))
+        #expect(try session(d, "c-1")?.lastMessage == "Late reply")
+
+        try hook(cli, "cursor", cursor("beforeSubmitPrompt", #","prompt":"stop me""#))
+        try hook(cli, "cursor", cursor("stop", #","status":"aborted","loop_count":0"#))
+        #expect(try session(d, "c-1")?.status == .idle)
+
+        try hook(cli, "cursor", cursor("beforeSubmitPrompt", #","prompt":"break""#))
+        try hook(cli, "cursor", cursor("stop", #","status":"error","loop_count":0"#))
+        s = try #require(try session(d, "c-1"))
+        #expect(s.status == .failed && s.error == "error")
+
+        try hook(cli, "cursor", cursor("sessionEnd", #","session_id":"c-1","reason":"user_close","duration_ms":1"#))
+        #expect(try session(d, "c-1") == nil)
+    }
+
     @Test func anEventForAnUnknownSessionCreatesIt() throws {
         let d = try TestDaemon()
         try hook(CLI(home: d.home), "claude-code", claude("Stop", #","last_assistant_message":"ok""#, session: "late"))
