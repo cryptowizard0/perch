@@ -47,6 +47,9 @@ public final class SessionRegistry {
     private var removedAt: [String: Date] = [:]
     /// Each session's current turn, for agents that name their turns (`SessionReport.turn`).
     private var turns: [String: String] = [:]
+    /// Each running session's latest reply, for agents whose stop does not carry it (Cursor's `afterAgentResponse`,
+    /// #98). Only kept in memory: after a restart such a session's Done line can be empty.
+    private var replies: [String: String] = [:]
     /// Codex subagents at work, per session: subagent id → when perchd last heard from it (#94).
     private var subagents: [String: [String: Date]] = [:]
     /// Codex subagents spawned but not started yet (their SubagentStart comes after the main turn's stop), per session:
@@ -107,11 +110,17 @@ public final class SessionRegistry {
             return ignored
         }
         // "The agent is idle" says nothing about a session Perch never saw; nor does any `existing_only` report.
-        if report.kind == .settle || report.existingOnly == true, existing == nil { return ignored }
+        if report.kind == .settle || report.kind == .reply || report.existingOnly == true, existing == nil { return ignored }
+        // A reply is kept for the turn's stop; only a Done line still empty (the stop came first) shows it at once.
+        if report.kind == .reply, let existing, existing.status != .done || existing.lastMessage != nil {
+            if [.running, .waiting].contains(existing.status) { replies[id] = report.lastMessage }
+            return Outcome(response: Response(ok: true, sessions: [existing]))
+        }
 
         if report.kind == .end {
             removedAt[id] = max(removedAt[id] ?? .distantPast, at)
             turns[id] = nil
+            replies[id] = nil
             forgetSubagents(of: id)
             var outcome = Outcome(response: Response(ok: true, sessions: []), resolveRequestsOf: id)
             if let existing {
@@ -157,6 +166,7 @@ public final class SessionRegistry {
             if !keep || ![.running, .waiting].contains(s.status) { s.turnStartedAt = at }
             enter(.running)
             turns[id] = report.turn
+            replies[id] = nil
             if !keep { s.prompt = report.prompt }
             s.detail = nil
             s.error = nil
@@ -179,7 +189,8 @@ public final class SessionRegistry {
             let codexSubagents = working(id)
             enter((report.backgroundAgents ?? 0) + codexSubagents > 0 ? .running : .done)
             if codexSubagents > 0 { awaitingSubagents.insert(id) } else { awaitingSubagents.remove(id) }
-            s.lastMessage = report.lastMessage
+            s.lastMessage = report.lastMessage ?? replies[id]
+            replies[id] = nil
             s.detail = nil
         case .subagentStart:
             resolves = false
@@ -203,6 +214,10 @@ public final class SessionRegistry {
                 enter(.idle)
                 s.detail = nil
             }
+        case .reply:
+            // A Done line still empty: the reply came just after the stop.
+            s.lastMessage = report.lastMessage
+            resolves = false
         case .end:
             break
         }
@@ -235,6 +250,7 @@ public final class SessionRegistry {
         try store.deleteSession(id: s.id)
         removedAt[s.id] = Service.wholeSeconds(now())
         turns[s.id] = nil
+        replies[s.id] = nil
         forgetSubagents(of: s.id)
         return SessionEvent(type: .ended, session: s, at: now())
     }

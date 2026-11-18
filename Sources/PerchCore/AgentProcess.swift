@@ -29,15 +29,35 @@ public enum AgentProcess {
         "codex": ["codex"],
         // ~/.grok/bin/grok and ~/.grok/bin/agent both link to the versioned binary (grok-1.0.x-macos-aarch64).
         "grok": ["grok", "agent"],
+        // Cursor's IDE runs hooks under the app (`Cursor`, its main process); the CLI is `cursor-agent` (or `node`
+        // running it, see `isCursorCLI`). Never `agent`: the CLI installs that name too, but on this list it is Grok's.
+        "cursor": [cursorApp, "cursor-agent"],
     ]
+
+    /// The process name of Cursor's desktop app (`/Applications/Cursor.app/Contents/MacOS/Cursor`).
+    public static let cursorApp = "Cursor"
+
+    /// Whether `entry` is one of `agent`'s processes.
+    public static func matches(agent: String, _ entry: ProcessEntry) -> Bool {
+        if names[agent]?.contains(entry.name) == true { return true }
+        return agent == "cursor" && isCursorCLI(entry)
+    }
+
+    /// The Cursor CLI run by its bundled `node`: the script lives under `~/.local/share/cursor-agent/versions/…`
+    /// (from Cursor's docs; not seen on a real install yet, #98).
+    public static func isCursorCLI(_ entry: ProcessEntry) -> Bool {
+        if entry.name == "cursor-agent" { return true }
+        guard entry.name.hasPrefix("node"), let script = entry.script else { return false }
+        return script.contains("/cursor-agent/")
+    }
 
     /// The closest ancestor of `pid` (itself included) named like `agent`'s process, or nil.
     public static func find(agent: String, from pid: Int32, in table: [Int32: ProcessEntry]) -> ProcessEntry? {
-        guard let names = names[agent] else { return nil }
+        guard names[agent] != nil else { return nil }
         var seen: Set<Int32> = []
         var current = table[pid]
         while let entry = current, seen.insert(entry.pid).inserted {
-            if names.contains(entry.name) { return entry }
+            if matches(agent: agent, entry) { return entry }
             guard entry.ppid > 0, entry.ppid != entry.pid else { return nil }
             current = table[entry.ppid]
         }

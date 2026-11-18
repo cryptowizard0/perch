@@ -10,6 +10,7 @@ import Testing
     static let codexPath = "/Users/me/.codex/hooks.json"
     static let grokPath = "/Users/me/.grok/hooks/perch.json"
     static let dshPath = "/Users/me/.dsh/cordis.patch.yml"
+    static let cursorPath = "/Users/me/.cursor/hooks.json"
     static let app = SetupRunner.app(path: "/Applications/Perch.app")
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -30,16 +31,16 @@ import Testing
 
     @Test func notDetectedWithoutAConfigDirectory() {
         let result = Setup.evaluate(snapshot(), request: .setup())
-        #expect(result.agents.map(\.agent) == ["claude-code", "codex", "grok", "dsh"])
-        #expect(result.agents.map(\.state) == [.notDetected, .notDetected, .notDetected, .notDetected])
-        #expect(result.agents.map(\.config) == [Self.claudePath, Self.codexPath, Self.grokPath, Self.dshPath])
+        #expect(result.agents.map(\.agent) == ["claude-code", "codex", "grok", "cursor", "dsh"])
+        #expect(result.agents.map(\.state) == [.notDetected, .notDetected, .notDetected, .notDetected, .notDetected])
+        #expect(result.agents.map(\.config) == [Self.claudePath, Self.codexPath, Self.grokPath, Self.cursorPath, Self.dshPath])
         #expect(result.plan.changes.isEmpty)
     }
 
     @Test func notAskedIsConnectedBySetupButNotBySelfCheck() throws {
         let files: [String: ConfigFile] = [Self.claudePath: .missing, Self.codexPath: .text("{}")]
         let check = Setup.evaluate(snapshot(files: files, runner: Self.app), request: .selfCheck)
-        #expect(check.agents.map(\.state) == [.notAsked, .notAsked, .notDetected, .notDetected])
+        #expect(check.agents.map(\.state) == [.notAsked, .notAsked, .notDetected, .notDetected, .notDetected])
         #expect(check.plan.changes.isEmpty)
 
         let setup = Setup.evaluate(snapshot(files: files), request: .setup())

@@ -80,6 +80,7 @@ struct SetupCLITests {
             ["agent": "claude-code", "state": "connected", "config": claude.path],
             ["agent": "codex", "state": "needsTrust", "config": codex.path],
             ["agent": "grok", "state": "notDetected", "config": grok.path],
+            ["agent": "cursor", "state": "notDetected", "config": home.appendingPathComponent(".cursor/hooks.json").path],
             ["agent": "dsh", "state": "notDetected", "config": dsh.path],
         ])
 
@@ -230,7 +231,7 @@ struct SetupCLITests {
         let result = try perch("setup", "--json")
         #expect(result.status == 0, "\(result.stderr)")
         let lines = try #require(try parse(result.stdout)["agents"] as? [[String: String]])
-        #expect(lines.map { $0["state"] } == ["connected", "off", "notDetected", "notDetected"])
+        #expect(lines.map { $0["state"] } == ["connected", "off", "notDetected", "notDetected", "notDetected"])
         #expect(try perchCommands(codex).isEmpty)
 
         // `hooks install` connects it again, by default against the fixed location.
@@ -364,7 +365,7 @@ struct SetupCLITests {
         defer { cleanUp() }
         let hermes = try perch("setup", "hermes")
         #expect(hermes.status == 64)
-        #expect(hermes.stderr == "perch: unknown agent 'hermes'; use claude-code, codex, grok or dsh")
+        #expect(hermes.stderr == "perch: unknown agent 'hermes'; use claude-code, codex, grok, cursor or dsh")
         let wait = try perch("setup", "--wait", "1", "--json")
         #expect(wait.status == 64)
         #expect(try parse(wait.stdout)["ok"] as? Bool == false)

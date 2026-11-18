@@ -33,11 +33,22 @@ enum Jumper {
     private static func activate(_ terminal: TerminalLink) {
         let bundleID = terminal.bundleID ?? (terminal.app == "ghostty" ? "com.mitchellh.ghostty" : nil)
         guard let bundleID else { return }
+        // Cursor's IDE (#98): opening the chat's workspace folder brings forward the window that has it open.
+        if terminal.app == TerminalLink.cursorApp, let cwd = terminal.cwd, isDirectory(cwd),
+           let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            NSWorkspace.shared.open([URL(fileURLWithPath: cwd)], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+            return
+        }
         if let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
             running.activate()
         } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
             NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
         }
+    }
+
+    private static func isDirectory(_ path: String) -> Bool {
+        var directory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
     }
 
     private static func osascript(_ script: String) -> String? {

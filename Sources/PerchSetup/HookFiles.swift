@@ -36,7 +36,7 @@ extension HookFile {
 }
 
 public enum HookFiles {
-    public static var all: [any HookFile] { [HookSettings.claudeCode, HookSettings.codex, HookSettings.grok, DshPatch(), HermesHooks()] }
+    public static var all: [any HookFile] { [HookSettings.claudeCode, HookSettings.codex, HookSettings.grok, HookSettings.cursor, DshPatch(), HermesHooks()] }
 
     public static func `for`(_ agent: String) throws -> any HookFile {
         guard let file = all.first(where: { $0.agent == agent }) else {
@@ -126,8 +126,9 @@ public enum HookFiles {
 }
 
 /// An agent's hook file, edited as plain JSON. Claude Code's settings.json and Codex's hooks.json share the
-/// `hooks → event → [{matcher, hooks: [handler]}]` shape. Only handlers whose command runs `perch … hook <agent>`
-/// are Perch's; everything else is left as it was (key order may change: the file is rewritten sorted).
+/// `hooks → event → [{matcher, hooks: [handler]}]` shape; Cursor's hooks.json is flat, `hooks → event → [handler]`
+/// plus a top-level `version` (`flat`). Only handlers whose command runs `perch … hook <agent>` are Perch's;
+/// everything else is left as it was (key order may change: the file is rewritten sorted).
 public struct HookSettings: HookFile {
     struct HookEvent {
         enum Mode {
@@ -149,6 +150,8 @@ public struct HookSettings: HookFile {
     public var installNote: String?
     public var needsTrust = false
     public var ownsFile = false
+    /// Cursor's layout: an event lists its handlers directly, and the file says `"version": 1`.
+    var flat = false
 
     public var eventNames: [String] { events.map(\.name) }
 
@@ -202,6 +205,21 @@ public struct HookSettings: HookFile {
         ownsFile: true)
     }
 
+    /// Cursor (#98): the IDE's Agent panel and the `cursor-agent` CLI read ~/.cursor/hooks.json, a file other tools
+    /// write to as well. Hooks run in the foreground (a missing `timeout` is Cursor's platform default), so each one
+    /// gets a short cap. Perch never answers a Cursor hook (it prints nothing), so it installs no permission hook:
+    /// `beforeShellExecution` fires for every command, and Cursor has no event saying it waits for you.
+    /// Cursor reloads the file on save; no trust step.
+    public static var cursor: HookSettings {
+        HookSettings(agent: "cursor", events: [
+            HookEvent(name: "beforeSubmitPrompt", mode: .sync(timeout: 5)),
+            HookEvent(name: "afterAgentResponse", mode: .sync(timeout: 5)),
+            HookEvent(name: "stop", mode: .sync(timeout: 5)),
+            HookEvent(name: "sessionEnd", mode: .sync(timeout: 5)),
+        ], location: ConfigLocation(dirVariable: nil, defaultDir: ".cursor", file: "hooks.json"),
+        flat: true)
+    }
+
     private static func order(_ type: String) -> Int {
         ["permission_prompt", "elicitation_dialog", "agent_needs_input"].firstIndex(of: type) ?? 99
     }
@@ -223,6 +241,11 @@ public struct HookSettings: HookFile {
         let root = try parse(text, path: path)
         var ours: [String: Any] = [:]
         for (event, value) in root["hooks"] as? [String: Any] ?? [:] {
+            if flat {
+                let list = (value as? [[String: Any]] ?? []).filter(isPerch)
+                if !list.isEmpty { ours[event] = list }
+                continue
+            }
             let groups = (value as? [[String: Any]] ?? []).compactMap { group -> [String: Any]? in
                 let list = (group["hooks"] as? [[String: Any]] ?? []).filter(isPerch)
                 guard !list.isEmpty else { return nil }
@@ -238,8 +261,10 @@ public struct HookSettings: HookFile {
     public func wait(in text: String?) -> Int? {
         guard let text, let root = try? parse(text, path: ""),
               let hooks = root["hooks"] as? [String: Any] else { return nil }
-        let commands = hooks.values.flatMap { ($0 as? [[String: Any]] ?? []).flatMap { $0["hooks"] as? [[String: Any]] ?? [] } }
-            .filter(isPerch).compactMap { $0["command"] as? String }
+        let commands = hooks.values.flatMap { value -> [[String: Any]] in
+            let list = value as? [[String: Any]] ?? []
+            return flat ? list : list.flatMap { $0["hooks"] as? [[String: Any]] ?? [] }
+        }.filter(isPerch).compactMap { $0["command"] as? String }
         for command in commands {
             let words = command.split(separator: " ")
             if let i = words.firstIndex(of: "--wait"), i + 1 < words.count, let wait = Int(words[i + 1]) { return wait }
@@ -267,6 +292,12 @@ public struct HookSettings: HookFile {
         var removed = 0
         for (event, value) in hooks {
             guard let groups = value as? [[String: Any]] else { continue }
+            if flat {
+                let remaining = groups.filter { !isPerch($0) }
+                removed += groups.count - remaining.count
+                hooks[event] = remaining.isEmpty ? nil : remaining
+                continue
+            }
             var kept: [[String: Any]] = []
             for var group in groups {
                 guard let list = group["hooks"] as? [[String: Any]] else { kept.append(group); continue }
@@ -294,13 +325,18 @@ public struct HookSettings: HookFile {
                 hook = ["type": "command", "command": "\(command) --wait \(wait)", "timeout": wait + 10,
                         "statusMessage": "Waiting for Perch (⌥⇧A allow · ⌥⇧D deny)…"]
             case .sync(let timeout):
-                hook = ["type": "command", "command": command, "timeout": timeout]
+                hook = flat ? ["command": command, "timeout": timeout] : ["type": "command", "command": command, "timeout": timeout]
+            }
+            if flat {
+                hooks[event.name] = (hooks[event.name] as? [[String: Any]] ?? []) + [hook]
+                continue
             }
             var group: [String: Any] = ["hooks": [hook]]
             if let matcher = event.matcher { group["matcher"] = matcher }
             hooks[event.name] = (hooks[event.name] as? [[String: Any]] ?? []) + [group]
         }
         root["hooks"] = hooks
+        if flat, root["version"] == nil { root["version"] = 1 }
     }
 
     static func render(_ root: [String: Any]) throws -> String {

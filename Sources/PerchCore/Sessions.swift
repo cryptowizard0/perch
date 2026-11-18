@@ -113,6 +113,7 @@ public struct Session: Codable, Equatable, Identifiable, Sendable {
 /// | end | removes the session; resolves the request |
 /// | subagent_start | a Codex subagent (`subagent`) is at work; the session's state stays (#94) |
 /// | subagent_stop | that subagent finished; the last one finishing after the main turn's stop → done |
+/// | reply | the agent's latest reply (`last_message`), for agents whose stop does not carry it (Cursor, #98): the state stays; a later stop without `last_message` uses it, and a reply right after the stop fills an empty Done line. Never creates a session |
 ///
 /// `subagent` (Codex, #94) names the subagent a report comes from; any report with it keeps that subagent counted as
 /// working; `spawned_subagent` counts one on its way, until a subagent perchd hasn't seen before starts. A stop while
@@ -124,7 +125,7 @@ public struct Session: Codable, Equatable, Identifiable, Sendable {
 /// its main loop, sometimes after the next prompt) and ignored.
 public struct SessionReport: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
-        case prompt, waiting, resume, stop, failure, interrupt, settle, end
+        case prompt, waiting, resume, stop, failure, interrupt, settle, end, reply
         case subagentStart = "subagent_start", subagentStop = "subagent_stop"
     }
 

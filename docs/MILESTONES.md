@@ -217,6 +217,17 @@
 - [x] `swift build` / `swift test` 通过；CLAUDE.md、PRD、README、project.md、调研文档更新
 - [x] 验收（真模型，2026-10-19，维护者本机，Claude 按维护者要求跑的；dsh 0.2.1-rc.2 + dsh-tui 0.16.1，`scripts/install.sh` 装的这个分支，Ghostty）：`perch setup dsh` 连上；ask_user 回答 / Esc → Needs you → Done；越出沙箱的命令 → Needs you（完整命令 + dsh 的理由），批准 / 拒绝 / Esc 都 → Done；Esc 打断 → Idle；真实的模型错误 → Failed（dsh 的原话）；`/new`、`/exit` 马上移除；关 Ghostty 窗口 → 约 56 秒后被 pid 存活检测清掉；两个项目两行，各自跳回自己的 Ghostty terminal；`dsh headless` 不出现；断开后 `~/.dsh/cordis.patch.yml` 被删掉（装之前就没有），重新连上。验收中修了两处：Ghostty terminal 对比解析符号链接、Done 那行跳过 `⏵` 旁白
 
+## M17 — Cursor（#98，IDE + `cursor-agent` CLI，#24 的第 2 步）✅
+
+设计见 #98。按 Cursor 3.24 的文档做（开工时这台 Mac 上 Cursor 的 agent 从没跑过一轮，录制 hook 什么都没录到），2026-11-18 用真 Cursor 验收。
+
+- [x] `perch hook cursor`：beforeSubmitPrompt → Running；afterAgentResponse → 新的 `reply` 报告（perchd 内存里记下回复首行）；stop `completed` → Done（用记下的回复）、`error` → Failed、`aborted` → Idle；sessionEnd → 移除。不装权限 hook、不打印任何东西；没有 Needs you（Cursor 没有"等你"的事件，维护者定）
+- [x] 进程：IDE 是 `Cursor` 主进程（退出 Cursor 全部移除），CLI 是 `cursor-agent` / 跑 `…/cursor-agent/…` 的 node，从不按 `agent`（那是 Grok 的）；IDE 的行跳回 Cursor 的那个工作区
+- [x] Cursor 默认跑 `~/.claude/settings.json` 的 hook：`perch hook claude-code` / `codex` 看到 `CURSOR_VERSION` 且祖先里没有自己的进程就退出
+- [x] 安装：`~/.cursor/hooks.json`（共享、扁平格式、`version: 1`），只加删 Perch 的那几条；按 `~/.cursor` 检测；设置卡片 / Agents 菜单 / `perch setup` / `perch hooks install|uninstall cursor` / `perch uninstall` 都带上；立方体像素图标，名字 "Cursor"
+- [x] `swift build` / `swift test` 通过（682 个）；装 / 卸在维护者真实的 `~/.cursor/hooks.json` 的副本上跑过（Superset 的 hook 原样不动）；隔离的 perchd 上 Running → Done（回复首行）→ 移除
+- [x] 验收（真 Cursor 3.30.14，`scripts/install.sh` 装的这个分支 + `perch setup cursor`，2026-11-18 维护者验收通过）：IDE 一轮 beforeSubmitPrompt → afterAgentResponse → stop `completed`，行 Running → Done（回复首行），pid 是 Cursor 主进程；真 payload 里 `conversation_id` 和 `session_id` 同值；Cursor 跑 `~/.claude/settings.json` 的 hook 没有多出 `claude-code` 行；Superset 的 hook 照常
+
 ## M16 — dsh web 的会话上刘海（#80，#24）✅
 
 设计见 #80；推翻 #73 的"只支持终端 UI"（2026-10-20 维护者要的），`dsh headless` 照旧不显示。
