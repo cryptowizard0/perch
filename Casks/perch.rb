@@ -7,8 +7,8 @@
 # Installing changes no agent config; that happens only when you click Connect in the notch.
 # scripts/package-release.sh sets version and sha256.
 cask "perch" do
-  version "0.4.5"
-  sha256 "2e5a0f129e69bd79d8fec71efdc0fee0b3980b46c5a7eb6d5ac6a8bf68835ac7"
+  version "0.4.6"
+  sha256 "7fe2c6e396ebe5edd37fbd4d5985e1105c45decd9967ef2f85e3e5dbe9faefd8"
 
   url "https://github.com/cryptowizard0/perch/releases/download/v#{version}/perch-#{version}-macos-arm64.zip"
   name "Perch"
