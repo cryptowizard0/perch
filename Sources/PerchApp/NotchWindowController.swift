@@ -280,8 +280,15 @@ final class NotchWindowController {
     }
 }
 
+extension Notification.Name {
+    /// The pointer moved over the notch panel, or into or out of it; the panel is the object. For the views inside
+    /// it that follow the pointer (`HoverTracker`).
+    static let notchPointerMoved = Notification.Name("PerchNotchPointerMoved")
+}
+
 /// Hosting view that reports hover even though the panel is never key, and takes the first click
-/// (otherwise the first click on a non-key window only focuses it).
+/// (otherwise the first click on a non-key window only focuses it). It also passes every move over the panel on
+/// (`notchPointerMoved`): tracking areas of the views in the open panel get no events, since it is masked (#90).
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
     var onHover: ((Bool) -> Void)?
     private var tracking: NSTrackingArea?
@@ -309,7 +316,8 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: zoneRect, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        let area = NSTrackingArea(rect: zoneRect, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways],
+                                  owner: self, userInfo: nil)
         addTrackingArea(area)
         tracking = area
     }
@@ -317,16 +325,28 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
         report(true)
+        pointerMoved()
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         report(false)
+        pointerMoved()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        pointerMoved()
     }
 
     private func report(_ now: Bool) {
         guard now != inside else { return }
         inside = now
         onHover?(now)
+    }
+
+    private func pointerMoved() {
+        guard let window else { return }
+        NotificationCenter.default.post(name: .notchPointerMoved, object: window)
     }
 }
