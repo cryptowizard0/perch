@@ -11,6 +11,7 @@ struct SetupCLITests {
     var claude: URL { home.appendingPathComponent(".claude/settings.json") }
     var codex: URL { home.appendingPathComponent(".codex/hooks.json") }
     var grok: URL { home.appendingPathComponent(".grok/hooks/perch.json") }
+    var antigravity: URL { home.appendingPathComponent(".gemini/config/hooks.json") }
     var dsh: URL { home.appendingPathComponent(".dsh/cordis.patch.yml") }
     var plist: URL { home.appendingPathComponent("Library/LaunchAgents/dev.perch.perchd.plist") }
     var launchctlLog: URL { home.appendingPathComponent("launchctl.log") }
@@ -81,6 +82,7 @@ struct SetupCLITests {
             ["agent": "codex", "state": "needsTrust", "config": codex.path],
             ["agent": "grok", "state": "notDetected", "config": grok.path],
             ["agent": "cursor", "state": "notDetected", "config": home.appendingPathComponent(".cursor/hooks.json").path],
+            ["agent": "antigravity", "state": "notDetected", "config": antigravity.path],
             ["agent": "dsh", "state": "notDetected", "config": dsh.path],
         ])
 
@@ -180,6 +182,31 @@ struct SetupCLITests {
         #expect(!fm.fileExists(atPath: plugin.path))
     }
 
+    /// Antigravity: setup finds ~/.gemini, writes the named `"perch"` hook into ~/.gemini/config/hooks.json next to
+    /// other named hooks; uninstall removes only `"perch"`.
+    @Test func antigravityGetsANamedHook() throws {
+        defer { cleanUp() }
+        let existing = #"{"reminder":{"PreInvocation":[{"type":"command","command":"./scripts/reminder.sh"}]}}"#
+        try write(existing, to: antigravity)
+
+        let result = try perch("setup", "--json")
+        #expect(result.status == 0, "\(result.stderr)")
+        let lines = try #require(try parse(result.stdout)["agents"] as? [[String: String]])
+        #expect(lines.first { $0["agent"] == "antigravity" } == ["agent": "antigravity", "state": "connected", "config": antigravity.path])
+
+        let installed = try json(antigravity)
+        #expect(Set(installed.keys) == ["reminder", "perch"])
+        let spec = try #require(installed["perch"] as? [String: [[String: Any]]])
+        #expect(Set(spec.keys) == ["PreInvocation", "Stop"])
+        #expect(spec["PreInvocation"]?.first?["command"] as? String == "\(bin) hook antigravity")
+        #expect(spec["Stop"]?.first?["command"] as? String == "\(bin) hook antigravity")
+        #expect(try agents()["antigravity"]?["status"] as? String == "on")
+
+        #expect(try perch("uninstall").status == 0)
+        let after = try json(antigravity)
+        #expect(Set(after.keys) == ["reminder"])
+    }
+
     /// Someone else's hook in Perch's file stays (with the file) when Perch's hooks go.
     @Test func grokFileWithSomeoneElsesHookIsKept() throws {
         defer { cleanUp() }
@@ -231,7 +258,7 @@ struct SetupCLITests {
         let result = try perch("setup", "--json")
         #expect(result.status == 0, "\(result.stderr)")
         let lines = try #require(try parse(result.stdout)["agents"] as? [[String: String]])
-        #expect(lines.map { $0["state"] } == ["connected", "off", "notDetected", "notDetected", "notDetected"])
+        #expect(lines.map { $0["state"] } == ["connected", "off", "notDetected", "notDetected", "notDetected", "notDetected"])
         #expect(try perchCommands(codex).isEmpty)
 
         // `hooks install` connects it again, by default against the fixed location.
@@ -365,7 +392,7 @@ struct SetupCLITests {
         defer { cleanUp() }
         let hermes = try perch("setup", "hermes")
         #expect(hermes.status == 64)
-        #expect(hermes.stderr == "perch: unknown agent 'hermes'; use claude-code, codex, grok, cursor or dsh")
+        #expect(hermes.stderr == "perch: unknown agent 'hermes'; use claude-code, codex, grok, cursor, antigravity or dsh")
         let wait = try perch("setup", "--wait", "1", "--json")
         #expect(wait.status == 64)
         #expect(try parse(wait.stdout)["ok"] as? Bool == false)

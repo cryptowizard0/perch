@@ -32,15 +32,26 @@ public enum AgentProcess {
         // Cursor's IDE runs hooks under the app (`Cursor`, its main process); the CLI is `cursor-agent` (or `node`
         // running it, see `isCursorCLI`). Never `agent`: the CLI installs that name too, but on this list it is Grok's.
         "cursor": [cursorApp, "cursor-agent"],
+        // Antigravity: CLI (`agy`) or desktop app / IDE (`Antigravity`), with `language_server` as a detached fallback.
+        "antigravity": [antigravityApp, "agy"],
     ]
 
     /// The process name of Cursor's desktop app (`/Applications/Cursor.app/Contents/MacOS/Cursor`).
     public static let cursorApp = "Cursor"
+    /// The process name of Antigravity's desktop app / IDE (`/Applications/Antigravity.app/Contents/MacOS/Antigravity`).
+    public static let antigravityApp = "Antigravity"
+    /// Antigravity's language server binary (fallback when detached from the app bundle process).
+    public static let antigravityLanguageServer = "language_server"
 
     /// Whether `entry` is one of `agent`'s processes.
     public static func matches(agent: String, _ entry: ProcessEntry) -> Bool {
         if names[agent]?.contains(entry.name) == true { return true }
         return agent == "cursor" && isCursorCLI(entry)
+    }
+
+    /// Whether `entry` is Antigravity's language server (`language_server`, `language_server_macos_arm`, …).
+    public static func isAntigravityLanguageServer(_ entry: ProcessEntry) -> Bool {
+        entry.name == antigravityLanguageServer || entry.name.hasPrefix(antigravityLanguageServer + "_")
     }
 
     /// The Cursor CLI run by its bundled `node`: the script lives under `~/.local/share/cursor-agent/versions/…`
@@ -56,12 +67,14 @@ public enum AgentProcess {
         guard names[agent] != nil else { return nil }
         var seen: Set<Int32> = []
         var current = table[pid]
+        var fallback: ProcessEntry?
         while let entry = current, seen.insert(entry.pid).inserted {
             if matches(agent: agent, entry) { return entry }
-            guard entry.ppid > 0, entry.ppid != entry.pid else { return nil }
+            if agent == "antigravity", fallback == nil, isAntigravityLanguageServer(entry) { fallback = entry }
+            guard entry.ppid > 0, entry.ppid != entry.pid else { return fallback }
             current = table[entry.ppid]
         }
-        return nil
+        return fallback
     }
 
     // MARK: - dsh

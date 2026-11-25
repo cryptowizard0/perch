@@ -40,3 +40,28 @@ public enum ClaudeTranscript {
         return formatter.date(from: text)
     }
 }
+
+/// Reading the end of an Antigravity transcript (`transcript.jsonl`, `transcriptPath` in every hook).
+///
+/// Antigravity's `Stop` hook carries no `lastAssistantMessage`, so `perch hook antigravity` reads the tail of the
+/// session's transcript for the last `PLANNER_RESPONSE` with non-empty `content` since the last `USER_INPUT`.
+/// Not a documented wire contract: if the format changes or the file is absent, the Done row is simply left without
+/// a reply line.
+public enum AntigravityTranscript {
+    /// The model's latest reply in the current turn from the end of `transcript.jsonl`, or nil.
+    /// `tail` is a byte suffix of the file, so a truncated first line is ignored.
+    public static func lastReply(tail: String) -> String? {
+        for line in tail.split(whereSeparator: \.isNewline).reversed() {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
+            let type = object["type"] as? String
+            if type == "USER_INPUT" { return nil }
+            guard type == "PLANNER_RESPONSE" else { continue }
+            for key in ["content", "response", "text"] {
+                if let text = object[key] as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return text
+                }
+            }
+        }
+        return nil
+    }
+}

@@ -36,6 +36,8 @@ Perch（栖）：住在 MacBook 刘海里的 agent 灵动岛面板——一眼�
 
 **2026-11-18（v0.5，#98 / M17）**：接入 Cursor（IDE 的 Agent 面板 + `cursor-agent` CLI，共用 `~/.cursor/hooks.json`）。Cursor 没有"等你"的事件，**Cursor 的会话从不 Needs you，刘海永远不能批准 Cursor**（维护者定）；按 Cursor 3.24 的文档做，2026-11-18 用真 Cursor 3.30.14 验收（CLI 只按文档，没实测）。细节见下面"Hook 适配"里的 Cursor 一节。
 
+**2026-11-25**：接入 Antigravity（Antigravity 桌面 App、Antigravity IDE 和 `agy` CLI，共用 `~/.gemini/config/hooks.json`）。Antigravity 没有 Notification / PermissionRequest / SessionEnd 事件，`PreToolUse` 每次调工具都触发，因此 **Antigravity 的会话从不 Needs you，刘海永远不能批准 Antigravity**；只装 `PreInvocation` 和 `Stop`，从 `transcriptPath` 读最后一条 `PLANNER_RESPONSE` 作为 Done 行。细节见下面"Hook 适配"里的 Antigravity 一节。
+
 **2026-10-12（v0.5，#31 / M11）**：接入 Grok Build（xAI 的 `grok` CLI），v0.5 接更多 agent（#24）的第一个。刘海永远不能批准 Grok，只提示"Answer in the terminal"。
 
 **2026-10-19（v0.5，#73 / M15）**：接入 dsh（DeepSeek Harness，Node 写的 agent 框架），显示名 "DeepSeek"、鲸鱼图标。dsh 只能从里面扩展，所以 Perch 带一个 dsh 插件（`packaging/dsh/perch.mjs`），它只把 dsh 的事件搬给 `perch hook dsh`，状态全在 Swift 里判（#74 / #75）。终端 UI 和 `dsh web`（#80 起）都显示，`dsh headless` 不显示；刘海永远不能批准 dsh。安装（#76）：插件嵌在 perch 里、写在 perch 二进制旁边（`~/.perch/bin/perch-dsh.mjs`），dsh 的 home patch 层 `$DSH_HOME/cordis.patch.yml`（所有 profile 都读）里一段带标记的 insert 行把它挂上。细节见下面"Hook 适配"里的 dsh 一节。
@@ -183,6 +185,17 @@ Cursor（#98 / M17，按 Cursor 3.24 的 hooks 文档做，2026-11-18 用真 Cur
 | `sessionEnd` | 移除 |
 
 不装 `sessionStart`：空的 Agent 面板也发它（`conversation_id: "empty-state-draft"`）。`reply` 不新建会话，记下的回复只在内存里，perchd 重启后那一轮的 Done 行可能是空的。进程：IDE 的 hook 由扩展宿主（`Cursor Helper (Plugin)`）起，往上最近的叫 `Cursor` 的是 App 主进程（`AgentProcess.cursorApp`），所以 IDE 的会话在退出 Cursor 时被 pid 存活检测清掉、关 chat tab 靠 sessionEnd；CLI 是 `cursor-agent` 或 argv[1] 在 `…/cursor-agent/` 下的 `node`（`AgentProcess.isCursorCLI`，按文档，没实测），**从不按 `agent` 认**（CLI 也装这个名字，但它是 Grok 的）。IDE 的链接是 `perch-terminal://cursor?cwd=<工作区>&bundle=<Cursor 的 bundle id>`（bundle id 从进程所在的 App 拿，`TerminalLink.cursorApp`），点了用 Cursor 打开那个工作区文件夹（已经开着就切到那个窗口），没有工作区就只激活 Cursor；CLI 跳终端照旧。**Cursor 默认也跑 `~/.claude/settings.json` 的 hook**（Settings → Agents → Third-Party Imports，默认开；Cursor 的 hooks 日志里看到 `Executing hook 2/2 from claude-user config`），给每个 hook 设 `CURSOR_VERSION`，所以 `perch hook claude-code` / `codex` 看到 `CURSOR_VERSION` 且祖先里没有自己的 `claude` / `codex` 就直接退出（`HookAdapter.isForeign`；在 Cursor 终端里起的 `claude` 照样是 Claude Code）。Grok 也读 `~/.cursor/hooks.json`（`[compat.cursor]`），已有的 `GROK_HOOK_EVENT` 规则管住 `perch hook cursor`。云端 / 后台 agent 不跑用户的 hook，不显示。subagent 会不会自己发 beforeSubmitPrompt / stop 还不知道，验收时看。
+
+Antigravity（桌面 App、IDE 和 `agy` CLI，共用 `~/.gemini/config/hooks.json`）：`perch hook antigravity`，顶层按命名 hook 组织（`"perch": { "PreInvocation": [...], "Stop": [...] }`，`AntigravityHooks`），只加删 Perch 的处理器，不动其他命名 hook；按 `~/.gemini` 检测，没有环境变量，无需信任步骤。payload 是 camelCase（`conversationId`、`hookEventName`、`workspacePaths`、`lastUserInput`、`transcriptPath`、`terminationReason`、`error`、`fullyIdle`），`cwd` 缺省取 `workspacePaths[0]`。Antigravity 的 hook 同步执行且**要求 stdout 打印 JSON**：`PreInvocation` 打印 `{}`、`Stop` 打印 `{"decision":"stop"}`（即使出错或 perchd 离线也打印，绝不阻塞 agent）。只装 `PreInvocation` 和 `Stop`（timeout 5），不装 `SessionStart`（空对话不出幽灵行）和 `PreToolUse`（无 Needs you、刘海不批准）。
+
+| 事件 | 会话 |
+| --- | --- |
+| `PreInvocation` | running（`lastUserInput` 首行，剥离 `<USER_REQUEST>` 标签）；报告带 `continue_turn`：会话已在 running 且 prompt 未变时不重置 `turn_started_at`、不重复发 `session.started`，CLI 下也不重查 Ghostty 焦点 |
+| `Stop`（`NO_TOOL_CALL` / `TERMINAL_STEP_TYPE` / `INJECTED_RESPONSE` / 其他无 error） | done（从 `transcriptPath` 尾部读当前轮最后一条 `PLANNER_RESPONSE` 的 `content` 首行，`AntigravityTranscript.lastReply`） |
+| `Stop`（`ERROR` / `MAX_INVOCATIONS` / `MAX_FORCED_INVOCATIONS` / `MAX_TOKEN_BUDGET_EXCEEDED` 或非空 `error`） | failed |
+| `Stop`（`USER_CANCELED` / 无 error 的 `TERMINAL_CUSTOM_HOOK`） | idle |
+
+进程：CLI 是 `agy`，桌面 App / IDE 是 `Antigravity` 主进程（`AgentProcess.antigravityApp`），若 `language_server` 脱离父进程则退回匹配 `language_server`；无 `SessionEnd`，CLI 退出或关闭 Antigravity 时由 pid 存活检测清理。桌面 App / IDE 的链接是 `perch-terminal://antigravity?cwd=…&bundle=…`（点击激活 App），CLI 跳终端照旧。像素图标为拱形 `A`（12×12）。
 
 会话 CLI：`perch session ls [--json]`（状态和详情）、`perch session seen <id>`（done → idle）、`perch session rm <id>`（手动移除，之后再来事件会重新出现）；`perch session start|end` 保持旧含义（start = 新一轮 running，end = 移除），Hermes 还在用。`watch` 推 `session.updated`（每次变化）、`session.ended`（移除）和 `session.started`（新一轮开始，给老客户端）。刘海（M8，#18）只显示会话（Hermes 除外：2026-10-08 起暂不支持，M9 搁置）：收起态 = 最紧急会话的状态（像素独眼小怪物，按状态换表情和动作，#22；帧逻辑在 `PerchAppCore/Mascot.swift`，绘制在 `PerchApp/MascotView.swift`）+ Running 数；展开态按状态分组，逻辑在 `PerchAppCore/Panel.swift`（`Panel` / `SessionRow`），像素图标在 `PixelIcon.swift`。Live Activity（"2 agents · 4m"）已去掉。
 

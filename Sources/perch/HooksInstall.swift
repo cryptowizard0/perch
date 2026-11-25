@@ -19,6 +19,7 @@ struct HooksInstall: ParsableCommand {
         codex: ~/.codex/hooks.json ($CODEX_HOME/hooks.json if set); Codex runs them only after you trust them in /hooks.
         grok: ~/.grok/hooks/perch.json ($GROK_HOME/hooks/perch.json if set), a file of Perch's own; restart grok sessions to load it.
         cursor: ~/.cursor/hooks.json (the IDE and the cursor-agent CLI); Cursor reloads it on save.
+        antigravity: ~/.gemini/config/hooks.json (Antigravity app, IDE, and the agy CLI); adds a named "perch" hook.
         dsh: a marked row in ~/.dsh/cordis.patch.yml ($DSH_HOME/cordis.patch.yml if set), dsh's patch layer for every profile; \
         it mounts the plugin perch-dsh.mjs, written next to the perch binary. Restart dsh sessions to load it.
         hermes: ~/.hermes/config.yaml ($HERMES_HOME/config.yaml if set); Hermes asks once before running them.
@@ -26,7 +27,7 @@ struct HooksInstall: ParsableCommand {
         Records the agent as connected in agents.json (`perch setup` keeps its hooks up to date).
         """
     )
-    @Argument(help: "claude-code | codex | grok | cursor | dsh | hermes") var agent: String
+    @Argument(help: "claude-code | codex | grok | cursor | antigravity | dsh | hermes") var agent: String
     @Option(help: "Settings file to edit (default: the agent's user settings).") var settings: String?
     @Option(help: "perch binary the hooks run (default: ~/.perch/bin/perch, installed by `perch setup`).") var binary: String?
     @Option(help: "Seconds a permission request waits for the notch before the terminal asks.")
@@ -62,7 +63,7 @@ struct HooksInstall: ParsableCommand {
 
 struct HooksUninstall: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "uninstall", abstract: "Remove Perch's hooks (only Perch's) and record the agent as disconnected.")
-    @Argument(help: "claude-code | codex | grok | cursor | dsh | hermes") var agent: String
+    @Argument(help: "claude-code | codex | grok | cursor | antigravity | dsh | hermes") var agent: String
     @Option(help: "Settings file to edit (default: the agent's user settings).") var settings: String?
     @Flag(help: "Print JSON.") var json = false
 

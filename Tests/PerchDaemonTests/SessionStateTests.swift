@@ -394,6 +394,71 @@ struct SessionStateTests {
         #expect(try session(d, "c-1") == nil)
     }
 
+    func antigravity(_ name: String, _ extra: String = "", conversation: String = "ag-1", transcript: String? = nil) -> String {
+        let t = transcript.map { #","transcriptPath":"\#($0)""# } ?? ""
+        return #"{"conversationId":"\#(conversation)","workspacePaths":["/w/perch"],"cwd":"/w/perch","hookEventName":"\#(name)"\#(t)\#(extra)}"#
+    }
+
+    /// Antigravity: hooks must print JSON on stdout (`{}` / `{"decision":"stop"}`), repeated PreInvocation in one turn
+    /// preserves `turnStartedAt`, and Stop reads the reply from `transcriptPath`.
+    @Test func antigravityWalksThroughEveryState() throws {
+        // Whole seconds in the past so `min(report.at, now())` follows `clock` cleanly.
+        let clock = Clock(Date(timeIntervalSince1970: (Date().timeIntervalSince1970 - 600).rounded(.down)))
+        let d = try TestDaemon(now: clock.read)
+        let cli = CLI(home: d.home)
+        let transcript = d.home.appendingPathComponent("transcript.jsonl")
+
+        func runAG(_ json: String, expectedStdout: String) throws {
+            let result = try cli.run(["hook", "antigravity"], stdin: json, env: env)
+            #expect(result.status == 0 && result.stderr.isEmpty)
+            #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == expectedStdout)
+        }
+
+        try runAG(antigravity("PreInvocation", #","invocationNum":1,"lastUserInput":"Fix the build\nplease""#, transcript: transcript.path),
+                  expectedStdout: "{}")
+        var s = try #require(try session(d, "ag-1"))
+        #expect(s.status == .running && s.source == "antigravity" && s.title == "perch" && s.cwd == "/w/perch")
+        #expect(s.prompt == "Fix the build")
+        let firstTurnStart = s.turnStartedAt
+
+        // Second model step in the same turn: keeps `turnStartedAt` and prompt.
+        clock.advance(45)
+        try runAG(antigravity("PreInvocation", #","invocationNum":2,"lastUserInput":"Fix the build\nplease""#, transcript: transcript.path),
+                  expectedStdout: "{}")
+        s = try #require(try session(d, "ag-1"))
+        #expect(s.status == .running && s.turnStartedAt == firstTurnStart && s.prompt == "Fix the build")
+
+        // Write transcript with model reply before Stop.
+        let lines = [
+            #"{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"Fix the build"}"#,
+            ###"{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","content":"## Fixed\nAll tests pass."}"###,
+        ].joined(separator: "\n") + "\n"
+        try lines.write(to: transcript, atomically: true, encoding: .utf8)
+
+        clock.advance(15)
+        try runAG(antigravity("Stop", #","executionNum":1,"terminationReason":"NO_TOOL_CALL","error":"","fullyIdle":true"#, transcript: transcript.path),
+                  expectedStdout: #"{"decision":"stop"}"#)
+        s = try #require(try session(d, "ag-1"))
+        #expect(s.status == .done && s.lastMessage == "Fixed")
+
+        // Next turn (even with the same prompt text) starts a new turn clock.
+        clock.advance(60)
+        try runAG(antigravity("PreInvocation", #","invocationNum":3,"lastUserInput":"Fix the build\nplease""#), expectedStdout: "{}")
+        s = try #require(try session(d, "ag-1"))
+        #expect(s.status == .running && s.turnStartedAt > firstTurnStart)
+
+        try runAG(antigravity("Stop", #","terminationReason":"USER_CANCELED","error":"" "#), expectedStdout: #"{"decision":"stop"}"#)
+        #expect(try session(d, "ag-1")?.status == .idle)
+
+        try runAG(antigravity("PreInvocation", #","invocationNum":4,"lastUserInput":"break""#), expectedStdout: "{}")
+        try runAG(antigravity("Stop", #","terminationReason":"ERROR","error":"rate_limit""#), expectedStdout: #"{"decision":"stop"}"#)
+        s = try #require(try session(d, "ag-1"))
+        #expect(s.status == .failed && s.error == "rate_limit")
+
+        // Even unreadable input still prints `{}` and exits 0 so Antigravity is never blocked.
+        try runAG("not json", expectedStdout: "{}")
+    }
+
     @Test func anEventForAnUnknownSessionCreatesIt() throws {
         let d = try TestDaemon()
         try hook(CLI(home: d.home), "claude-code", claude("Stop", #","last_assistant_message":"ok""#, session: "late"))

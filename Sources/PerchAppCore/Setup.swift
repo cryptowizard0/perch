@@ -366,6 +366,7 @@ public enum AgentNames {
         case "codex": return "Codex"
         case "grok": return "Grok"
         case "cursor": return "Cursor"
+        case "antigravity": return "Antigravity"
         case "dsh": return "DeepSeek"
         case "hermes": return "Hermes"
         default: return agent

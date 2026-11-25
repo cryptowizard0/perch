@@ -39,13 +39,14 @@ public struct PixelIcon: Equatable, Sendable {
         case "codex": return .codex
         case "grok": return .grok
         case "cursor": return .cursor
+        case "antigravity", "agy": return .antigravity
         case "dsh": return .dsh
         case "hermes": return .hermes
         default: return .robot
         }
     }
 
-    public static let all: [PixelIcon] = [.claudeCode, .codex, .grok, .cursor, .dsh, .hermes, .robot]
+    public static let all: [PixelIcon] = [.claudeCode, .codex, .grok, .cursor, .antigravity, .dsh, .hermes, .robot]
 
     /// A blocky little monster.
     public static let claudeCode = PixelIcon(name: "claude-code", rows: [
@@ -122,6 +123,22 @@ public struct PixelIcon: Equatable, Sendable {
         ".##..##..##.",
         "...##..##...",
         ".....##.....",
+    ])
+
+    /// An arched "A" lifting upward, after Antigravity's mark.
+    public static let antigravity = PixelIcon(name: "antigravity", rows: [
+        ".....##.....",
+        "....####....",
+        "...######...",
+        "..###..###..",
+        "..###..###..",
+        ".###....###.",
+        ".###....###.",
+        ".##......##.",
+        "###..##..###",
+        "####....####",
+        "###......###",
+        "............",
     ])
 
     /// A whale with its tail up, after DeepSeek's mark (dsh, DeepSeek Harness). On the fine grid: the 12-cell one was a
