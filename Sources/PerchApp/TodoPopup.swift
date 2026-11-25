@@ -8,7 +8,7 @@ import SwiftUI
 /// you were in stays frontmost (the M2 quick-entry technique). Adding: Tab / Shift-Tab cycle the priority instead of
 /// moving focus, and Return adds from the title or a date field. Editing (#53, the larger editor): Tab moves between
 /// fields, and Return saves from any of them (Shift- or Option-Return starts a new line in the notes). Esc or clicking
-/// elsewhere closes it. Always dark.
+/// elsewhere (in another app; `outsideClicks`) closes it. Always dark.
 final class TodoPopupPanel: NSPanel {
     var onCancel: (() -> Void)?
     var onTab: ((_ forward: Bool) -> Void)?
@@ -31,7 +31,30 @@ final class TodoPopupPanel: NSPanel {
         appearance = NSAppearance(named: .darkAqua)
     }
 
+    /// While it is up: a click in another app closes it, as losing key does. If the panel ever loses the keyboard
+    /// without AppKit calling `resignKey` (drag and drop in the Lists… window did, 2026-11-25), it still never stays
+    /// stuck open.
+    private var outsideClicks: Any?
+
     override var canBecomeKey: Bool { true }
+
+    override func becomeKey() {
+        super.becomeKey()
+        guard outsideClicks == nil else { return }
+        outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) {
+            [weak self] _ in
+            MainActor.assumeIsolated { self?.onCancel?() }
+        }
+    }
+
+    override func orderOut(_ sender: Any?) {
+        super.orderOut(sender)
+        if let outsideClicks {
+            NSEvent.removeMonitor(outsideClicks)
+            self.outsideClicks = nil
+        }
+    }
+
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
     override func cancelOperation(_ sender: Any?) { onCancel?() }
 
