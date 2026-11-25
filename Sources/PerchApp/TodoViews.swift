@@ -300,27 +300,28 @@ struct DoingShimmerView: View {
     }
 }
 
-/// A todo's priority (#71): its name on a translucent capsule of the same colour. High orange, Normal gray (the faintest,
-/// so the many Normal rows recede), Low green. A click on it pops up the choice (`PriorityMenuArea`, #85).
+/// A todo's priority (#71): its name on a translucent capsule of the same colour. High orange, Normal green, Low gray
+/// (the faintest; 2026-11-25, the maintainer's call: until then Normal was the gray one and Low green). A click on it
+/// pops up the choice (`PriorityMenuArea`, #85).
 struct PriorityCapsule: View {
     var priority: ItemPriority
 
     var body: some View {
         Text(priority.label)
             .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(color.opacity(priority == .normal ? 0.5 : 0.95))
+            .foregroundStyle(color.opacity(priority == .low ? 0.5 : 0.95))
             .padding(.horizontal, 6)
             .frame(height: 15)
-            .background(Capsule().fill(color.opacity(priority == .normal ? 0.1 : 0.2)))
+            .background(Capsule().fill(color.opacity(priority == .low ? 0.1 : 0.2)))
             .fixedSize()
     }
 
-    /// Needs you's orange and Running's green: accepted (#66) because capsules only appear in the Todo tab.
+    /// Needs you's orange and Running's green: accepted (#66) because capsules only appear in the Todo column.
     private var color: Color {
         switch priority {
         case .high: return SessionStatus.color(.waiting)
-        case .normal: return .white
-        case .low: return SessionStatus.color(.running)
+        case .normal: return SessionStatus.color(.running)
+        case .low: return .white
         }
     }
 }
