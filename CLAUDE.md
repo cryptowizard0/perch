@@ -195,7 +195,7 @@ Antigravity（桌面 App、IDE 和 `agy` CLI，共用 `~/.gemini/config/hooks.js
 | `Stop`（`ERROR` / `MAX_INVOCATIONS` / `MAX_FORCED_INVOCATIONS` / `MAX_TOKEN_BUDGET_EXCEEDED` 或非空 `error`） | failed |
 | `Stop`（`USER_CANCELED` / 无 error 的 `TERMINAL_CUSTOM_HOOK`） | idle |
 
-进程：CLI 是 `agy`，桌面 App / IDE 是 `Antigravity` 主进程（`AgentProcess.antigravityApp`），若 `language_server` 脱离父进程则退回匹配 `language_server`；无 `SessionEnd`，CLI 退出或关闭 Antigravity 时由 pid 存活检测清理。桌面 App / IDE 的链接是 `perch-terminal://antigravity?cwd=…&bundle=…`（点击激活 App），CLI 跳终端照旧。像素图标为拱形 `A`（12×12）。
+进程：CLI 是 `agy`，桌面 App / IDE 是 `Antigravity` 主进程（`AgentProcess.antigravityApp`），若 `language_server` 脱离父进程则退回匹配 `language_server`；无 `SessionEnd`，CLI 退出或关闭 Antigravity 时由 pid 存活检测清理。桌面 App / IDE 的链接是 `perch-terminal://antigravity?cwd=…&bundle=…`（点击激活 App），CLI 跳终端照旧。像素图标是 Antigravity 标志的拱形（实心圆顶、下面拱门、两脚变细往外翻），24 格细网格：从标志的轮廓栅格化（覆盖一半以上的格子算亮），再左右镜像保持对称（2026-11-25，原来的 12 格空心 `A` 不像）。
 
 会话 CLI：`perch session ls [--json]`（状态和详情）、`perch session seen <id>`（done → idle）、`perch session rm <id>`（手动移除，之后再来事件会重新出现）；`perch session start|end` 保持旧含义（start = 新一轮 running，end = 移除），Hermes 还在用。`watch` 推 `session.updated`（每次变化）、`session.ended`（移除）和 `session.started`（新一轮开始，给老客户端）。刘海（M8，#18）只显示会话（Hermes 除外：2026-10-08 起暂不支持，M9 搁置）：收起态 = 最紧急会话的状态（像素独眼小怪物，按状态换表情和动作，#22；帧逻辑在 `PerchAppCore/Mascot.swift`，绘制在 `PerchApp/MascotView.swift`）+ Running 数；展开态按状态分组，逻辑在 `PerchAppCore/Panel.swift`（`Panel` / `SessionRow`），像素图标在 `PixelIcon.swift`。Live Activity（"2 agents · 4m"）已去掉。
 

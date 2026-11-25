@@ -44,6 +44,12 @@ import Testing
     @Test func codexIsTheFineOne() {
         #expect(PixelIcon.codex.grid == 24 && PixelIcon.codex.cellSize == 0.5)
         #expect(PixelIcon.dsh.grid == 24, "the whale needs the fine grid too: on 12 cells it was a blob")
+        #expect(PixelIcon.antigravity.grid == 24, "the arch's tapering feet need the fine grid")
         #expect(PixelIcon.claudeCode.grid == 12 && PixelIcon.claudeCode.cellSize == 1)
+    }
+
+    /// Antigravity's mark is symmetric, so its arch is too: every row reads the same backwards.
+    @Test func antigravityIsSymmetric() {
+        #expect(PixelIcon.antigravity.rows.allSatisfy { $0 == String($0.reversed()) })
     }
 }

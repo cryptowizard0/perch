@@ -313,7 +313,7 @@ Expanded on hover, sessions are grouped by state, most urgent first:
 
 <p align="center"><img src="docs/images/panel-expanded.png" width="460" alt="Perch's expanded panel, close up"></p>
 
-Each row shows the agent (Claude Code's pixel monster, Codex's knot, Grok's slashed ring, Cursor's cube, Antigravity's arched A, DeepSeek's whale), the project, how long it has been in that state, and a second line: the prompt while running, the full command when it needs you, the error when it failed, the last reply when done.
+Each row shows the agent (Claude Code's pixel monster, Codex's knot, Grok's slashed ring, Cursor's cube, Antigravity's arch, DeepSeek's whale), the project, how long it has been in that state, and a second line: the prompt while running, the full command when it needs you, the error when it failed, the last reply when done.
 
 ## License
 
