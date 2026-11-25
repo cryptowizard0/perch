@@ -40,11 +40,13 @@ import Testing
         #expect(!icon.isOn(x: -1, y: 0) && !icon.isOn(x: icon.grid, y: 0) && !icon.isOn(x: 0, y: icon.grid))
     }
 
-    /// The ChatGPT-like knot and the DeepSeek whale need the finer grid; the others stay chunky.
+    /// The ChatGPT-like knot, the DeepSeek whale, Antigravity's arch and Cursor's cube need the finer grid; the others
+    /// stay chunky.
     @Test func codexIsTheFineOne() {
         #expect(PixelIcon.codex.grid == 24 && PixelIcon.codex.cellSize == 0.5)
         #expect(PixelIcon.dsh.grid == 24, "the whale needs the fine grid too: on 12 cells it was a blob")
         #expect(PixelIcon.antigravity.grid == 24, "the arch's tapering feet need the fine grid")
+        #expect(PixelIcon.cursor.grid == 24, "the cube's arrow-shaped cut needs the fine grid")
         #expect(PixelIcon.claudeCode.grid == 12 && PixelIcon.claudeCode.cellSize == 1)
     }
 
