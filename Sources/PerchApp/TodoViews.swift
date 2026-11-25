@@ -369,8 +369,10 @@ struct PriorityMenuArea: NSViewRepresentable {
 }
 
 /// Reports the pointer entering and leaving its frame even though the notch panel is never key (SwiftUI's own hover
-/// follows the key window), like `NotchHostingView` does for the whole panel. A row that appears (or moves) under the
-/// pointer gets no entered event, so it also looks where the pointer is whenever its area is set up. Never takes a click.
+/// follows the key window). Not with a tracking area of its own: under the open panel's mask (#90) those get no events,
+/// so ▶ never showed. It looks where the pointer is whenever the panel reports a move (`notchPointerMoved`, from
+/// `NotchHostingView`, whose own area does get them) and whenever its place changes (it appeared, moved or scrolled
+/// under a still pointer). Only the part of it the scroll view shows counts. Never takes a click.
 struct HoverTracker: NSViewRepresentable {
     var changed: (Bool) -> Void
 
@@ -384,25 +386,34 @@ struct HoverTracker: NSViewRepresentable {
 
     final class TrackingView: NSView {
         var changed: ((Bool) -> Void)?
-        private var tracking: NSTrackingArea?
+        private var inside = false
+        private var observer: NSObjectProtocol?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-        override func updateTrackingAreas() {
-            super.updateTrackingAreas()
-            if let tracking { removeTrackingArea(tracking) }
-            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                                      owner: self, userInfo: nil)
-            addTrackingArea(area)
-            tracking = area
-            // After this layout pass: SwiftUI state mustn't change while it updates views.
-            if let window {
-                let inside = bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
-                DispatchQueue.main.async { [weak self] in self?.changed?(inside) }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = window.map {
+                NotificationCenter.default.addObserver(forName: .notchPointerMoved, object: $0, queue: nil) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.look() }
+                }
             }
         }
 
-        override func mouseEntered(with event: NSEvent) { changed?(true) }
-        override func mouseExited(with event: NSEvent) { changed?(false) }
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            // After this layout pass: SwiftUI state mustn't change while it updates views.
+            DispatchQueue.main.async { [weak self] in self?.look() }
+        }
+
+        private func look() {
+            // `visibleRect` here can reach past the view (the scroll view's whole visible area), so clip it to the view.
+            let now = window.map { bounds.intersection(visibleRect).contains(convert($0.mouseLocationOutsideOfEventStream, from: nil)) }
+                ?? false
+            guard now != inside else { return }
+            inside = now
+            changed?(now)
+        }
     }
 }
