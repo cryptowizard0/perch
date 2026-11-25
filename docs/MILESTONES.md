@@ -191,7 +191,7 @@
 - [x] 人工验收（真 Mac，有 Reminders 权限）：右键 → Lists… 不抢终端焦点；拖动（包括 "Perch"）和勾选立刻改 Todo tab；"Perch" 的勾选框点不动；添加弹窗的选择器每次在 "Perch"、选了别的列表能加进去；编辑器换列表能挪、不动就不挪（2026-10-19 维护者验收通过）
 
 **#71 优先级胶囊、Doing**
-- [x] 每行 `○ 标题 … 日期 ▶ 胶囊 ✎`：胶囊写 High / Normal / Low，High 橙、Normal 灰（最淡）、Low 绿，点了什么都不做（改优先级仍是 Priority ▸ 和编辑器）
+- [x] 每行 `○ 标题 … 日期 ▶ 胶囊 ✎`：胶囊写 High / Normal / Low，High 橙、Normal 灰（最淡）、Low 绿（2026-11-25 起 Normal 绿、Low 灰），点了什么都不做（改优先级仍是 Priority ▸ 和编辑器）
 - [x] schema v7：`todo_refs` 加 `doing`（默认 false），v6 的库干净地迁移
 - [x] `perch update <id> --doing` / `--no-doing` 直接在 perchd 里设和清，不经 bridge，Perch.app 没连着也能用；不是 open 的 todo 报错；要单独一次 update
 - [x] `status` 仍是 `open`；JSON 每条 todo 带 `doing`；`perch ls` 和 `todo.md` 把 Doing 排在自己列表最前、标 doing
