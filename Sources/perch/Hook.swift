@@ -4,11 +4,12 @@ import PerchClient
 import PerchCore
 import PerchSetup
 
-/// `perch hook <agent>` — the hook adapter. Claude Code / Codex / Grok / Cursor / Hermes run it with the hook JSON on stdin, and
-/// Perch's dsh plugin with its own normalised events (see HookAdapter).
+/// `perch hook <agent>` — the hook adapter. Claude Code / Codex / Grok / Cursor / Antigravity / Hermes run it with the
+/// hook JSON on stdin, and Perch's dsh plugin with its own normalised events (see HookAdapter).
 /// Contract with the agent: print nothing (SessionStart / UserPromptSubmit stdout would be added to the
-/// model's context) except a PermissionRequest decision, always exit 0, never block for long (PermissionRequest:
-/// at most `--wait`). No answer is never permission: then nothing is printed and the terminal asks as usual.
+/// model's context) except a PermissionRequest decision (and Antigravity's required JSON response: `{}` /
+/// `{"decision":"stop"}`), always exit 0, never block for long (PermissionRequest: at most `--wait`). No answer is
+/// never permission: then nothing is printed and the terminal asks as usual.
 /// Failures go to ~/.perch/hook.log.
 struct Hook: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -18,29 +19,39 @@ struct Hook: ParsableCommand {
     /// The agents setup knows (dsh's "hook file" is the patch row that mounts its plugin, which runs `perch hook dsh`).
     static let agents = HookFiles.all.map(\.agent)
 
-    @Argument(help: "claude-code | codex | grok | cursor | hermes | dsh") var agent: String
+    @Argument(help: "claude-code | codex | grok | cursor | antigravity | hermes | dsh") var agent: String
     @Option(help: "PermissionRequest: seconds to wait for Allow / Deny in the notch before the terminal asks.")
     var wait: Double = HookAdapter.permissionWait
 
     func run() {
         let now = Date()
+        var decodedEvent: String?
+        // Antigravity hooks expect a JSON object on stdout, even on errors or when perchd is offline.
+        defer {
+            if agent == "antigravity" { print(HookAdapter.antigravityOutput(for: decodedEvent)) }
+        }
         guard Self.agents.contains(agent) else { return HookLog.write("unknown agent '\(agent)'") }
         let processes = SystemProcesses.ancestors(of: getpid())
         if HookAdapter.isForeign(agent: agent, environment: ProcessInfo.processInfo.environment, processes: processes,
                                  from: getpid()) { return }
         let data = FileHandle.standardInput.readDataToEndOfFile()
-        let input: HookInput
+        var input: HookInput
         do {
             input = try JSONDecoder().decode(HookInput.self, from: data)
         } catch {
             return HookLog.write("unreadable \(agent) hook input: \(error)")
         }
+        decodedEvent = input.event
+        if agent == "antigravity", input.event == "Stop", input.lastAssistantMessage == nil,
+           let path = input.transcriptPath, !path.isEmpty {
+            input.lastAssistantMessage = Self.readTail(of: path).flatMap(AntigravityTranscript.lastReply(tail:))
+        }
         let client = PerchClient()
         let process = agentProcess(input, processes: processes)
         let link = terminalLink(for: input, client: client, process: process)
-        // The notch never answers dsh (#73): it has no PermissionRequest, and its plugin never sends one. Codex's own
+        // The notch never answers dsh (#73) or Antigravity: neither uses PermissionRequest. Codex's own
         // agents (#94) never show, not even to ask: their requests end any row they have.
-        if input.event == "PermissionRequest", agent != "dsh",
+        if input.event == "PermissionRequest", agent != "dsh", agent != "antigravity",
            agent != "codex" || !HookAdapter.isCodexInternal(input, codexHome: HookAdapter.codexHome()) {
             return permission(input, link: link, process: process, client: client, now: now)
         }
@@ -117,6 +128,15 @@ struct Hook: ParsableCommand {
             let bundle = app.flatMap { Bundle(path: $0)?.bundleIdentifier } ?? env["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
             return TerminalLink(app: TerminalLink.cursorApp, cwd: input.cwd, bundleID: bundle).string
         }
+        // Antigravity's desktop app / IDE: jump activates the app directly, whatever TERM_PROGRAM it inherited.
+        if agent == "antigravity" {
+            let isDesktop = process.map { $0.name == AgentProcess.antigravityApp || AgentProcess.isAntigravityLanguageServer($0) } == true
+            if isDesktop, let process {
+                let app = SystemProcesses.executablePath(of: process.pid).flatMap(TerminalLink.hostApp(executable:))
+                let bundle = app.flatMap { Bundle(path: $0)?.bundleIdentifier } ?? env["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
+                return TerminalLink(app: TerminalLink.antigravityApp, cwd: input.cwd, bundleID: bundle).string
+            }
+        }
         let program = env["TERM_PROGRAM"].flatMap { $0.isEmpty ? nil : $0.lowercased() }
         var bundle = env["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
         // No terminal and no launching app said (Codex's desktop app): the app the agent process lives in.
@@ -127,6 +147,14 @@ struct Hook: ParsableCommand {
         guard program != nil || bundle != nil else { return nil }
         var link = TerminalLink(app: program ?? "app", cwd: input.cwd, bundleID: bundle)
         if HookAdapter.startsTurn(input) {
+            // Antigravity's PreInvocation fires on every model step in a turn: while the session is already running,
+            // keep the terminal link captured when the turn started instead of re-reading current focus.
+            if agent == "antigravity",
+               let sessions = (try? client.send(Request(op: .sessions), timeout: 2))?.sessions,
+               let own = sessions.first(where: { $0.id == input.sessionID }),
+               own.status == .running, let existingLink = own.link {
+                return existingLink
+            }
             if link.app == "ghostty" { link.terminalID = Ghostty.focusedTerminal(near: input.cwd) }
             return link.string
         }
@@ -135,6 +163,17 @@ struct Hook: ParsableCommand {
         // Hermes approvals carry no session id: use this agent's latest turn in the same directory.
         let nearby = sessions.filter { $0.source == agent && $0.link.flatMap(TerminalLink.init(string:))?.cwd == input.cwd }
         return nearby.max { $0.turnStartedAt < $1.turnStartedAt }?.link ?? link.string
+    }
+
+    /// Reads at most the last `limit` bytes of `path` as UTF-8, or nil if unavailable.
+    static func readTail(of path: String, limit: UInt64 = 64 * 1024) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else { return nil }
+        defer { try? handle.close() }
+        let end = (try? handle.seekToEnd()) ?? 0
+        let start = end > limit ? end - limit : 0
+        try? handle.seek(toOffset: start)
+        guard let data = try? handle.readToEnd(), !data.isEmpty else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 }
 

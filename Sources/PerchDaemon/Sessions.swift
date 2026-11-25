@@ -158,16 +158,21 @@ public final class SessionRegistry {
             s.status = status
         }
         var resolves = true
+        var continuing = false
         switch report.kind {
         case .prompt:
             // The agent woke itself (a background task finished): the row keeps the human's prompt, and the clock
             // keeps counting from it unless the session had stopped working.
+            // Antigravity's PreInvocation fires before every model step in a turn (`continue_turn`): while the session
+            // is already running the same prompt, keep the turn clock and skip emitting a duplicate `session.started`.
             let keep = report.keepPrompt == true
-            if !keep || ![.running, .waiting].contains(s.status) { s.turnStartedAt = at }
+            continuing = report.continueTurn == true && existing?.status == .running
+                && (report.prompt == nil || report.prompt == existing?.prompt)
+            if (!keep && !continuing) || ![.running, .waiting].contains(s.status) { s.turnStartedAt = at }
             enter(.running)
             turns[id] = report.turn
             replies[id] = nil
-            if !keep { s.prompt = report.prompt }
+            if !keep && !continuing { s.prompt = report.prompt }
             s.detail = nil
             s.error = nil
             awaitingSubagents.remove(id)
@@ -225,7 +230,7 @@ public final class SessionRegistry {
         guard s != existing else { return outcome }
         try store.save(s)
         removedAt[id] = nil
-        if report.kind == .prompt { outcome.events.append(SessionEvent(type: .started, session: s, at: at)) }
+        if report.kind == .prompt && !continuing { outcome.events.append(SessionEvent(type: .started, session: s, at: at)) }
         outcome.events.append(SessionEvent(type: .updated, session: s, at: at))
         return outcome
     }

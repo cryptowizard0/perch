@@ -21,6 +21,8 @@ import Testing
         #expect(PixelIcon.for(agent: "codex") == .codex)
         #expect(PixelIcon.for(agent: "grok") == .grok)
         #expect(PixelIcon.for(agent: "cursor") == .cursor)
+        #expect(PixelIcon.for(agent: "antigravity") == .antigravity)
+        #expect(PixelIcon.for(agent: "agy") == .antigravity)
         #expect(PixelIcon.for(agent: "dsh") == .dsh)
         #expect(PixelIcon.for(agent: "hermes") == .hermes)
         #expect(PixelIcon.for(agent: "unknown") == .robot)
@@ -38,10 +40,18 @@ import Testing
         #expect(!icon.isOn(x: -1, y: 0) && !icon.isOn(x: icon.grid, y: 0) && !icon.isOn(x: 0, y: icon.grid))
     }
 
-    /// The ChatGPT-like knot and the DeepSeek whale need the finer grid; the others stay chunky.
+    /// The ChatGPT-like knot, the DeepSeek whale, Antigravity's arch and Cursor's cube need the finer grid; the others
+    /// stay chunky.
     @Test func codexIsTheFineOne() {
         #expect(PixelIcon.codex.grid == 24 && PixelIcon.codex.cellSize == 0.5)
         #expect(PixelIcon.dsh.grid == 24, "the whale needs the fine grid too: on 12 cells it was a blob")
+        #expect(PixelIcon.antigravity.grid == 24, "the arch's tapering feet need the fine grid")
+        #expect(PixelIcon.cursor.grid == 24, "the cube's arrow-shaped cut needs the fine grid")
         #expect(PixelIcon.claudeCode.grid == 12 && PixelIcon.claudeCode.cellSize == 1)
+    }
+
+    /// Antigravity's mark is symmetric, so its arch is too: every row reads the same backwards.
+    @Test func antigravityIsSymmetric() {
+        #expect(PixelIcon.antigravity.rows.allSatisfy { $0 == String($0.reversed()) })
     }
 }

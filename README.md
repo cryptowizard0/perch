@@ -1,311 +1,239 @@
 # Perch
 
-**Your AI coding agents, live in the MacBook notch.** See at a glance which session is running, which one needs you, and which one finished or failed. Approve safe commands right there, or click to jump back to the right terminal.
+**All your AI coding agents, aggregated live in the MacBook notch.** Pulls together real-time session status across Claude Code, Codex, Grok, Cursor, Antigravity, and DeepSeek (`dsh`) in one place — see which agent is running, waiting on you, done, or failed, approve safe commands right in the notch, or click to jump back to the exact terminal.
 
-<p align="center"><img src="docs/images/desktop-expanded.png" alt="A Mac desktop with Perch's panel hanging from the notch: sessions grouped into Needs you, Failed, Running, Done and Idle"></p>
+<p align="center"><img src="docs/images/desktop-expanded.png" alt="Perch expanded panel hanging from the MacBook notch with sessions grouped by state"></p>
 
-The loop it is built for: **an agent is waiting for you → the notch lights up → you handle it in place, or jump back.**
+> **macOS 14+** · Prebuilt for Apple silicon (Intel builds from source) · Displays without a notch get a compact top-bar capsule.
 
-- **One row per agent session**, in five states: 🟠 Needs you · 🔴 Failed · 🟢 Running · 🔵 Done · ⚪ Idle.
-- **A pixel cyclops lives in the notch** and acts out the most urgent state: it trots while an agent runs, waves at you when one needs you (and taps on the glass if you keep it waiting), and hops when one starts needing you, fails or finishes. It bows when you Allow, scratches its head when you Deny, and its eye follows your pointer.
-- **Allow / Deny in the notch** for commands on your allowlist (`npm test`, `git status`, …). Everything else shows the full command and *Answer in the terminal*.
-- **Click a row** to go back to its terminal (the exact Ghostty tab) or its desktop app.
-- **A Todo tab** for your own todos. They live in Apple Reminders: a list called "Perch" plus any other lists you pick, so they're on your iPhone too. Grouped by list, with each todo's priority in colour and a ▶ to mark what you're doing now. Add one from anywhere with ⌥⇧Space without leaving your terminal.
-- Works with **Claude Code** and **Codex** (in the terminal or their desktop apps), **Grok** (the `grok` CLI), **Cursor** (its Agent panel and the `cursor-agent` CLI) and **DeepSeek**'s `dsh` (its terminal UI), through their hooks or a small plugin. No changes to how you run them.
+- **Five session states** in one view: 🟠 Needs you · 🔴 Failed · 🟢 Running · 🔵 Done · ⚪ Idle.
+- **Notch mascot**: A pixel cyclops reflects the most urgent state — trots while running, waves when waiting, hops on alerts, and follows your pointer (still when Reduce Motion is on).
+- **In-notch Allow / Deny**: Approve allowlisted commands (`npm test`, `git status`, …) without switching windows; everything else shows the full command and points you to the terminal.
+- **One-click jump**: Click any row to focus its exact Ghostty tab, terminal, or desktop app.
+- **Apple Reminders Todo tab**: Syncs with your "Perch" list (plus any other Reminders lists you pick), with local *Doing* markers (`▶`) and global quick-add (`⌥⇧Space`).
 
-macOS 14+. Prebuilt for Apple silicon; builds from source on any Mac, Intel included. On displays without a notch it sits in a small capsule at the top of the screen.
+<p align="center">
+  <img src="docs/images/desktop-collapsed.png" alt="Perch collapsed around the MacBook notch"><br>
+  <img src="docs/images/mascot-states.png" width="520" alt="Mascot states: Running, Needs you, Failed, Done, Idle, and empty"><br>
+  <img src="docs/images/panel-expanded.png" width="440" alt="Perch expanded panel close-up">
+</p>
 
-**Installing with an AI agent?** Tell it: *"Install Perch on this Mac by following https://github.com/cryptowizard0/perch#install-with-an-ai-agent"*.
+## Supported Agents
+
+Perch connects through each agent's native hooks or plugin — no changes to how you run them.
+
+| Agent | Notch Approval | Notes |
+| --- | --- | --- |
+| **Claude Code** (CLI & desktop app) | Allowlist | Hot-reloads hooks automatically; ignores Cursor's third-party hook duplicates |
+| **Codex** (CLI & desktop app) | Allowlist | Run `/hooks` in `codex` once to trust Perch's 6 hooks |
+| **Grok** (`grok` CLI) | Terminal only | Restart running sessions after connecting; Grok doesn't expose command text or hook approval |
+| **Cursor** (Agent panel & `cursor-agent`) | Status only | Auto-reloads `~/.cursor/hooks.json`; no approval hook (never shows *Needs you*) |
+| **Antigravity** (App, IDE & `agy`) | Status only | Uses named `"perch"` hook in `~/.gemini/config/hooks.json`; no approval hook (never shows *Needs you*) |
+| **DeepSeek (`dsh`)** (`dsh tui` & `dsh web`) | Terminal / web only | Mounted via `perch-dsh.mjs` in `~/.dsh/cordis.patch.yml`; restart running sessions (`dsh headless` hidden; web rows expire after 30m idle) |
 
 ## Install
 
-Apple silicon, macOS 14+. Install the app, open it once past Gatekeeper, and click **Connect** in the notch. On an Intel Mac, install [from source](#from-source).
+> **Installing with an AI agent?** Tell it: *"Install Perch on this Mac by following https://github.com/cryptowizard0/perch#install-with-an-ai-agent"*.
 
-**Homebrew**, from Perch's own tap (this repository):
+### Homebrew (Apple silicon)
 
 ```bash
 brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch
 brew install --cask cryptowizard0/perch/perch
 ```
 
-Use the full name `cryptowizard0/perch/perch`: Homebrew loads casks from a non-official tap only once you trust them, and installing by full name trusts this one.
+Use the full cask name (`cryptowizard0/perch/perch`) so Homebrew trusts this tap.
 
-**Or download** `perch-<version>-macos-arm64.zip` from the [latest release](https://github.com/cryptowizard0/perch/releases/latest), unzip it, and drag `Perch.app` into Applications. It has to be in `/Applications` or `~/Applications`: opened from Downloads, Perch shows no setup.
+### Direct Download (Apple silicon)
 
-### 1. Open it past Gatekeeper (once)
+Download `perch-<version>-macos-arm64.zip` from the [latest release](https://github.com/cryptowizard0/perch/releases/latest), unzip, and move `Perch.app` into `/Applications` or `~/Applications` (running from Downloads disables setup).
 
-Perch is ad-hoc signed, not notarized, so macOS blocks the first open ("Apple could not verify “Perch”…"). Click **Done**, then open **System Settings → Privacy & Security**, scroll to **Security** and click **Open Anyway** next to Perch (the button stays for about an hour after the blocked open), and enter your password. From then on Perch opens normally.
+To put `perch` on your `PATH` without Homebrew, open the app once and run `ln -s ~/.perch/bin/perch ~/.local/bin/perch`.
 
-### 2. Connect your agents
+### From Source (Apple silicon & Intel)
 
-On the first open the notch opens by itself with a setup card listing the agents it found: Claude Code if `~/.claude` exists, Codex if `~/.codex` does, Grok if `~/.grok` does, Cursor if `~/.cursor` does (`$CLAUDE_CONFIG_DIR` / `$CODEX_HOME` / `$GROK_HOME` are honoured). Click **Connect**: Perch adds its hooks to their settings, only its own, after backing the file up as `.perch-backup`. **Open at login** is checked by default. Nothing in an agent's config changes before you click Connect.
-
-Behind the scenes the app copies `perch` and `perchd` into `~/.perch/bin`, the fixed location every hook runs, and installs `perchd` as a launchd agent. Your choices are kept in `~/.perch/agents.json`. An agent you install later shows up as *Codex found · Connect*; right-click the notch → **Agents** to connect or disconnect one.
-
-### 3. Codex: trust the hooks (once)
-
-**Codex skips new hooks silently until you trust them**, so until you do, Codex sessions never show up and the notch shows *Trust Perch's hooks: run /hooks in codex*. Start `codex`, type `/hooks`, trust Perch's six hooks (UserPromptSubmit, PermissionRequest, PostToolUse, Stop, Interrupt, SessionEnd), then open a new Codex session; the row goes away on its first event.
-
-Codex remembers trust per hook content, so it asks again only when an upgrade changes Perch's hooks. Claude Code needs no such step.
-
-### Grok
-
-Perch keeps Grok's hooks in a file of its own, `~/.grok/hooks/perch.json`, and Grok runs it without asking. Grok reads hooks when a session starts, so restart running `grok` sessions after connecting (or press `r` in `/hooks`).
-
-**The notch can't approve Grok's commands.** Grok has no hook that can answer its permission prompt, so a Grok session that needs you says *Answer in the terminal*. Grok doesn't say which command it's asking about either, so the row shows *Tool permission requested* instead of the command.
-
-### Cursor
-
-Perch adds four entries to `~/.cursor/hooks.json` (the IDE's Agent panel and the `cursor-agent` CLI share it) next to any other tool's. Cursor reloads the file on save, so there's nothing to restart and no trust step.
-
-**Cursor sessions never need you.** Cursor has no hook that says it's waiting for your approval, so a Cursor row shows Running, Done, Failed or Idle, never Needs you, and the notch can't approve Cursor's commands. Answer Cursor's prompts in Cursor. Clicking a chat's row brings Cursor forward on that chat's workspace; a CLI row jumps to its terminal. Chats go away when you close their tab, and all of them when you quit Cursor.
-
-Cursor also runs Claude Code's hooks from `~/.claude/settings.json` by default (Settings → Agents → Third-Party Imports). Perch's Claude Code hook ignores those calls, so Cursor's chats don't show up twice.
-
-### DeepSeek (dsh)
-
-dsh can only be extended from the inside, so Perch connects it with a small plugin: `perch-dsh.mjs`, written next to `~/.perch/bin/perch`. One marked row in `~/.dsh/cordis.patch.yml` (`$DSH_HOME` if set) mounts it. That file is dsh's patch layer for every profile, so profiles you create later are covered too, and Perch leaves the rest of the file alone. dsh loads plugins when it starts, so restart running dsh sessions after connecting.
-
-Both dsh's terminal UI (`dsh-tui`, `dsh tui`) and `dsh web` show up in the notch; `dsh headless` doesn't.
-
-**`dsh web` sessions.** A web session gets a row on its first message. Clicking the row (or ⌥⇧O) opens dsh web in your default browser. dsh web has no address for a single session, so pick it in the sidebar. A web session that needs you says *Answer in dsh web*. The browser never tells Perch a session was closed, so web rows go away when the dsh web server stops, or after 30 minutes idle; a new message brings the row back. Open dsh web once with the sign-in URL it prints, so the browser stays signed in for these links.
-
-**The notch can't approve dsh's commands.** dsh asks almost only when a command wants to leave its sandbox (`danger-full-access`), which is never on the allowlist. A dsh session that needs you shows the full command, dsh's reason and *Answer in the terminal*; so does a question the model asks you (`ask_user_question`).
-
-### `perch` in the terminal
-
-Homebrew puts `perch` on your `PATH`. Otherwise link it: `ln -s ~/.perch/bin/perch ~/.local/bin/perch` (any directory on your `PATH`). Open the app once first: `~/.perch/bin` appears then, and until macOS has let Perch open, nothing inside the app runs.
-
-### Upgrade
-
-Replace the app: `brew upgrade --cask cryptowizard0/perch/perch`, or drag the new `Perch.app` over the old one. On launch it copies its `perch` / `perchd` into `~/.perch/bin`, restarts `perchd` and updates Perch's hooks. A v0.3 install (binaries and hooks in `~/.local/bin`) is migrated the same way; Codex asks for trust once more.
-
-### Uninstall
-
-Right-click the notch → **Uninstall Perch…**. It removes Perch's hooks from every agent, stops `perchd` and removes its launchd agent and `~/.perch/bin`, turns off Open at login and moves the app to the Trash. `~/.perch` keeps the database, `allowlist.json` and `agents.json`, so a reinstall picks up where you left off.
-
-With Homebrew, use `brew uninstall --cask cryptowizard0/perch/perch` instead (the same removal); `brew uninstall --cask --zap cryptowizard0/perch/perch` also deletes `~/.perch`. From a terminal: `perch uninstall` (`--purge` also deletes `~/.perch`), then delete the app.
-
-### From source
-
-Needs a Swift 5.9+ toolchain: Xcode or just the Command Line Tools (`xcode-select --install`).
+Requires Swift 5.9+ (Xcode or `xcode-select --install`):
 
 ```bash
 git clone https://github.com/cryptowizard0/perch.git && cd perch
-scripts/install.sh
+scripts/install.sh   # builds into ~/Applications (APPDIR=/Applications also works) and opens it
 ```
 
-It builds `Perch.app` into `~/Applications` (`APPDIR=/Applications` also works) and opens it: the same first run as above, without the Gatekeeper step. It links `perch` / `perchd` into `~/.local/bin` (`PREFIX=…`). Re-run it after pulling to upgrade: a development build keeps its version number, so the script also runs the bundled `perch setup --upgrade`, which copies the new binaries, restarts `perchd` and repairs the hooks of connected agents, and connects nothing new.
+### First-Run Setup
 
-This is the only way onto an Intel Mac: the release zip and the Homebrew cask are Apple silicon only. A source build runs natively on whichever Mac built it.
+1. **Allow past Gatekeeper once** *(Homebrew / zip)*: Perch is ad-hoc signed, not notarized. Click **Done** on the warning, then **System Settings → Privacy & Security → Open Anyway** next to Perch.
+2. **Connect your agents**: On first launch, the notch opens a setup card for detected agents (`~/.claude`, `~/.codex`, `~/.grok`, `~/.cursor`, `~/.gemini`, `~/.dsh`; respects `$CLAUDE_CONFIG_DIR`, `$CODEX_HOME`, `$GROK_HOME`, `$DSH_HOME`). Click **Connect** — Perch backs up each config to `.perch-backup`, installs `perch`/`perchd` into `~/.perch/bin`, and registers `perchd` with launchd. Manage agents later via right-click → **Agents**.
+3. **Codex users**: Start `codex`, run `/hooks`, trust Perch's 6 hooks, and open a new session (needed once, or after an upgrade updates the hooks).
+
+### Upgrade & Uninstall
+
+- **Upgrade**: `brew upgrade --cask cryptowizard0/perch/perch`, drag a new `Perch.app` over the old one, or re-run `scripts/install.sh` from a source checkout. Launching updates binaries, restarts `perchd`, and repairs hooks automatically.
+- **Uninstall**: Right-click the notch → **Uninstall Perch…** (or `brew uninstall --cask cryptowizard0/perch/perch`, or `perch uninstall` + delete the app). Your data in `~/.perch` is kept unless you pass `--zap` (Homebrew) or `--purge` (CLI).
+
+## Usage
+
+### Controls & Shortcuts
+
+Global shortcuts are only bound while relevant, so keys work normally the rest of the time.
+
+| Action | Effect |
+| --- | --- |
+| Hover the notch | Expand the panel |
+| Click a session row | Jump to its terminal/app (marks *Done* as *Idle*) |
+| **Allow** / **Deny** (`⌥⇧A` / `⌥⇧D`) | Answer the first waiting permission request |
+| `⌥⇧O` | Jump to the session waiting longest |
+| `⌥⇧Space` | Quick-add a todo from anywhere (without leaving your terminal) |
+| Right-click row / notch | Remove session from panel · manage **Agents**, **Lists…**, **Open at Login**, or **Uninstall** |
+
+### Todo Tab
+
+Switch between **Agents** and **Todo** using the icons left of the notch (the panel automatically opens on Agents whenever a session needs you or fails).
+
+- **Apple Reminders sync**: Shows your `"Perch"` list plus any other lists you check under right-click → **Lists…** (drag to reorder). Changes sync with iPhone via iCloud.
+- **Row actions**: Click a circle/title to complete (3s *Undo*), hover and click `▶` to mark **Doing** (local to Perch, pinned to top of its list), click `✎` to open in Reminders, or right-click to edit, reprioritize, or delete.
+- **Offline inbox**: Append `- [ ] title` lines to `~/.perch/inbox.md` anytime; Perch imports them into Reminders once running.
+
+### CLI
+
+Every command supports `--json`; run `perch --help` for the full list.
+
+```bash
+# Sessions & allowlist
+perch session ls                                # current panel state
+perch watch --json                              # stream live session events (NDJSON)
+perch allowlist                                 # view notch-approvable rules
+perch allowlist check Bash "npm test"           # test a command against the allowlist
+perch allowlist init                            # create ~/.perch/allowlist.json to customize
+
+# Todos (syncs through running Perch.app)
+perch add "Renew passport" -p high --due 2026-11-03
+perch add "Read RFC" --link https://example.com/rfc --key rfc --list Errands
+perch ls                                        # open todos by list (--status done for recent)
+perch update t7k2 --doing                       # mark Doing (--no-doing to clear, --list to move)
+perch done t7k2                                 # complete (or `perch rm t7k2` to delete)
+```
+
+Change the quick-entry hotkey with `defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"` and relaunch Perch.
+
+## Safety
+
+- **Never allows by default**: If you don't respond in the notch within 20 seconds, the agent's normal terminal prompt takes over.
+- **Strict default allowlist**: Only read-only tools (`Read`, `Glob`, `Grep`, `WebFetch`, `WebSearch`) and safe commands (`npm test`, `pytest`, `cargo test`, `git status` / `diff` / `log`) get notch buttons. Shell operators (`;`, `|`, `>`, `$(…)`), `rm`, `sudo`, and edits to `.env`, `~/.ssh`, or `*.pem` always go to the terminal. A malformed allowlist approves nothing.
+- **Full command visibility**: The panel always displays the exact command, never a summary.
+
+## Architecture & Development
+
+```text
+Claude Code / Codex / Grok / Cursor / Antigravity / dsh
+    ──hook──▶ perch ──▶ perchd (SQLite, ~/.perch/perchd.sock) ──events──▶ Perch.app
+```
+
+- **`perch`**: CLI and hook adapter that turns agent hook events into session updates.
+- **`perchd`**: Background daemon owning SQLite state and pushing updates to the app (~15 ms CLI-to-notch latency, no polling).
+- **`Perch.app`**: Native macOS notch panel built with AppKit + SwiftUI.
+
+Everything builds with SwiftPM (no Xcode project):
+
+```bash
+swift build && swift test                               # build & test CLI, daemon, libraries
+scripts/bundle-app.sh && open .build/Perch.app          # build & run app (CONFIG=debug for debug)
+PERCH_HOME=/tmp/perch-dev swift run perchd --no-http    # isolated dev daemon away from ~/.perch
+scripts/measure-latency.sh                              # benchmark CLI → notch latency
+```
+
+Design docs (Chinese): [PRD](docs/PRD.md) · [Milestones](docs/MILESTONES.md) · [Project status](project.md) · [Architecture rules](CLAUDE.md)
+
+## Troubleshooting
+
+<details>
+<summary>Common issues and diagnostics</summary>
+
+| Symptom | Fix / Check |
+| --- | --- |
+| *"Apple could not verify “Perch”"* | Expected once on Homebrew/zip installs: **System Settings → Privacy & Security → Open Anyway**. |
+| No setup card or **Agents** menu | Run `Perch.app` from `/Applications` or `~/Applications` with `PERCH_HOME` unset. |
+| **Codex** sessions missing | Trust hooks via `/hooks` in `codex`. Verify with `grep -A1 'hooks.json:permission_request' ~/.codex/config.toml` (`trusted_hash`). |
+| **Claude Code** sessions missing | Check `/hooks` in `claude` (8 Perch hooks). Check for `"disableAllHooks": true`, `allowManagedHooksOnly`, or mismatched `CLAUDE_CONFIG_DIR`. |
+| **Grok** sessions missing | Restart running `grok` sessions and check `/hooks` (8 global hooks) and `allow_managed_hooks_only` via `grok inspect`. |
+| **Cursor** sessions missing | Check Cursor's Hooks output channel (4 hooks); repair with `perch setup cursor`. Cloud/background agents don't run user hooks. |
+| **Antigravity** sessions missing | Verify the `"perch"` hook in `~/.gemini/config/hooks.json`; repair with `perch setup antigravity`. |
+| **dsh** sessions missing | Restart dsh. Verify `dsh <profile> --dump-config \| grep -A3 'id: perch'` and `~/.perch/bin/perch-dsh.mjs`; repair with `perch setup dsh`. |
+| No sessions from any agent | Run `perch session ls`. If `perchd` isn't running, restart `Perch.app` or run `perch setup`. |
+| `perch: open Perch.app once to finish installing` | Launch `Perch.app` once so it copies binaries into `~/.perch/bin`. |
+| App doesn't start on login | Right-click notch → **Open at Login**, and check **System Settings → General → Login Items**. |
+| Hook failures | Hooks never block agents; inspect `~/.perch/hook.log` (missing file usually means the hook never fired). |
+
+</details>
 
 ## Install with an AI agent
 
-Steps for a coding agent (Claude Code, Codex, Grok, dsh, …) installing Perch for its user. Every step is a shell command with a checkable result. The few things only a person can do are marked **👤 Ask the user**: stop there and wait.
+<details>
+<summary>Step-by-step playbook for coding agents (Claude Code, Codex, Grok, dsh, …)</summary>
 
-### 0. Look at the Mac
+Steps marked **👤 Ask the user** require human action — pause there and wait.
+
+### 1. Inspect the Mac
 
 ```bash
-sw_vers -productVersion                                    # 14.0 or later, or stop: Perch needs macOS 14
-uname -m                                                   # arm64 = Apple silicon, x86_64 = Intel
-ls -d ~/.claude ~/.codex ~/.grok ~/.cursor ~/.dsh 2>/dev/null   # the agents Perch can connect
-ls -d /Applications/Perch.app ~/Applications/Perch.app 2>/dev/null   # already installed? go to "Upgrade"
+sw_vers -productVersion                                                  # must be >= 14.0
+uname -m                                                                 # arm64 (Apple silicon) or x86_64 (Intel)
+ls -d ~/.claude ~/.codex ~/.grok ~/.cursor ~/.gemini ~/.dsh 2>/dev/null  # detected agents
+ls -d /Applications/Perch.app ~/Applications/Perch.app 2>/dev/null       # already installed? jump to Upgrade
 ```
 
-### 1. Pick a path
+- **`arm64` + `brew` available** (preferred): follow **Path A (Homebrew)**.
+- **`x86_64`** (or user prefers source): follow **Path B (From source)** — the cask and release zip are `arm64`-only. Note Intel Macs have no notch (capsule appears at top center).
 
-| `uname -m` | Path | 👤 steps |
-| --- | --- | --- |
-| `arm64` | **A. Homebrew** (the release build), if `brew` is installed and the user prefers it | Open Anyway once, then Connect |
-| `arm64` or `x86_64` | **B. From source** | none, if the Command Line Tools are installed |
-
-On `x86_64` only path B works: the cask refuses Intel (`depends_on arch: :arm64`) and the release zip is `arm64` only. Intel Macs have no notch, so tell the user to look for Perch's capsule at the top centre of the screen.
-
-### 2A. Homebrew (Apple silicon)
+### 2A. Path A — Homebrew (Apple silicon)
 
 ```bash
 brew tap cryptowizard0/perch https://github.com/cryptowizard0/perch
-brew install --cask cryptowizard0/perch/perch    # the full name: Homebrew refuses the short one from an untrusted tap
+brew install --cask cryptowizard0/perch/perch   # full name required for untrusted tap
 ```
 
-**👤 Ask the user** to do both of these, then wait:
+**👤 Ask the user** to do both steps, then wait:
+1. Open Perch from Applications → click **Done** on the Gatekeeper dialog → **System Settings → Privacy & Security → Open Anyway** (enter password).
+2. Click **Connect** in the setup card that drops from the notch/capsule.
 
-1. Open Perch from Applications. macOS says *"Apple could not verify “Perch”…"*: click **Done**, open **System Settings → Privacy & Security**, click **Open Anyway** next to Perch, and enter the password.
-2. Perch opens. In the card that drops out of the notch (or the capsule at the top of a screen without one), click **Connect**.
+*(Do not run binaries inside `Perch.app` before step 1 — macOS kills them with exit 137. Do not remove quarantine attributes yourself.)*
 
-Until step 1 is done, macOS kills every program inside Perch.app (exit 137), so don't run anything from the app before then. Don't remove the quarantine attribute yourself: approving an unnotarized app is the user's decision. Then go to step 3.
-
-### 2B. From source (Apple silicon or Intel)
-
-```bash
-xcode-select -p    # prints a path when a Swift toolchain is installed
-```
-
-If it fails, **👤 ask the user** to run `xcode-select --install` and finish the dialog it opens. The full Xcode isn't needed.
+### 2B. Path B — From source (Apple silicon or Intel)
 
 ```bash
+xcode-select -p   # if this fails, 👤 ask the user to run `xcode-select --install` and finish the dialog
 git clone https://github.com/cryptowizard0/perch.git && cd perch
-APP=~/Applications/Perch.app scripts/bundle-app.sh     # builds and assembles the app, takes a few minutes, doesn't open it
+APP=~/Applications/Perch.app scripts/bundle-app.sh   # APP=/Applications/Perch.app also works
 ~/Applications/Perch.app/Contents/Helpers/perch setup --json
 open ~/Applications/Perch.app
 ```
 
-Keep this order: `perch setup` before the first `open`. Setup copies `perch` / `perchd` into `~/.perch/bin`, installs `perchd` as a launchd agent, and connects every agent found (name some to connect only those: `perch setup claude-code codex`). The app then sees the choice already made and shows no setup card. `APP=/Applications/Perch.app` also works. Anywhere else, the app maintains nothing.
+Keep that order (`perch setup` before first `open`). Pass specific agent names to limit setup (e.g. `perch setup claude-code codex`). Remind the user to enable **Open at Login** via right-click on the notch.
 
-This path doesn't turn on **Open at login**. Tell the user: right-click the notch → **Open at Login**.
-
-### 3. Check
+### 3. Verify
 
 ```bash
-~/.perch/bin/perch --version                                        # prints the version
-launchctl print gui/$(id -u)/dev.perch.perchd | grep -m1 'state ='  # state = running
-~/.perch/bin/perch session ls --json                                # {"ok":true,"sessions":[…]}
-cat ~/.perch/agents.json                                            # "status" : "on" for each connected agent
-pgrep -x Perch                                                      # the app is running
+~/.perch/bin/perch --version
+launchctl print gui/$(id -u)/dev.perch.perchd | grep -m1 'state ='   # expect: state = running
+~/.perch/bin/perch session ls --json                                 # expect: {"ok":true,"sessions":[…]}
+cat ~/.perch/agents.json                                             # expect: "status": "on" for connected agents
+pgrep -x Perch
 ```
 
-`perch setup --json` (path B) printed each agent's `state`: `connected`; `needsTrust` (Codex, see below); `notDetected` (not on this Mac); or with `"ok": false`, an `error` to report to the user. Path B can re-run it any time.
+### 4. Hand Back to the User
 
-### 4. Hand back to the user
+Tell the user any remaining per-agent steps:
+- **Codex** (`needsTrust` or Path A): run `/hooks` in `codex`, trust Perch's 6 hooks, start a new session.
+- **Grok / dsh**: restart running sessions so hooks/plugins load.
+- **Claude Code / Cursor / Antigravity**: ready immediately (note Cursor and Antigravity never show *Needs you*).
 
-Tell them what's left, since only they can do it:
+### Upgrade, Uninstall & Guardrails
 
-- **Codex** (`needsTrust`, or path A connected Codex): Codex ignores new hooks until trusted. Start `codex`, type `/hooks`, trust Perch's six hooks, then open a new Codex session.
-- **Grok**: restart running `grok` sessions; hooks load when a session starts.
-- **dsh**: restart running dsh sessions; plugins load when dsh starts.
-- **Cursor**: nothing to do; Cursor reloads `~/.cursor/hooks.json` on save. Cursor rows never show Needs you.
-- **Claude Code**: nothing to do. Running sessions pick the hooks up on their own.
-- Hover the notch to see the panel. The next prompt in any connected agent shows up as a row.
+- **Upgrade**: Path A: `brew upgrade --cask cryptowizard0/perch/perch`. Path B: `git pull && scripts/install.sh` (pass `APPDIR=/Applications` if installed there).
+- **Uninstall**: `~/.perch/bin/perch uninstall --json` (`--purge` deletes `~/.perch`) then remove `Perch.app`; or `brew uninstall --cask cryptowizard0/perch/perch`.
+- **Don't** hand-edit agent config files (`settings.json`, `hooks.json`, `cordis.patch.yml`); always use `perch setup` / `perch hooks install <agent>`.
+- **Don't** set `PERCH_HOME` (dev-only; disables installation) or connect unsupported `hermes`.
 
-### Upgrade, uninstall
-
-- Path A: `brew upgrade --cask cryptowizard0/perch/perch`. Path B: `git pull && scripts/install.sh` in the checkout (add `APPDIR=/Applications` if the app lives there). It quits the app, rebuilds it, repairs the hooks, connects nothing new, and reopens the app.
-- Uninstall: `~/.perch/bin/perch uninstall --json` (keeps the data in `~/.perch`; `--purge` deletes it), then delete `Perch.app`. Homebrew installs: `brew uninstall --cask cryptowizard0/perch/perch`.
-
-### Don't
-
-- Don't edit Perch's hooks into `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.grok/hooks/perch.json`, `~/.cursor/hooks.json` or `~/.dsh/cordis.patch.yml` by hand. Use `perch setup` / `perch hooks install <agent>`, which back the file up and touch only Perch's own entries.
-- Don't set `PERCH_HOME`. It's for development, and an app running with it installs nothing.
-- Don't connect Hermes: it isn't supported in the panel right now.
-
-## Use
-
-| | |
-| --- | --- |
-| Hover the notch | Expand the panel |
-| Click a row | Jump to that session's terminal or app; a Done session turns Idle |
-| **Allow** / **Deny**, or ⌥⇧A / ⌥⇧D | Answer the first request in the panel |
-| ⌥⇧O | Jump to the session that has waited longest |
-| Right-click a row | *Remove from Panel* (its next event brings it back) |
-
-The shortcuts exist only while there is something to answer or jump to, so the rest of the time those keys type as usual.
-
-```bash
-perch session ls                       # what the panel shows, in the terminal
-perch allowlist                        # what may be approved from the notch
-perch allowlist check Bash "npm test"  # would this be?
-perch allowlist init                   # write ~/.perch/allowlist.json to edit
-```
-
-### Todo
-
-The expanded notch has two tabs, picked from the icons left of the notch: **Agents** (the mascot; an orange dot while a session needs you, red while one failed) and **Todo** (a checklist with your open count). The panel opens on Agents whenever a session needs you or failed; otherwise on the tab you last picked. The folded notch shows your open count on its right wing, next to a checklist icon (dimmed when there's nothing open); todos never pulse, chime, or move the mascot.
-
-The Todo tab shows the **"Perch" list in Apple Reminders**, and any other Reminders lists you check, one group per list. Right-click the notch → **Lists…** to check lists and drag them into the order the tab shows them; "Perch" is always checked, but it can move. Within a list, todos you're **Doing** come first, then High, Normal and Low, oldest first. A list with nothing open says "All clear"; one that isn't in iCloud says "Not syncing".
-
-Each row reads `○ title … date ▶ priority ✎`. Due dates show as Today, Tomorrow, a weekday, or a date, white once overdue. The priority capsule is orange for High, gray for Normal and green for Low. ▶ shows when you hover a row: click it to mark the todo as Doing, and the row lights up (bold, with a light background) until you click ▶ again or complete it. You can have several at once. Doing is Perch's own: it isn't written to Reminders, so your phone doesn't show it. Add a todo on your iPhone and it shows up in the notch; complete or add one in the notch and it's in Reminders, and on your phone through iCloud. The first time you open the tab, click **Connect Reminders** and allow access; Perch finds the "Perch" list or creates it in iCloud. If you delete the list, the tab offers **Create Perch list**; Perch never recreates it on its own. High and Low match Reminders' High and Low; Normal is "no priority" (Medium on the phone also shows as Normal).
-
-| | |
-| --- | --- |
-| ⌥⇧Space, anywhere | Add a todo in a small popup under the notch; your terminal stays in front |
-| *+ Add a todo* | The same popup, under the panel |
-| In the popup | Type the title (stored exactly as typed). Tab / Shift-Tab picks High / Normal / Low. With more than one list checked, the picker at the top right chooses the list; it starts on "Perch" each time the popup opens. Return adds and stays open for the next one. Esc closes. |
-| Click a todo's circle or title | Completed in Reminders after 3 seconds; *Undo* (or another click) takes it back |
-| ▶ on a row (hover) | Mark it as Doing; click again to clear |
-| ✎ on a row | Open that reminder in the Reminders app, for everything Perch doesn't edit (subtasks, flags, …) |
-| Right-click → *Edit…* | A larger editor: title, notes, date and time, priority, URL, and the list (changing it moves the todo there). Return saves, Esc cancels. A time you set notifies just like one set in Reminders |
-| Right-click → *Priority* / *Delete* | Re-rank it, or delete it at once (it goes to Reminders' Recently Deleted) |
-| Right-click the notch → *Lists…* | Pick which Reminders lists the tab shows, and drag them into order. Esc closes |
-
-The CLI and `~/.perch/inbox.md` change the same lists, through Perch.app (`perch ls` groups todos by list, and `--json` gives each its `list` and `doing`; new todos go to "Perch" unless you pass `--list`, and only lists checked in Lists… are accepted): it applies the change in Reminders before `perch` returns, so `perch ls` right after always shows it. If Perch.app isn't running (or doesn't answer within 2 seconds), the command fails with one line and nothing is saved for later. Lines you append to `inbox.md` (`- [ ] title`) wait in the file until Perch.app is running, then become reminders.
-
-```bash
-perch add "Renew passport" -p high --due 2026-11-03     # a day; --due @15:00 or +2h for a time
-perch add "Read the RFC" --link https://example.com/rfc --key rfc  # same --key again updates it instead of adding another
-perch add "Buy cables" --list Errands  # into another checked list
-perch ls                               # open todos by list: Doing first, then High / Normal / Low, each with a short id
-perch ls --status done                 # completed in the last 7 days
-perch update t7k2 --doing              # mark it as Doing (--no-doing clears it); works even while Perch.app is closed
-perch update t7k2 --list Errands       # move it to another checked list
-perch done t7k2                        # also: perch update t7k2 --status open (reopen), perch rm t7k2
-defaults write dev.perch.app QuickEntryHotKey "ctrl+opt+n"   # another shortcut (relaunch Perch)
-```
-
-While Perch.app isn't connected, `perch ls` still lists the todos it saw last and says how old they are on stderr ("Todos as of 14:02 — Perch.app isn't connected"); `--json` adds `todos_as_of`, and `todo.md` an "As of" line.
-
-## Safety
-
-- **Perch never allows anything by default.** If you don't answer in the notch within 20 seconds, the agent's own prompt appears in the terminal as usual.
-- Only commands on the allowlist get buttons. The default is strict: read-only tools (Read, Glob, Grep, WebFetch, WebSearch) and a few Bash commands (`npm test`, `pytest`, `cargo test`, `git status` / `diff` / `log`). Any shell operator (`;`, `|`, `>`, `$(…)`, …), `rm`, `sudo`, and writes to `.env`, `~/.ssh` or `*.pem` always go to the terminal. A broken allowlist file approves nothing.
-- The panel always shows the full command, never a summary.
-
-## Troubleshooting
-
-| Symptom | Check |
-| --- | --- |
-| "Apple could not verify “Perch”…" | Expected once: **Open Anyway** in System Settings → Privacy & Security (see [Install](#1-open-it-past-gatekeeper-once)). |
-| No setup card, no setup rows, no Agents menu | The app must run from `/Applications` or `~/Applications` (macOS runs apps opened from Downloads from a hidden copy), with `PERCH_HOME` unset. The card itself appears only on the first run; afterwards use the *found · Connect* rows or right-click → **Agents**. |
-| Codex sessions never appear | The hooks are not trusted yet: `/hooks` in `codex` (see [Codex](#3-codex-trust-the-hooks-once)). `grep -A1 'hooks.json:permission_request' ~/.codex/config.toml` shows a `trusted_hash` once they are. |
-| Grok sessions never appear | Restart the `grok` session (hooks load when it starts), then check `/hooks` in `grok`: Perch's eight hooks should be listed under Global. A work machine may allow only managed hooks (`allow_managed_hooks_only`; `grok inspect` names the file that sets it). |
-| Cursor sessions never appear | Check the Hooks output channel in Cursor (or the Hooks tab under Customize): Perch's four hooks (`beforeSubmitPrompt`, `afterAgentResponse`, `stop`, `sessionEnd`) should be listed from the user config; `perch setup cursor` puts them back. Cloud / background agents don't run your user hooks. |
-| dsh sessions never appear | Restart the dsh session (plugins load when it starts). `dsh <profile> --dump-config \| grep -A3 'id: perch'` must show Perch's row and `~/.perch/bin/perch-dsh.mjs` must exist; `perch setup dsh` puts both back. `dsh headless` is never shown. A `dsh web` session shows up only after its first message, and goes away after 30 minutes idle. |
-| Claude Code sessions never appear | Claude Code needs no trust step and picks up new hooks on its own. Type `/hooks` in `claude`: Perch's eight hooks should be listed under user settings. If not, check for `"disableAllHooks": true` in any settings file (a project's settings override yours), `allowManagedHooksOnly` in managed settings on a work machine, and that Perch connected the settings file Claude Code reads (the card shows the path; `CLAUDE_CONFIG_DIR` must match). |
-| No session appears for any agent | An error row in the notch says what failed. `perch session ls` must list sessions; if it cannot connect, `perchd` is not running: quit Perch and open it again (it reinstalls the launchd agent if it is gone), or run `perch setup`. |
-| `perch: open Perch.app once to finish installing` | Homebrew's `perch` runs `~/.perch/bin/perch`, which the app installs on its first open. |
-| The notch doesn't come back after a restart | Right-click the notch → **Open at Login**; if it says *allow in System Settings*, turn Perch on under System Settings → General → Login Items. |
-| A hook fails | Hooks never print anything or block the agent; failures go to `~/.perch/hook.log`. No such file usually means the hook was never run at all. |
-
-## How it works
-
-```
-Claude Code / Codex / Grok / Cursor / dsh ──hook──▶ perch hook ──▶ perchd ──events──▶ Perch.app (notch)
-                                                    SQLite, ~/.perch/perchd.sock
-```
-
-- `perch` is the CLI and the hook adapter. It reports each hook event (prompt, needs you, done, failed, …) as a session update.
-- `perchd` is the daemon and the only thing that touches the database. It runs the session state machine and pushes changes to the app, never polled: CLI to notch averages about 15 ms (budget 200 ms).
-- `Perch.app` is the notch panel (AppKit + SwiftUI).
-
-`perch watch --json` streams the same events, one JSON object per line. Every command takes `--json`; `perch --help` lists them all, including the todo commands (`add` / `ls` / `done` / `update` / `rm`) behind the Todo tab.
-
-## Develop
-
-No Xcode project: everything is SwiftPM.
-
-```bash
-swift build && swift test                              # CLI, daemon, libraries, tests
-scripts/bundle-app.sh && open .build/Perch.app          # the notch app (CONFIG=debug for a debug build)
-PERCH_HOME=/tmp/perch-dev swift run perchd --no-http    # a daemon with its own data, away from ~/.perch
-scripts/measure-latency.sh                              # CLI → notch latency
-```
-
-Design notes (in Chinese): [docs/PRD.md](docs/PRD.md) (product), [docs/MILESTONES.md](docs/MILESTONES.md), [project.md](project.md) (status and handover), [CLAUDE.md](CLAUDE.md) (architecture rules).
-
-## Screenshots
-
-Collapsed, the notch shows the mascot acting out the most urgent session's state, and how many sessions are running:
-
-<p align="center"><img src="docs/images/desktop-collapsed.png" alt="The menu bar with Perch collapsed around the notch: an orange pixel cyclops waving on the left, next to the number of running sessions"></p>
-
-<p align="center"><img src="docs/images/mascot-states.png" width="552" alt="The mascot close up, one per state: green Running, orange Needs you, red Failed with an X in its eye, blue Done smiling, grey Idle asleep with a z, dark grey with no sessions"></p>
-
-Running trots and looks around, and wipes its brow once a turn has run for 10 minutes. Needs you waves and flashes its antenna, waving harder after a minute and tapping on the glass after five. Failed sighs and rubs its head now and then, Done sways and hums, and Idle sleeps. When a session finishes, the cyclops runs out through the notch carrying the banner. Its eye follows your pointer when it comes close. It moves only when it has something to say, and stays still with Reduce Motion on.
-
-Expanded on hover, sessions are grouped by state, most urgent first:
-
-<p align="center"><img src="docs/images/panel-expanded.png" width="460" alt="Perch's expanded panel, close up"></p>
-
-Each row shows the agent (Claude Code's pixel monster, Codex's knot, Grok's slashed ring, Cursor's cube, DeepSeek's whale), the project, how long it has been in that state, and a second line: the prompt while running, the full command when it needs you, the error when it failed, the last reply when done.
+</details>
 
 ## License
 

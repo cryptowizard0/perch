@@ -155,13 +155,18 @@ public struct SessionReport: Codable, Equatable, Sendable {
     public var existingOnly: Bool?
     /// Codex: the main thread spawned a subagent; it counts as working until its SubagentStart names it (#94).
     public var spawnedSubagent: Bool?
+    /// Antigravity PreInvocation: fires before every model step in a turn. When the session is already running with the
+    /// same prompt, keep `turnStartedAt` and skip emitting a duplicate `session.started`.
+    public var continueTurn: Bool?
 
     public init(id: String, kind: Kind, at: Date, source: String? = nil, title: String? = nil, cwd: String? = nil,
                 link: String? = nil, prompt: String? = nil, detail: String? = nil, keepDetail: Bool? = nil,
                 keepPrompt: Bool? = nil, lastMessage: String? = nil, error: String? = nil, pid: Int32? = nil,
-                pidStartedAt: Date? = nil, turn: String? = nil, backgroundAgents: Int? = nil) {
+                pidStartedAt: Date? = nil, turn: String? = nil, backgroundAgents: Int? = nil,
+                continueTurn: Bool? = nil) {
         self.turn = turn
         self.backgroundAgents = backgroundAgents
+        self.continueTurn = continueTurn
         self.id = id
         self.kind = kind
         self.at = at
@@ -191,6 +196,7 @@ public struct SessionReport: Codable, Equatable, Sendable {
         case subagent
         case existingOnly = "existing_only"
         case spawnedSubagent = "spawned_subagent"
+        case continueTurn = "continue_turn"
     }
 }
 

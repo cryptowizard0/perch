@@ -36,7 +36,7 @@ extension HookFile {
 }
 
 public enum HookFiles {
-    public static var all: [any HookFile] { [HookSettings.claudeCode, HookSettings.codex, HookSettings.grok, HookSettings.cursor, DshPatch(), HermesHooks()] }
+    public static var all: [any HookFile] { [HookSettings.claudeCode, HookSettings.codex, HookSettings.grok, HookSettings.cursor, AntigravityHooks(), DshPatch(), HermesHooks()] }
 
     public static func `for`(_ agent: String) throws -> any HookFile {
         guard let file = all.first(where: { $0.agent == agent }) else {
@@ -342,6 +342,135 @@ public struct HookSettings: HookFile {
     static func render(_ root: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         return String(decoding: data, as: UTF8.self) + "\n"
+    }
+}
+
+/// Google Antigravity's global hooks live in ~/.gemini/config/hooks.json (shared by Antigravity 2.0, Antigravity IDE,
+/// and the `agy` CLI). Unlike Claude Code / Codex / Cursor, each top-level key is a named hook (`"perch": { … }`);
+/// simple events (`SessionStart`, `PreInvocation`, `PostInvocation`, `Stop`) take a flat array of handler objects,
+/// while tool events (`PreToolUse`, `PostToolUse`) wrap handlers in `{matcher, hooks}`.
+///
+/// Hooks run synchronously and expect a JSON object on stdout, so each gets a short timeout. Antigravity has no
+/// Notification / PermissionRequest / SessionEnd event, and `PreToolUse` runs on every tool call regardless of whether
+/// Antigravity will prompt, so Perch installs only `PreInvocation` and `Stop`. Detected by `~/.gemini` (exists for
+/// App, IDE, and `agy` CLI even before `~/.gemini/config` does).
+public struct AntigravityHooks: HookFile {
+    public let agent = "antigravity"
+    public let eventNames = ["PreInvocation", "Stop"]
+    public let location = ConfigLocation(dirVariable: nil, defaultDir: ".gemini", file: "config/hooks.json")
+    public let installNote: String? = nil
+    public let needsTrust = false
+    static let hookName = "perch"
+    static let timeout = 5
+    static let groupedEvents: Set<String> = ["PreToolUse", "PostToolUse"]
+
+    public init() {}
+
+    public func installing(_ text: String?, path: String, perch: String, wait: Int) throws -> String {
+        var root = try parse(text, path: path)
+        remove(from: &root)
+        add(to: &root, perch: perch)
+        return try HookSettings.render(root)
+    }
+
+    public func removing(_ text: String, path: String) throws -> (text: String, removed: Int) {
+        var root = try parse(text, path: path)
+        let removed = remove(from: &root)
+        return (try HookSettings.render(root), removed)
+    }
+
+    public func perchHooks(in text: String?, path: String) throws -> String {
+        let root = try parse(text, path: path)
+        var ours: [String: Any] = [:]
+        for (name, value) in root {
+            guard let spec = value as? [String: Any] else { continue }
+            var found: [String: Any] = [:]
+            for (event, eventValue) in spec {
+                guard let list = eventValue as? [[String: Any]] else { continue }
+                if isGrouped(event, list) {
+                    let groups = list.compactMap { group -> [String: Any]? in
+                        let hooks = (group["hooks"] as? [[String: Any]] ?? []).filter(isPerch)
+                        guard !hooks.isEmpty else { return nil }
+                        var group = group
+                        group["hooks"] = hooks
+                        return group
+                    }
+                    if !groups.isEmpty { found[event] = groups }
+                } else {
+                    let hooks = list.filter(isPerch)
+                    if !hooks.isEmpty { found[event] = hooks }
+                }
+            }
+            if !found.isEmpty { ours[name] = found }
+        }
+        return ours.isEmpty ? "" : try HookSettings.render(ours)
+    }
+
+    /// Antigravity hooks never block on Perch.
+    public func wait(in text: String?) -> Int? { nil }
+
+    public func isPerch(_ hook: [String: Any]) -> Bool {
+        guard let command = hook["command"] as? String else { return false }
+        return command.contains(" hook \(agent)") && command.contains("perch")
+    }
+
+    private func isGrouped(_ event: String, _ list: [[String: Any]]) -> Bool {
+        Self.groupedEvents.contains(event) || list.contains { $0["hooks"] is [[String: Any]] }
+    }
+
+    private func parse(_ text: String?, path: String) throws -> [String: Any] {
+        guard let text, !text.allSatisfy(\.isWhitespace) else { return [:] }
+        guard let root = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
+            throw SetupError("\(path) is not valid JSON (or not an object); fix it first, nothing was changed")
+        }
+        return root
+    }
+
+    /// Removes Perch's handlers from every named hook, dropping events and named hooks left empty by that.
+    @discardableResult
+    func remove(from root: inout [String: Any]) -> Int {
+        var removed = 0
+        for (name, value) in root {
+            guard var spec = value as? [String: Any] else { continue }
+            var specRemoved = 0
+            for (event, eventValue) in spec {
+                guard let list = eventValue as? [[String: Any]] else { continue }
+                if isGrouped(event, list) {
+                    var kept: [[String: Any]] = []
+                    for var group in list {
+                        guard let hooks = group["hooks"] as? [[String: Any]] else { kept.append(group); continue }
+                        let remaining = hooks.filter { !isPerch($0) }
+                        specRemoved += hooks.count - remaining.count
+                        if remaining.isEmpty && !hooks.isEmpty { continue }
+                        group["hooks"] = remaining
+                        kept.append(group)
+                    }
+                    if specRemoved > 0 { spec[event] = kept.isEmpty ? nil : kept }
+                } else {
+                    let remaining = list.filter { !isPerch($0) }
+                    let count = list.count - remaining.count
+                    if count > 0 {
+                        specRemoved += count
+                        spec[event] = remaining.isEmpty ? nil : remaining
+                    }
+                }
+            }
+            guard specRemoved > 0 else { continue }
+            removed += specRemoved
+            let hasEvents = spec.keys.contains { $0 != "enabled" }
+            root[name] = hasEvents ? spec : nil
+        }
+        return removed
+    }
+
+    func add(to root: inout [String: Any], perch: String) {
+        var spec = root[Self.hookName] as? [String: Any] ?? [:]
+        let command = "\(perch) hook \(agent)"
+        let handler: [String: Any] = ["type": "command", "command": command, "timeout": Self.timeout]
+        for event in eventNames {
+            spec[event] = (spec[event] as? [[String: Any]] ?? []) + [handler]
+        }
+        root[Self.hookName] = spec
     }
 }
 

@@ -58,6 +58,16 @@ public struct HookInput: Decodable, Equatable, Sendable {
     public var status: String?
     /// Cursor afterAgentResponse: the reply.
     public var text: String?
+    /// Antigravity: workspace folders (camelCase; fallback when `cwd` is absent).
+    public var workspacePaths: [String]?
+    /// Antigravity: the latest user prompt text (sent on every hook, including `PreInvocation`).
+    public var lastUserInput: String?
+    /// Antigravity Stop: why the loop ended (`NO_TOOL_CALL`, `ERROR`, `USER_CANCELED`, `MAX_INVOCATIONS`, …).
+    public var terminationReason: String?
+    /// Antigravity Stop: true when all background tasks are done.
+    public var fullyIdle: Bool?
+    /// Antigravity PreInvocation / PostInvocation: model invocation count.
+    public var invocationNum: Int?
 
     /// One of Claude Code's `background_tasks` (the fields Perch reads).
     public struct BackgroundTask: Decodable, Equatable, Sendable {
@@ -119,7 +129,7 @@ public struct HookInput: Decodable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case cwd, message, extra, prompt, error, reason
         case sessionID = "session_id", sessionIDCamel = "sessionId"
-        case event = "hook_event_name"
+        case event = "hook_event_name", eventCamel = "hookEventName"
         case transcriptPath = "transcript_path", transcriptPathCamel = "transcriptPath"
         case notificationType = "notification_type", notificationTypeCamel = "notificationType"
         case lastAssistantMessage = "last_assistant_message", lastAssistantMessageCamel = "lastAssistantMessage"
@@ -131,9 +141,10 @@ public struct HookInput: Decodable, Equatable, Sendable {
         case backgroundTasks = "background_tasks"
         case agentID = "agent_id"
         case toolResponse = "tool_response"
-        case conversationID = "conversation_id"
+        case conversationID = "conversation_id", conversationIDCamel = "conversationId"
         case workspaceRoots = "workspace_roots"
         case status, text
+        case workspacePaths, lastUserInput, terminationReason, fullyIdle, invocationNum
     }
 
     public init(from decoder: Decoder) throws {
@@ -141,13 +152,17 @@ public struct HookInput: Decodable, Equatable, Sendable {
         func string(_ key: CodingKeys, _ camel: CodingKeys) throws -> String? {
             try c.decodeIfPresent(String.self, forKey: key) ?? c.decodeIfPresent(String.self, forKey: camel)
         }
-        // Cursor names a chat by `conversation_id`; its session events carry the same value as `session_id`.
-        if let id = try string(.sessionID, .sessionIDCamel) ?? (try? c.decodeIfPresent(String.self, forKey: .conversationID)).flatMap({ $0 }) {
+        // Cursor names a chat by `conversation_id` (and Antigravity by `conversationId`).
+        if let id = try string(.sessionID, .sessionIDCamel) ?? (try? string(.conversationID, .conversationIDCamel)).flatMap({ $0 }) {
             sessionID = id
         } else {
             throw DecodingError.keyNotFound(CodingKeys.sessionID, .init(codingPath: c.codingPath, debugDescription: "no session_id"))
         }
-        event = try c.decode(String.self, forKey: .event)
+        if let name = try string(.event, .eventCamel) {
+            event = name
+        } else {
+            throw DecodingError.keyNotFound(CodingKeys.event, .init(codingPath: c.codingPath, debugDescription: "no hook_event_name"))
+        }
         cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
         transcriptPath = try string(.transcriptPath, .transcriptPathCamel)
         notificationType = try string(.notificationType, .notificationTypeCamel)
@@ -179,7 +194,16 @@ public struct HookInput: Decodable, Equatable, Sendable {
         workspaceRoots = (try? c.decodeIfPresent([String].self, forKey: .workspaceRoots)).flatMap { $0 }
         status = (try? c.decodeIfPresent(String.self, forKey: .status)).flatMap { $0 }
         text = (try? c.decodeIfPresent(String.self, forKey: .text)).flatMap { $0 }
-        if cwd?.isEmpty != false, let root = workspaceRoots?.first(where: { !$0.isEmpty }) { cwd = root }
+        // Antigravity's camelCase fields, just as tolerant.
+        workspacePaths = (try? c.decodeIfPresent([String].self, forKey: .workspacePaths)).flatMap { $0 }
+        lastUserInput = (try? c.decodeIfPresent(String.self, forKey: .lastUserInput)).flatMap { $0 }
+        terminationReason = (try? c.decodeIfPresent(String.self, forKey: .terminationReason)).flatMap { $0 }
+        fullyIdle = (try? c.decodeIfPresent(Bool.self, forKey: .fullyIdle)).flatMap { $0 }
+        invocationNum = (try? c.decodeIfPresent(Int.self, forKey: .invocationNum)).flatMap { $0 }
+        if cwd?.isEmpty != false,
+           let root = workspaceRoots?.first(where: { !$0.isEmpty }) ?? workspacePaths?.first(where: { !$0.isEmpty }) {
+            cwd = root
+        }
     }
 
     /// An object, or the JSON text of one (dsh keeps a tool call's arguments as a string); nil for anything else.
@@ -196,7 +220,14 @@ public struct HookInput: Decodable, Equatable, Sendable {
                 subagentType: String? = nil, at: Date? = nil, pid: Int32? = nil, turn: String? = nil, keepPrompt: Bool? = nil,
                 questions: [Question]? = nil, surface: String? = nil, url: String? = nil,
                 backgroundTasks: [BackgroundTask]? = nil, agentID: String? = nil, toolResponse: JSONValue? = nil,
-                status: String? = nil, text: String? = nil) {
+                status: String? = nil, text: String? = nil, workspacePaths: [String]? = nil,
+                lastUserInput: String? = nil, terminationReason: String? = nil, fullyIdle: Bool? = nil,
+                invocationNum: Int? = nil) {
+        self.workspacePaths = workspacePaths
+        self.lastUserInput = lastUserInput
+        self.terminationReason = terminationReason
+        self.fullyIdle = fullyIdle
+        self.invocationNum = invocationNum
         self.status = status
         self.text = text
         self.toolResponse = toolResponse
@@ -289,7 +320,7 @@ public enum HookAdapter {
     public static func waitingKey(agent: String, session: String) -> String { "\(agent):\(session)" }
     public static func noticeKey(agent: String, session: String) -> String { "\(agent):\(session):done" }
     /// Events that start a turn: the human just typed, so that terminal has focus.
-    static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call", "Prompt", "beforeSubmitPrompt"]
+    static let turnStarts: Set<String> = ["UserPromptSubmit", "pre_llm_call", "Prompt", "beforeSubmitPrompt", "PreInvocation"]
 
     /// Whether the human just typed into this event's terminal. A prompt Claude Code injects on its own (a background
     /// task finishing) fires UserPromptSubmit too, while focus may be anywhere; so does a dsh turn its plugin marks
@@ -343,6 +374,7 @@ public enum HookAdapter {
         if agent == "grok" { return grok(input, link: link, now: now) }
         if agent == "dsh" { return dsh(input, link: link, now: now) }
         if agent == "cursor" { return cursor(input, link: link, now: now) }
+        if agent == "antigravity" { return antigravity(input, link: link, now: now) }
         func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> [Request] {
             [Request(op: .sessionReport, report: sessionReport(input, kind, agent: agent, link: link, now: now, fill))]
         }
@@ -528,6 +560,80 @@ public enum HookAdapter {
             return report(.end)
         default:
             return []
+        }
+    }
+
+    // MARK: - Antigravity
+
+    /// Google Antigravity's hooks (Desktop App, IDE, and `agy` CLI share `~/.gemini/config/hooks.json`).
+    ///
+    /// | event | session report |
+    /// | --- | --- |
+    /// | PreInvocation | prompt → running (`continue_turn`: keeps turn start when already running the same prompt) |
+    /// | Stop `NO_TOOL_CALL` / `TERMINAL_STEP_TYPE` / `INJECTED_RESPONSE` | stop → done (reply read from `transcriptPath`) |
+    /// | Stop `ERROR` / `MAX_INVOCATIONS` / `MAX_FORCED_INVOCATIONS` / `MAX_TOKEN_BUDGET_EXCEEDED` | failure → failed |
+    /// | Stop `USER_CANCELED` / `TERMINAL_CUSTOM_HOOK` (without error) | interrupt → idle |
+    ///
+    /// Antigravity has no Notification / PermissionRequest / SessionEnd event, and `PreToolUse` fires on every tool
+    /// call regardless of whether Antigravity will prompt, so Antigravity sessions never need you and the notch never
+    /// approves Antigravity. `SessionStart` is not used so empty chats do not appear before a prompt.
+    static func antigravity(_ input: HookInput, link: String?, now: Date) -> [Request] {
+        func report(_ kind: SessionReport.Kind, _ fill: (inout SessionReport) -> Void = { _ in }) -> [Request] {
+            [Request(op: .sessionReport, report: sessionReport(input, kind, agent: "antigravity", link: link, now: now, fill))]
+        }
+        switch input.event {
+        case "PreInvocation":
+            return report(.prompt) {
+                $0.prompt = antigravityPrompt(input.lastUserInput ?? input.prompt ?? "")
+                $0.continueTurn = true
+            }
+        case "Stop":
+            let reason = input.terminationReason?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            let errorDetail = nonEmptyError(input)
+            switch reason {
+            case "ERROR", "MAX_INVOCATIONS", "MAX_FORCED_INVOCATIONS", "MAX_TOKEN_BUDGET_EXCEEDED", "MAX_STEPS_EXCEEDED":
+                return report(.failure) { $0.error = errorDetail ?? reason?.lowercased() ?? "error" }
+            case "USER_CANCELED", "USER_CANCELLED", "ABORTED", "CANCELED", "CANCELLED":
+                return report(.interrupt)
+            case "TERMINAL_CUSTOM_HOOK":
+                if let errorDetail { return report(.failure) { $0.error = errorDetail } }
+                return report(.interrupt)
+            default:
+                if let errorDetail { return report(.failure) { $0.error = errorDetail } }
+                return report(.stop) { $0.lastMessage = oneLine(input.lastAssistantMessage ?? "") }
+            }
+        default:
+            return []
+        }
+    }
+
+    /// Antigravity hooks expect a JSON object on stdout: `{"decision":"stop"}` lets `Stop` finish normally;
+    /// `{}` lets every other hook proceed unchanged.
+    public static func antigravityOutput(for event: String?) -> String {
+        event == "Stop" ? #"{"decision":"stop"}"# : "{}"
+    }
+
+    /// Antigravity's `lastUserInput`, stripping `<USER_REQUEST>…</USER_REQUEST>` if the runtime wraps it.
+    static func antigravityPrompt(_ text: String) -> String? {
+        if let open = text.range(of: "<USER_REQUEST>"),
+           let close = text.range(of: "</USER_REQUEST>", range: open.upperBound..<text.endIndex) {
+            return promptLine(String(text[open.upperBound..<close.lowerBound]))
+        }
+        return promptLine(text)
+    }
+
+    /// Antigravity's `error` when non-empty (Stop sends `""` on normal completion).
+    private static func nonEmptyError(_ input: HookInput) -> String? {
+        switch input.error {
+        case .string(let text):
+            return text.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        case .object(let object):
+            if case .string(let message)? = object["message"] {
+                return message.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            }
+            return nil
+        default:
+            return nil
         }
     }
 

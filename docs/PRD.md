@@ -8,7 +8,7 @@ v0.1 的定位是"agent 等待队列 + 我的待办"。M1–M6 做完后调整�
 
 - **todo 暂时搁置**：刘海 UI 里拿掉 task、快速录入、到期提醒；daemon、SQLite、`perch add/ls/done`、`todo.md` / `inbox.md` 全部保留不动（CLI 契约不变）。以后作为展开态里一个**独立的 tab** 回来，不和 agent 面板混在一起。2026-10-15 回来了：展开态的 Todo tab（#41），只放人手写的待办、按优先级分组、不带任何时间，见下方"Todo tab"（后来改了：待办在 Reminders 里、带日期，#50 / #53；按列表分组，#69）。
 - **一行 = 一个 agent 会话**（按 `session_id`），从第一次发 prompt 到 SessionEnd，状态在五种之间流转（见下方"Agent 面板"）。
-- **先接 Claude Code 和 Codex**（2026-10-12 起加 Grok Build，#31；2026-10-19 起加 dsh（DeepSeek Harness），#73。两者刘海都不能批准，只提示去终端回答；2026-11-18 起加 Cursor（IDE + CLI），#98，没有 Needs you）；Hermes 的会话生命周期不同（每轮都发 `on_session_end`、gateway 会话没有"关闭"、进程常驻），暂不显示，单独一个里程碑迁移。
+- **先接 Claude Code 和 Codex**（2026-10-12 起加 Grok Build，#31；2026-10-19 起加 dsh（DeepSeek Harness），#73。两者刘海都不能批准，只提示去终端回答；2026-11-18 起加 Cursor（IDE + CLI），#98，没有 Needs you；2026-11-25 起加 Antigravity（App + IDE + `agy` CLI），没有 Needs you）；Hermes 的会话生命周期不同（每轮都发 `on_session_end`、gateway 会话没有"关闭"、进程常驻），暂不显示，单独一个里程碑迁移。
 - 本文下方凡是和"Agent 面板"一节冲突的 v0.1 描述（收起态数字 = 待办数、notice、快速录入等），以"Agent 面板"为准。
 
 ## 定位与原则

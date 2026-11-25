@@ -39,13 +39,14 @@ public struct PixelIcon: Equatable, Sendable {
         case "codex": return .codex
         case "grok": return .grok
         case "cursor": return .cursor
+        case "antigravity", "agy": return .antigravity
         case "dsh": return .dsh
         case "hermes": return .hermes
         default: return .robot
         }
     }
 
-    public static let all: [PixelIcon] = [.claudeCode, .codex, .grok, .cursor, .dsh, .hermes, .robot]
+    public static let all: [PixelIcon] = [.claudeCode, .codex, .grok, .cursor, .antigravity, .dsh, .hermes, .robot]
 
     /// A blocky little monster.
     public static let claudeCode = PixelIcon(name: "claude-code", rows: [
@@ -108,20 +109,62 @@ public struct PixelIcon: Equatable, Sendable {
         "#...####....",
     ])
 
-    /// A cube seen from above, after Cursor's mark (#98).
+    /// A cube with an arrow-shaped cut, after Cursor's mark (#98). On the fine grid: rasterised from the mark's outline
+    /// (cells at least half covered, the sides on whole cells); the 12-cell wireframe cube didn't look like it.
     public static let cursor = PixelIcon(name: "cursor", rows: [
-        ".....##.....",
-        "...##..##...",
-        ".##......##.",
-        "#..##..##..#",
-        "#....##....#",
-        "#....##....#",
-        "#....##....#",
-        "#....##....#",
-        "#....##....#",
-        ".##..##..##.",
-        "...##..##...",
-        ".....##.....",
+        "...........##...........",
+        ".........######.........",
+        "........########........",
+        "......############......",
+        "....################....",
+        "...##################...",
+        "..#..................#..",
+        "..###................#..",
+        "..####..............##..",
+        "..######............##..",
+        "..########.........###..",
+        "..#########.......####..",
+        "..##########......####..",
+        "..##########.....#####..",
+        "..##########.....#####..",
+        "..##########....######..",
+        "..##########....######..",
+        "..##########...#######..",
+        "...#########..#######...",
+        "....########..######....",
+        "......######..####......",
+        "........####.###........",
+        ".........######.........",
+        "...........##...........",
+    ])
+
+    /// A solid dome over an arch whose legs taper and kick out at the feet, after Antigravity's mark. On the fine grid:
+    /// rasterised from the mark's outline (cells at least half covered, mirrored so it stays symmetric).
+    public static let antigravity = PixelIcon(name: "antigravity", rows: [
+        "........................",
+        "..........####..........",
+        ".........######.........",
+        "........########........",
+        ".......##########.......",
+        ".......##########.......",
+        ".......##########.......",
+        "......############......",
+        "......############......",
+        "......############......",
+        ".....##############.....",
+        ".....##############.....",
+        ".....##############.....",
+        ".....#####....#####.....",
+        "....#####......#####....",
+        "....####........####....",
+        "...####..........####...",
+        "...####..........####...",
+        "...###............###...",
+        "..###..............###..",
+        ".####..............####.",
+        "####................####",
+        "##....................##",
+        "........................",
     ])
 
     /// A whale with its tail up, after DeepSeek's mark (dsh, DeepSeek Harness). On the fine grid: the 12-cell one was a

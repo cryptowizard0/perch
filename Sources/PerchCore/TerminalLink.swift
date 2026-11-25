@@ -8,6 +8,8 @@ public struct TerminalLink: Equatable, Sendable {
     /// The `app` of a link to a chat in Cursor's IDE (#98): not a terminal; the jump opens `cwd` in Cursor, which
     /// brings forward the window that has it.
     public static let cursorApp = "cursor"
+    /// The `app` of a link to a conversation in Antigravity's desktop app / IDE: activates the app by bundle id.
+    public static let antigravityApp = "antigravity"
 
     /// Terminal program, lowercased `TERM_PROGRAM` ("ghostty", "iterm.app", …).
     public var app: String
